@@ -1,0 +1,198 @@
+# brands.yaml
+# Whitelist автомобильных брендов
+# Используется для:
+# - фильтрации Telegram / Playwright данных
+# - нормализации
+# - ranking / boosts
+# - защиты от мусора
+
+brands:
+  # =========================
+  # EUROPE
+  # =========================
+  bmw:
+    en: ["bmw"]
+    ru: ["бмв"]
+    aliases: ["bayerische motoren werke"]
+
+  audi:
+    en: ["audi"]
+    ru: ["ауди"]
+
+  mercedes:
+    en: ["mercedes", "mercedes-benz"]
+    ru: ["мерседес", "мерседес-бенц", "мерс"]
+
+  volkswagen:
+    en: ["volkswagen", "vw"]
+    ru: ["фольксваген", "фольцваген", "фв"]
+
+  skoda:
+    en: ["skoda"]
+    ru: ["шкода"]
+
+  porsche:
+    en: ["porsche"]
+    ru: ["порше"]
+
+  peugeot:
+    en: ["peugeot"]
+    ru: ["пежо"]
+
+  renault:
+    en: ["renault"]
+    ru: ["рено"]
+
+  fiat:
+    en: ["fiat"]
+    ru: ["фиат"]
+
+  volvo:
+    en: ["volvo"]
+    ru: ["вольво"]
+
+  # =========================
+  # JAPAN
+  # =========================
+  toyota:
+    en: ["toyota"]
+    ru: ["тойота"]
+
+  lexus:
+    en: ["lexus"]
+    ru: ["лексус"]
+
+  nissan:
+    en: ["nissan"]
+    ru: ["ниссан"]
+
+  honda:
+    en: ["honda"]
+    ru: ["хонда"]
+
+  mazda:
+    en: ["mazda"]
+    ru: ["мазда"]
+
+  mitsubishi:
+    en: ["mitsubishi"]
+    ru: ["митсубиси"]
+
+  subaru:
+    en: ["subaru"]
+    ru: ["субару"]
+
+  suzuki:
+    en: ["suzuki"]
+    ru: ["сузуки"]
+
+  # =========================
+  # KOREA
+  # =========================
+  kia:
+    en: ["kia"]
+    ru: ["киа"]
+
+  hyundai:
+    en: ["hyundai"]
+    ru: ["хендай", "хьюндай"]
+
+  genesis:
+    en: ["genesis"]
+    ru: ["дженезис"]
+
+  # =========================
+  # USA
+  # =========================
+  ford:
+    en: ["ford"]
+    ru: ["форд"]
+
+  chevrolet:
+    en: ["chevrolet", "chevy"]
+    ru: ["шевроле"]
+
+  tesla:
+    en: ["tesla"]
+    ru: ["тесла"]
+
+  jeep:
+    en: ["jeep"]
+    ru: ["джип"]
+
+  dodge:
+    en: ["dodge"]
+    ru: ["додж"]
+
+  cadillac:
+    en: ["cadillac"]
+    ru: ["кадиллак"]
+
+  # =========================
+  # RUSSIA
+  # =========================
+  lada:
+    en: ["lada"]
+    ru: ["лада", "ваз", "vaz"]
+
+  gaz:
+    en: ["gaz"]
+    ru: ["газ"]
+
+  uaz:
+    en: ["uaz"]
+    ru: ["уаз"]
+
+  # =========================
+  # CHINA (CRITICAL)
+  # =========================
+  chery:
+    en: ["chery"]
+    ru: ["чери"]
+
+  geely:
+    en: ["geely"]
+    ru: ["джили", "гили"]
+
+  haval:
+    en: ["haval"]
+    ru: ["хавал"]
+
+  exeed:
+    en: ["exeed"]
+    ru: ["эксид", "иксид"]
+
+  omoda:
+    en: ["omoda"]
+    ru: ["омода"]
+
+  jaecoo:
+    en: ["jaecoo"]
+    ru: ["джаеко", "джаику"]
+
+  changan:
+    en: ["changan"]
+    ru: ["чанган"]
+
+  dongfeng:
+    en: ["dongfeng"]
+    ru: ["донгфенг"]
+
+  tank:
+    en: ["tank"]
+    ru: ["танк"]
+
+  # =========================
+  # ELECTRIC / OTHER
+  # =========================
+  byd:
+    en: ["byd"]
+    ru: ["бид"]
+
+  nio:
+    en: ["nio"]
+    ru: ["нио"]
+
+  zeekr:
+    en: ["zeekr"]
+    ru: ["зикр"]

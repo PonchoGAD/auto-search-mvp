@@ -1,0 +1,67 @@
+# =========================
+# ENV & SECRETS
+# =========================
+.env
+.env.*
+*.session
+*.session-journal
+apps/web/.env.local
+
+# =========================
+# PYTHON
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+pip-wheel-metadata/
+
+# =========================
+# NODE / NEXT
+# =========================
+node_modules/
+.next/
+out/
+dist/
+
+apps/web/node_modules/
+apps/web/.next/
+
+# =========================
+# DOCKER / DATA
+# =========================
+.pgdata/
+qdrant_data/
+docker-data/
+*.log
+
+# compose с секретами не пушим
+infra/compose.yml
+
+# =========================
+# PLAYWRIGHT
+# =========================
+playwright/.cache/
+ms-playwright/
+
+# =========================
+# IDE / EDITORS
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# TEMP / DEBUG
+# =========================
+file.txt

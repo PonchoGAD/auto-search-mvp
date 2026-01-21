@@ -1,0 +1,35 @@
+[tool.poetry]
+name = "auto-search-api"
+version = "0.1.0"
+description = "MVP semantic auto search API"
+authors = ["GAD Corp"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+# API
+fastapi = "^0.110.0"
+uvicorn = "^0.29.0"
+pydantic = "^2.6.0"
+
+# DB
+sqlalchemy = "^2.0.25"
+psycopg2-binary = "^2.9.9"
+
+# Parsing / ingest
+requests = "^2.31.0"
+beautifulsoup4 = "^4.12.3"
+
+# Vector DB
+qdrant-client = "^1.9.0"
+
+# Telegram
+telethon = "^1.35.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

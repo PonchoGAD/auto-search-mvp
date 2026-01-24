@@ -1,13 +1,15 @@
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import time
+
+from db.models import SearchHistory
+from db.session import SessionLocal
 
 from services.query_parser import parse_query, StructuredQuery
 from services.search_service import SearchService
 from services.metrics_service import MetricsService
 
-# answer_builder может отсутствовать — импортим безопасно
 try:
     from services.answer_builder import AnswerBuilder
 except Exception:
@@ -68,7 +70,7 @@ class DebugInfo(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    structuredQuery: StructuredQuery
+    structuredQuery: Dict[str, Any]   # ✅ ВАЖНО
     results: List[SearchResult]
     sources: List[SourceStat]
     debug: DebugInfo
@@ -87,26 +89,38 @@ class SearchResponse(BaseModel):
 def search(request: SearchRequest):
     started_at = time.time()
 
-    # значения по умолчанию — чтобы никогда не упасть
-    structured = None
+    structured: Optional[StructuredQuery] = None
     results: List[dict] = []
     answer = None
 
     try:
-        # 1️⃣ Parse query
         structured = parse_query(request.query)
 
-        # 2️⃣ Search
         service = SearchService()
         results = service.search(structured)
 
-        # 3️⃣ Optional answer
         if request.include_answer and AnswerBuilder:
             builder = AnswerBuilder()
             answer = builder.build(structured, results)
 
-    except Exception as e:
-        # ❗ Абсолютная гарантия JSON
+        # RETENTION
+        try:
+            session = SessionLocal()
+            session.add(
+                SearchHistory(
+                    raw_query=request.query,
+                    structured_query=structured.model_dump(),
+                    results_count=len(results),
+                    empty_result=len(results) == 0,
+                )
+            )
+            session.commit()
+        except Exception:
+            pass
+        finally:
+            session.close()
+
+    except Exception:
         latency_ms = int((time.time() - started_at) * 1000)
         return {
             "structuredQuery": structured.model_dump() if structured else {},
@@ -122,7 +136,6 @@ def search(request: SearchRequest):
             },
         }
 
-    # 4️⃣ Sources aggregation
     source_counter = {}
     for r in results:
         name = r.get("source_name") or "unknown"
@@ -133,10 +146,8 @@ def search(request: SearchRequest):
         for name, count in source_counter.items()
     ]
 
-    # 5️⃣ Debug
     latency_ms = int((time.time() - started_at) * 1000)
 
-    # 6️⃣ Metrics (НЕ ломает API)
     try:
         metrics = MetricsService()
         metrics.log_search(

@@ -103,5 +103,24 @@ class SearchEvent(Base):
 
     created_at = Column(
         DateTime(timezone=True),
-        server_default=func.now()
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class SearchHistory(Base):
+    __tablename__ = "search_history"
+
+    id = Column(Integer, primary_key=True)
+
+    raw_query = Column(String, nullable=False)
+    structured_query = Column(JSON, nullable=False)
+
+    results_count = Column(Integer, nullable=False)
+    empty_result = Column(Boolean, default=False)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
     )

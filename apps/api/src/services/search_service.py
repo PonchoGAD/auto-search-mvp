@@ -1,3 +1,5 @@
+# apps/api/src/services/search_service.py
+
 from typing import List, Dict, Any, Tuple
 import yaml
 
@@ -5,12 +7,15 @@ from integrations.vector_db.qdrant import QdrantStore
 from data_pipeline.index import deterministic_embedding
 from services.query_parser import StructuredQuery
 
+from db.session import SessionLocal
+from db.models import SearchHistory
+
 
 # =========================
 # LOAD BRANDS WHITELIST
 # =========================
 
-def load_brands() -> Dict[str, list]:
+def load_brands() -> Dict[str, dict]:
     try:
         with open("brands.yaml", "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
@@ -24,9 +29,34 @@ BRANDS_WHITELIST = load_brands()
 WHITELIST_SET = set(BRANDS_WHITELIST.keys())
 
 
+# =========================
+# SOURCE BOOSTS
+# =========================
+
+SOURCE_BOOSTS = {
+    # форумы (премиум)
+    "benzclub.ru": 1.5,
+    "bmwclub.ru": 1.5,
+    "forum": 1.5,
+
+    # нейтрально
+    "telegram": 1.0,
+
+    # маркетплейсы
+    "auto.ru": 0.8,
+    "drom.ru": 0.8,
+    "avito.ru": 0.8,
+    "marketplace": 0.8,
+}
+
+
 class SearchService:
     def __init__(self):
         self.store = QdrantStore()
+
+    # =====================================================
+    # MAIN SEARCH
+    # =====================================================
 
     def search(
         self,
@@ -35,21 +65,20 @@ class SearchService:
         top_k: int = 50,
     ) -> List[Dict[str, Any]]:
         """
-        Основной метод поиска:
-        - детерминированный embedding запроса
-        - поиск в Qdrant
-        - ranking (boosts / penalties)
-        - dedup по source_url
+        Поиск:
+        - embedding запроса
+        - vector search
+        - explainable ranking (boosts / penalties)
         """
 
         # -------------------------
-        # 1. Structured → embedding
+        # 1. Query → embedding
         # -------------------------
         query_text = self._build_query_text(structured)
         query_vector = deterministic_embedding(query_text)
 
         # -------------------------
-        # 2. Поиск в Qdrant
+        # 2. Vector search
         # -------------------------
         hits = self.store.search(
             vector=query_vector,
@@ -69,8 +98,8 @@ class SearchService:
             if not source_url or source_url in seen_urls:
                 continue
 
-            score, reasons = self._score_hit(
-                base_score=float(hit.score),
+            final_score, reasons = self._score_hit(
+                vector_score=float(hit.score),
                 payload=payload,
                 structured=structured,
             )
@@ -84,12 +113,10 @@ class SearchService:
                     "price": payload.get("price"),
                     "currency": payload.get("currency", "RUB"),
                     "fuel": payload.get("fuel"),
-                    "color": payload.get("color"),
                     "region": payload.get("region"),
-                    "condition": payload.get("condition"),
                     "paint_condition": payload.get("paint_condition"),
-                    "score": round(score, 4),
-                    "why_match": ", ".join(reasons) if reasons else "релевантно запросу",
+                    "score": round(final_score, 4),
+                    "why_match": " + ".join(reasons) if reasons else "релевантно запросу",
                     "source_url": source_url,
                     "source_name": payload.get("source"),
                 }
@@ -101,9 +128,37 @@ class SearchService:
                 break
 
         # -------------------------
-        # 4. Финальная сортировка
+        # 4. Final sort
         # -------------------------
         results.sort(key=lambda r: r["score"], reverse=True)
+
+        # -------------------------
+        # 5. SAVE SEARCH HISTORY (RETENTION)
+        # -------------------------
+        try:
+            session = SessionLocal()
+
+            history = SearchHistory(
+                raw_query=structured.raw_query if hasattr(structured, "raw_query") else "",
+                structured_query=structured.dict(),
+                results_count=len(results),
+                empty_result=len(results) == 0,
+                source="search_api",
+            )
+
+            session.add(history)
+            session.commit()
+
+        except Exception as e:
+            # ❗️ НИКОГДА не ломаем поиск из-за аналитики
+            print(f"[SEARCH][WARN] failed to save search history: {e}")
+
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
         return results
 
     # =====================================================
@@ -133,70 +188,99 @@ class SearchService:
 
         return " ".join(parts).strip()
 
+    # =====================================================
+    # SCORING
+    # =====================================================
+
     def _score_hit(
         self,
-        base_score: float,
+        vector_score: float,
         payload: Dict[str, Any],
         structured: StructuredQuery,
     ) -> Tuple[float, List[str]]:
-        score = base_score
+        """
+        Итоговый скоринг (объяснимый):
+
+        final_score =
+            vector_score
+            * source_boost
+            * brand_boost
+            * sale_boost
+            * structured_bonus
+        """
+
         reasons: List[str] = []
 
+        # -------------------------
+        # Source boost
+        # -------------------------
+        source = payload.get("source") or ""
+        source_boost = SOURCE_BOOSTS.get(source, 1.0)
+
+        if source_boost != 1.0:
+            reasons.append(f"source_boost={source_boost} ({source})")
+
+        # -------------------------
+        # Brand boost
+        # -------------------------
         payload_brand = payload.get("brand")
 
-        # ---------- BRAND LOGIC ----------
-        if structured.brand and payload_brand == structured.brand:
-            score += 0.30
-            reasons.append("точное совпадение марки")
-
-        elif payload_brand in WHITELIST_SET:
-            score += 0.08
-            reasons.append("марка из whitelist")
-
+        if payload_brand and payload_brand.lower() in WHITELIST_SET:
+            brand_boost = 1.15
+            reasons.append(f"brand_hit={payload_brand}")
         else:
-            score -= 0.20
-            reasons.append("марка вне whitelist")
+            brand_boost = 0.9
+            reasons.append("brand_outside_whitelist")
 
-        # ---------- OTHER BOOSTS ----------
+        # -------------------------
+        # Sale intent boost
+        # -------------------------
+        sale_intent = payload.get("sale_intent")
+        if str(sale_intent) == "1":
+            sale_boost = 1.1
+            reasons.append("sale_intent=true")
+        else:
+            sale_boost = 0.85
+            reasons.append("sale_intent=false")
+
+        # -------------------------
+        # Structured query bonuses
+        # -------------------------
+        bonus = 1.0
+
+        if structured.brand and payload_brand == structured.brand:
+            bonus += 0.10
+            reasons.append("exact_brand_match")
+
         if structured.model and payload.get("model") == structured.model:
-            score += 0.20
-            reasons.append("совпадает модель")
-
-        if structured.region and payload.get("region") == structured.region:
-            score += 0.15
-            reasons.append("подходит регион")
-
-        if (
-            structured.mileage_max
-            and payload.get("mileage")
-            and payload["mileage"] <= structured.mileage_max
-        ):
-            score += 0.10
-            reasons.append("пробег в пределах запроса")
+            bonus += 0.10
+            reasons.append("exact_model_match")
 
         if (
             structured.price_max
             and payload.get("price")
             and payload["price"] <= structured.price_max
         ):
-            score += 0.10
-            reasons.append("цена в пределах запроса")
+            bonus += 0.05
+            reasons.append("price_ok")
 
-        # ---------- PENALTIES ----------
         if (
             structured.mileage_max
             and payload.get("mileage")
-            and payload["mileage"] > structured.mileage_max
+            and payload["mileage"] <= structured.mileage_max
         ):
-            score -= 0.40
-            reasons.append("превышен пробег")
+            bonus += 0.05
+            reasons.append("mileage_ok")
 
-        if (
-            structured.price_max
-            and payload.get("price")
-            and payload["price"] > structured.price_max
-        ):
-            score -= 0.40
-            reasons.append("превышена цена")
+        # -------------------------
+        # Final score
+        # -------------------------
+        final_score = (
+            vector_score
+            * source_boost
+            * brand_boost
+            * sale_boost
+            * bonus
+        )
 
-        return score, reasons
+        return final_score, reasons

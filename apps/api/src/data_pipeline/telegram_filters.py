@@ -1,5 +1,8 @@
+# apps/api/src/data_pipeline/telegram_filters.py
+
 import re
 import yaml
+from typing import Dict
 
 MIN_TEXT_LEN = 80
 
@@ -8,7 +11,7 @@ MIN_TEXT_LEN = 80
 # LOAD BRANDS WHITELIST
 # =========================
 
-def load_brands():
+def load_brands() -> Dict[str, dict]:
     try:
         with open("brands.yaml", "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
@@ -21,7 +24,7 @@ BRANDS_WHITELIST = load_brands()
 
 
 # =========================
-# FILTERS
+# REGEX / KEYWORDS
 # =========================
 
 STOP_WORDS = [
@@ -35,23 +38,75 @@ STOP_WORDS = [
     "обсуждение",
     "опрос",
     "новости",
+    "ремонт",
+    "диагностика",
+    "ошибка",
+]
+
+SALE_POSITIVE_WORDS = [
+    # RU
+    "продам",
+    "продаю",
+    "продается",
+    "продаётся",
+    "продажа",
+    "срочно продам",
+    "торг",
+    "обмен",
+    "рассмотрю обмен",
+    # EN
+    "for sale",
+    "sale",
+    "selling",
+    "sell",
+]
+
+SALE_NEGATIVE_WORDS = [
+    # RU
+    "ищу",
+    "куплю",
+    "нужен",
+    "подскажите",
+    "помогите",
+    "что лучше",
+    "вопрос",
+    # EN
+    "looking for",
+    "help",
+    "question",
+    "repair",
 ]
 
 RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
-RE_PRICE = re.compile(r"(\d[\d\s]{1,10})\s*(₽|руб|тыс)")
+RE_PRICE = re.compile(r"(\d[\d\s]{1,10})\s*(₽|руб|р\.|тыс|к|k|\$|€)")
 RE_MILEAGE = re.compile(r"\d[\d\s]{1,8}\s*км")
 
 
+# =========================
+# HELPERS
+# =========================
+
 def contains_brand(text: str) -> bool:
+    """
+    Проверка на наличие бренда (RU/EN/aliases)
+    """
     t = text.lower()
-    for aliases in BRANDS_WHITELIST.values():
-        for a in aliases:
-            if a.lower() in t:
-                return True
+
+    for brand_data in BRANDS_WHITELIST.values():
+        for group in brand_data.values():
+            if not isinstance(group, list):
+                continue
+            for alias in group:
+                if alias.lower() in t:
+                    return True
+
     return False
 
 
 def contains_digits(text: str) -> bool:
+    """
+    Есть ли признаки объявления: год / цена / пробег
+    """
     return bool(
         RE_YEAR.search(text)
         or RE_PRICE.search(text)
@@ -59,23 +114,70 @@ def contains_digits(text: str) -> bool:
     )
 
 
+# =========================
+# SALE INTENT (FAST)
+# =========================
+
+def is_sale_intent(text: str, min_score: int = 2) -> bool:
+    """
+    Упрощённый intent-фильтр для Telegram (быстро):
+    +2 за позитивные слова
+    +1 за цену/валюту
+    -2 за негативные слова
+    """
+    if not text:
+        return False
+
+    t = text.lower()
+    score = 0
+
+    for w in SALE_POSITIVE_WORDS:
+        if w in t:
+            score += 2
+
+    if RE_PRICE.search(t):
+        score += 1
+
+    for w in SALE_NEGATIVE_WORDS:
+        if w in t:
+            score -= 2
+
+    return score >= min_score
+
+
+# =========================
+# MAIN FILTER
+# =========================
+
 def is_valid_telegram_post(text: str) -> bool:
+    """
+    Жёсткий pre-filter Telegram.
+    Всё лишнее режем ДО ingest.
+    """
+
     if not text:
         return False
 
     t = text.lower()
 
+    # короткие сообщения - почти всегда шум
     if len(t) < MIN_TEXT_LEN:
         return False
 
+    # стоп-слова
     for w in STOP_WORDS:
         if w in t:
             return False
 
-    # 🔑 ключевая логика
+    # ⛔ нет intent продажи - не берём
+    if not is_sale_intent(t):
+        return False
+
+    # ⛔ нет бренда - не берём
     if not contains_brand(t):
         return False
 
+    # ⛔ нет чисел (цена / год / пробег) - не объявление
     if not contains_digits(t):
         return False
 

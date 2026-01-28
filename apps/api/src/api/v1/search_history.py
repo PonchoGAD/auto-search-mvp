@@ -1,12 +1,14 @@
+# apps/api/src/api/v1/search_history.py
+
 from fastapi import APIRouter
-from typing import List, Optional
+from typing import List
 from pydantic import BaseModel
 from datetime import datetime
 
 from db.session import SessionLocal
 from db.models import SearchHistory
 
-router = APIRouter()
+router = APIRouter(prefix="/search", tags=["Retention"])
 
 
 # =========================
@@ -21,17 +23,28 @@ class SearchHistoryItem(BaseModel):
     empty_result: bool
     created_at: datetime
 
+    class Config:
+        orm_mode = True
+
 
 # =========================
 # ENDPOINT
 # =========================
 
 @router.get(
-    "/search/history",
+    "/history",
     response_model=List[SearchHistoryItem],
     summary="Search history (retention)"
 )
 def get_search_history(limit: int = 50):
+    """
+    Возвращает историю поисков.
+    Используется для:
+    - повторных запросов
+    - retention
+    - аналитики спроса
+    """
+
     session = SessionLocal()
     try:
         rows = (
@@ -41,16 +54,7 @@ def get_search_history(limit: int = 50):
             .all()
         )
 
-        return [
-            {
-                "id": r.id,
-                "raw_query": r.raw_query,
-                "structured_query": r.structured_query,
-                "results_count": r.results_count,
-                "empty_result": r.empty_result,
-                "created_at": r.created_at,
-            }
-            for r in rows
-        ]
+        return rows
+
     finally:
         session.close()

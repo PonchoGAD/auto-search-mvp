@@ -1,3 +1,5 @@
+# apps/api/src/db/models.py
+
 from sqlalchemy import (
     Column,
     Integer,
@@ -85,7 +87,7 @@ class DocumentChunk(Base):
 
 
 # ======================================================
-# SEARCH METRICS (логирование запросов)
+# SEARCH METRICS (быстрые метрики / latency)
 # ======================================================
 
 class SearchEvent(Base):
@@ -108,10 +110,25 @@ class SearchEvent(Base):
     )
 
 
+# ======================================================
+# SEARCH HISTORY (RETENTION / UX / ANALYTICS)
+# ======================================================
+
 class SearchHistory(Base):
-    __tablename__ = "search_history"
+    """
+    История поисков пользователя.
+    Используется для:
+    - повторных запросов
+    - retention
+    - аналитики спроса
+    """
+
+    __tablename__ = "user_search_history"
 
     id = Column(Integer, primary_key=True)
+
+    # пока без auth — nullable
+    user_id = Column(Integer, nullable=True)
 
     raw_query = Column(String, nullable=False)
     structured_query = Column(JSON, nullable=False)
@@ -119,8 +136,7 @@ class SearchHistory(Base):
     results_count = Column(Integer, nullable=False)
     empty_result = Column(Boolean, default=False)
 
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False,
-    )
+    # откуда пришёл запрос (search_api, ui, cron и т.д.)
+    source = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)

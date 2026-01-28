@@ -3,13 +3,13 @@ from typing import List, Dict
 from .playwright_base import PlaywrightBase
 
 
-AUTO_RU_BASE_URL = "https://auto.ru/cars/all/"
+AVITO_BASE_URL = "https://www.avito.ru/rossiya/avtomobili"
 
 
-async def fetch_auto_ru_serp(limit: int = 30) -> List[Dict]:
+async def fetch_avito_serp(limit: int = 30) -> List[Dict]:
     """
-    Fetch SERP links from auto.ru (list pages only).
-    Без захода в карточки объявлений.
+    Fetch SERP links from avito.ru (list pages only).
+    Без захода в карточки.
     Headless-safe (Docker / VPS).
     """
 
@@ -22,45 +22,45 @@ async def fetch_auto_ru_serp(limit: int = 30) -> List[Dict]:
         # =========================
         # SAFE NAVIGATION
         # =========================
-        await base.safe_goto(page, AUTO_RU_BASE_URL)
+        await base.safe_goto(page, AVITO_BASE_URL)
         await page.wait_for_timeout(4000)
 
-        # scroll — часто обязателен для auto.ru
-        await page.mouse.wheel(0, 4000)
+        # scroll — avito часто лениво грузит выдачу
+        await page.mouse.wheel(0, 5000)
         await page.wait_for_timeout(3000)
 
         links: List[str] = []
 
         # =========================
-        # PRIMARY SELECTOR
+        # PRIMARY SELECTOR (Avito cards)
         # =========================
         try:
             links = await page.eval_on_selector_all(
-                "a.ListingItemTitle__link",
+                "a[href*='/avtomobili/']",
                 "els => els.map(e => e.href)"
             )
         except Exception:
             links = []
 
         # =========================
-        # FALLBACK #1 (used cars)
+        # FALLBACK #1 — data-marker
         # =========================
         if not links:
             try:
                 links = await page.eval_on_selector_all(
-                    "a[href*='/cars/'][href*='/used/']",
+                    "a[data-marker='item-title']",
                     "els => els.map(e => e.href)"
                 )
             except Exception:
                 links = []
 
         # =========================
-        # FALLBACK #2 (very generic)
+        # FALLBACK #2 — очень общий
         # =========================
         if not links:
             try:
                 links = await page.eval_on_selector_all(
-                    "a[href*='/cars/']",
+                    "a[href*='/avto/']",
                     "els => els.map(e => e.href)"
                 )
             except Exception:
@@ -75,7 +75,9 @@ async def fetch_auto_ru_serp(limit: int = 30) -> List[Dict]:
         for url in links:
             if not url:
                 continue
-            if "/cars/" not in url:
+            if "avito.ru" not in url:
+                continue
+            if "/avtomobili/" not in url:
                 continue
             if url in seen:
                 continue
@@ -88,7 +90,7 @@ async def fetch_auto_ru_serp(limit: int = 30) -> List[Dict]:
 
         return [
             {
-                "source": "auto.ru",
+                "source": "avito.ru",
                 "source_url": url,
                 "title": url.split("/")[-1],
                 "content": url,  # SERP only

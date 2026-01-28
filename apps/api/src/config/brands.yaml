@@ -1,12 +1,5 @@
-# brands.yaml
-# Whitelist автомобильных брендов
-# Используется для:
-# - фильтрации Telegram / Playwright данных
-# - нормализации
-# - ranking / boosts
-# - защиты от мусора
-
 brands:
+
   # =========================
   # EUROPE
   # =========================
@@ -25,15 +18,23 @@ brands:
 
   volkswagen:
     en: ["volkswagen", "vw"]
-    ru: ["фольксваген", "фольцваген", "фв"]
+    ru: ["фольксваген", "фв"]
+
+  porsche:
+    en: ["porsche"]
+    ru: ["порше"]
+
+  opel:
+    en: ["opel"]
+    ru: ["опель"]
 
   skoda:
     en: ["skoda"]
     ru: ["шкода"]
 
-  porsche:
-    en: ["porsche"]
-    ru: ["порше"]
+  seat:
+    en: ["seat"]
+    ru: ["сеат"]
 
   peugeot:
     en: ["peugeot"]
@@ -43,13 +44,49 @@ brands:
     en: ["renault"]
     ru: ["рено"]
 
-  fiat:
-    en: ["fiat"]
-    ru: ["фиат"]
+  citroen:
+    en: ["citroen"]
+    ru: ["ситроен"]
+
+  alfa_romeo:
+    en: ["alfa romeo"]
+    ru: ["альфа ромео"]
 
   volvo:
     en: ["volvo"]
     ru: ["вольво"]
+
+  mini:
+    en: ["mini"]
+    ru: ["мини"]
+
+  land_rover:
+    en: ["land rover"]
+    ru: ["ленд ровер"]
+
+  jaguar:
+    en: ["jaguar"]
+    ru: ["ягуар"]
+
+  bentley:
+    en: ["bentley"]
+    ru: ["бентли"]
+
+  rolls_royce:
+    en: ["rolls-royce", "rolls royce"]
+    ru: ["роллс-ройс"]
+
+  ferrari:
+    en: ["ferrari"]
+    ru: ["феррари"]
+
+  lamborghini:
+    en: ["lamborghini"]
+    ru: ["ламборгини"]
+
+  maserati:
+    en: ["maserati"]
+    ru: ["мазерати"]
 
   # =========================
   # JAPAN
@@ -66,6 +103,10 @@ brands:
     en: ["nissan"]
     ru: ["ниссан"]
 
+  infiniti:
+    en: ["infiniti"]
+    ru: ["инфинити"]
+
   honda:
     en: ["honda"]
     ru: ["хонда"]
@@ -74,32 +115,25 @@ brands:
     en: ["mazda"]
     ru: ["мазда"]
 
-  mitsubishi:
-    en: ["mitsubishi"]
-    ru: ["митсубиси"]
-
   subaru:
     en: ["subaru"]
     ru: ["субару"]
+
+  mitsubishi:
+    en: ["mitsubishi"]
+    ru: ["митсубиси"]
 
   suzuki:
     en: ["suzuki"]
     ru: ["сузуки"]
 
-  # =========================
-  # KOREA
-  # =========================
-  kia:
-    en: ["kia"]
-    ru: ["киа"]
+  isuzu:
+    en: ["isuzu"]
+    ru: ["исузу"]
 
-  hyundai:
-    en: ["hyundai"]
-    ru: ["хендай", "хьюндай"]
-
-  genesis:
-    en: ["genesis"]
-    ru: ["дженезис"]
+  daihatsu:
+    en: ["daihatsu"]
+    ru: ["дайхатсу"]
 
   # =========================
   # USA
@@ -112,9 +146,13 @@ brands:
     en: ["chevrolet", "chevy"]
     ru: ["шевроле"]
 
-  tesla:
-    en: ["tesla"]
-    ru: ["тесла"]
+  cadillac:
+    en: ["cadillac"]
+    ru: ["кадиллак"]
+
+  gmc:
+    en: ["gmc"]
+    ru: ["джиэмси", "джи-эм-си"]
 
   jeep:
     en: ["jeep"]
@@ -124,27 +162,24 @@ brands:
     en: ["dodge"]
     ru: ["додж"]
 
-  cadillac:
-    en: ["cadillac"]
-    ru: ["кадиллак"]
+  chrysler:
+    en: ["chrysler"]
+    ru: ["крайслер"]
+
+  tesla:
+    en: ["tesla"]
+    ru: ["тесла"]
+
+  lincoln:
+    en: ["lincoln"]
+    ru: ["линкольн"]
+
+  buick:
+    en: ["buick"]
+    ru: ["бьюик"]
 
   # =========================
-  # RUSSIA
-  # =========================
-  lada:
-    en: ["lada"]
-    ru: ["лада", "ваз", "vaz"]
-
-  gaz:
-    en: ["gaz"]
-    ru: ["газ"]
-
-  uaz:
-    en: ["uaz"]
-    ru: ["уаз"]
-
-  # =========================
-  # CHINA (CRITICAL)
+  # CHINA (расширено)
   # =========================
   chery:
     en: ["chery"]
@@ -152,47 +187,76 @@ brands:
 
   geely:
     en: ["geely"]
-    ru: ["джили", "гили"]
+    ru: ["джили"]
 
   haval:
     en: ["haval"]
-    ru: ["хавал"]
+    ru: ["хавейл"]
 
   exeed:
     en: ["exeed"]
-    ru: ["эксид", "иксид"]
+    ru: ["эксид"]
 
   omoda:
     en: ["omoda"]
     ru: ["омода"]
 
-  jaecoo:
-    en: ["jaecoo"]
-    ru: ["джаеко", "джаику"]
-
   changan:
     en: ["changan"]
     ru: ["чанган"]
 
-  dongfeng:
-    en: ["dongfeng"]
-    ru: ["донгфенг"]
+  byd:
+    en: ["byd"]
+    ru: ["бид"]
+
+  great_wall:
+    en: ["great wall"]
+    ru: ["грейt вол", "грит вол"]
 
   tank:
     en: ["tank"]
     ru: ["танк"]
 
-  # =========================
-  # ELECTRIC / OTHER
-  # =========================
-  byd:
-    en: ["byd"]
-    ru: ["бид"]
+  hongqi:
+    en: ["hongqi"]
+    ru: ["хунци"]
 
-  nio:
-    en: ["nio"]
-    ru: ["нио"]
+  faw:
+    en: ["faw"]
+    ru: ["фав"]
+
+  jac:
+    en: ["jac"]
+    ru: ["джак"]
+
+  dongfeng:
+    en: ["dongfeng"]
+    ru: ["донгфенг"]
+
+  baic:
+    en: ["baic"]
+    ru: ["байк"]
+
+  gac:
+    en: ["gac"]
+    ru: ["гак"]
+
+  li_auto:
+    en: ["li auto", "lixiang"]
+    ru: ["лисян"]
 
   zeekr:
     en: ["zeekr"]
     ru: ["зикр"]
+
+  voyah:
+    en: ["voyah"]
+    ru: ["воя"]
+
+  avatr:
+    en: ["avatr"]
+    ru: ["аватр"]
+
+  lynk_co:
+    en: ["lynk & co", "lynk co"]
+    ru: ["линк энд ко"]

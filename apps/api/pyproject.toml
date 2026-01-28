@@ -7,6 +7,7 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.11"
+playwright = "^1.42.0"
 
 # API
 fastapi = "^0.110.0"

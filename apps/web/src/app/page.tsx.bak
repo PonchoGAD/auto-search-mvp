@@ -114,15 +114,14 @@ export default function Page() {
       const json: SearchResponse | { error?: string } =
         await resp.json();
 
-      if (!resp.ok || "error" in json) {
-        setError(
-          "error" in json && json.error
-            ? json.error
-            : "Ошибка API"
-        );
+      if ("error" in json && json.error) {
+        setError(json.error);
+        setData(null);
+      } else if (!resp.ok) {
+        setError("Ошибка API");
         setData(null);
       } else {
-        setData(json);
+        setData(json as SearchResponse);
       }
     } catch {
       setError("Network error");

@@ -8,12 +8,14 @@ package-mode = false
 [tool.poetry.dependencies]
 python = "^3.11"
 playwright = "^1.42.0"
+redis = "^5.0"
 
 # API
 fastapi = "^0.110.0"
 uvicorn = "^0.29.0"
 pydantic = "^2.6.0"
 pyyaml = "^6.0.1"
+pydantic-settings = "^2.2.1"
 
 # DB
 sqlalchemy = "^2.0.25"

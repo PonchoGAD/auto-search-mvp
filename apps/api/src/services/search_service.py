@@ -1,6 +1,7 @@
 # apps/api/src/services/search_service.py
 
 from typing import List, Dict, Any, Tuple
+from pathlib import Path
 import yaml
 
 from integrations.vector_db.qdrant import QdrantStore
@@ -14,15 +15,19 @@ from db.models import SearchHistory
 # =========================
 # LOAD BRANDS WHITELIST
 # =========================
-
-def load_brands() -> Dict[str, dict]:
+def load_brands() -> dict:
     try:
-        with open("brands.yaml", "r", encoding="utf-8") as f:
+        base_dir = Path(__file__).resolve().parent.parent
+        brands_path = base_dir / "config" / "brands.yaml"
+
+        with open(brands_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
             return data.get("brands", {})
+
     except Exception as e:
         print(f"[SEARCH][WARN] failed to load brands.yaml: {e}")
         return {}
+
 
 
 BRANDS_WHITELIST = load_brands()

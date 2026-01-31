@@ -25,7 +25,9 @@ function normalizeSourceName(source?: string): string {
  * Определяем тип источника
  * (нужно для дефолтного поведения)
  */
-function detectSourceType(sourceName: string): "forum" | "marketplace" | "other" {
+function detectSourceType(
+  sourceName: string
+): "forum" | "marketplace" | "other" {
   const s = sourceName.toLowerCase();
 
   if (s.includes("forum")) return "forum";
@@ -46,6 +48,13 @@ type Props = {
 
 const INITIAL_VISIBLE = 3;
 const STEP_VISIBLE = 5;
+
+/**
+ * 🔒 UX-ограничение доминирования источника
+ * Если источник даёт слишком много результатов —
+ * сворачиваем и помечаем визуально
+ */
+const DOMINANCE_THRESHOLD = 10;
 
 export default function ResultsBySource({ results }: Props) {
   /**
@@ -102,10 +111,16 @@ export default function ResultsBySource({ results }: Props) {
     <div style={{ marginTop: 24 }}>
       {grouped.map((group) => {
         const type = detectSourceType(group.source);
+        const isDominant = group.items.length >= DOMINANCE_THRESHOLD;
 
+        /**
+         * дефолтный collapse:
+         * - marketplace → collapsed
+         * - доминирующий источник → collapsed
+         */
         const isCollapsed =
           collapsed[group.source] ??
-          (type === "marketplace" ? true : false);
+          (type === "marketplace" || isDominant);
 
         const visible =
           visibleCount[group.source] ?? INITIAL_VISIBLE;
@@ -113,8 +128,14 @@ export default function ResultsBySource({ results }: Props) {
         const canShowMore = visible < group.items.length;
 
         return (
-          <div key={group.source} style={{ marginBottom: 36 }}>
-            {/* SECTION HEADER */}
+          <div
+            key={group.source}
+            style={{
+              marginBottom: 36,
+              opacity: isDominant && isCollapsed ? 0.85 : 1,
+            }}
+          >
+            {/* ================= HEADER ================= */}
             <div
               style={{
                 display: "flex",
@@ -134,7 +155,7 @@ export default function ResultsBySource({ results }: Props) {
                   {group.source}
                 </h3>
 
-                {/* SOURCE BADGE */}
+                {/* SOURCE TYPE BADGE */}
                 <span
                   style={{
                     padding: "4px 10px",
@@ -154,6 +175,22 @@ export default function ResultsBySource({ results }: Props) {
                 >
                   {type}
                 </span>
+
+                {/* DOMINANCE BADGE */}
+                {isDominant && (
+                  <span
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 999,
+                      fontSize: 12,
+                      background: "#3f1d1d",
+                      color: "#fca5a5",
+                    }}
+                    title="Источник даёт слишком много объявлений"
+                  >
+                    dominant
+                  </span>
+                )}
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -181,7 +218,7 @@ export default function ResultsBySource({ results }: Props) {
               </div>
             </div>
 
-            {/* RESULTS */}
+            {/* ================= RESULTS ================= */}
             {!isCollapsed && (
               <>
                 <div

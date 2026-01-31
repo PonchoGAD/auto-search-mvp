@@ -153,11 +153,11 @@ export default function HomePage() {
             position: isSticky ? "sticky" : "relative",
             top: isSticky ? 0 : "auto",
             zIndex: 20,
-            background: isSticky ? "rgba(14,14,17,0.85)" : "transparent",
-            backdropFilter: isSticky ? "blur(6px)" : "none",
+            background: isSticky ? "rgba(14,14,17,0.9)" : "transparent",
+            backdropFilter: isSticky ? "blur(8px)" : "none",
             paddingTop: isSticky ? 12 : 0,
             paddingBottom: isSticky ? 12 : 0,
-            boxShadow: isSticky ? "0 8px 24px rgba(0,0,0,0.4)" : "none",
+            boxShadow: isSticky ? "0 10px 30px rgba(0,0,0,0.45)" : "none",
             marginBottom: 24,
           }}
         >
@@ -231,30 +231,39 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* ================= DISCOVERY ================= */}
-        <section style={{ marginBottom: 28 }}>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-            {exampleQueries.map((q) => (
-              <button
-                key={q}
-                onClick={() => onRepeat(q)}
-                style={{
-                  padding: "7px 10px",
-                  borderRadius: 999,
-                  border: "1px solid #2a2a2e",
-                  background: "#111827",
-                  color: "#cbd5e1",
-                  fontSize: 13,
-                  cursor: "pointer",
-                }}
-              >
-                {q}
-              </button>
-            ))}
-          </div>
+        {/* ================= DISCOVERY (HIDDEN WHEN STICKY) ================= */}
+        {!isSticky && (
+          <section style={{ marginBottom: 28 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+                marginBottom: 12,
+              }}
+            >
+              {exampleQueries.map((q) => (
+                <button
+                  key={q}
+                  onClick={() => onRepeat(q)}
+                  style={{
+                    padding: "7px 10px",
+                    borderRadius: 999,
+                    border: "1px solid #2a2a2e",
+                    background: "#111827",
+                    color: "#cbd5e1",
+                    fontSize: 13,
+                    cursor: "pointer",
+                  }}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
 
-          <RepeatSearch onRepeat={onRepeat} />
-        </section>
+            <RepeatSearch onRepeatAction={onRepeat} />
+          </section>
+        )}
 
         {/* ================= SYSTEM STATES ================= */}
         {error && (
@@ -297,16 +306,54 @@ export default function HomePage() {
                 <li>поискать без бренда</li>
               </ul>
             </div>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+              <button
+                onClick={() => onRepeat(query.replace(/без окраса/gi, ""))}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #2a2a2e",
+                  background: "#111827",
+                  color: "#cbd5e1",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Убрать “без окраса”
+              </button>
+              <button
+                onClick={() => onRepeat(query + " до 150 тыс км")}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #2a2a2e",
+                  background: "#111827",
+                  color: "#cbd5e1",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Увеличить пробег
+              </button>
+              <button
+                onClick={() => onRepeat("")}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #2a2a2e",
+                  background: "#111827",
+                  color: "#cbd5e1",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Начать заново
+              </button>
+            </div>
           </section>
         )}
       </div>
     </div>
   );
 }
-
-const chipStyle: React.CSSProperties = {
-  padding: "6px 12px",
-  borderRadius: 999,
-  background: "#1f2933",
-  fontSize: 13,
-};

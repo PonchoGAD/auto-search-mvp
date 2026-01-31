@@ -1,300 +1,371 @@
-import { useEffect, useMemo, useState } from "react";
+"use client";
 
-type TopItem = {
-  query?: string;
-  brand?: string;
+import { useEffect, useState } from "react";
+
+/* =====================================================
+ * Types
+ * ===================================================== */
+
+type TopQuery = {
+  query: string;
   count: number;
 };
 
-type SourceNoise = {
+type EmptyQuery = {
+  query: string;
+  count: number;
+};
+
+type TopBrand = {
+  brand: string;
+  count: number;
+};
+
+type NoisySource = {
   source: string;
-  total_queries: number;
-  empty_results: number;
-  noise_ratio: number;
+  raw_documents: number;
+  normalized_documents: number;
+  quality_ratio: number;
+  signal?: string;
 };
 
 type DataSignals = {
-  no_results_rate: number;
-  brand_gap: {
+  no_results_rate?: {
+    total_searches: number;
+    empty_searches: number;
+    no_results_rate: number;
+  };
+  brand_gap?: {
     brand: string;
-    searches: number;
+    search_count: number;
     documents: number;
+    signal: string;
   }[];
-  noisy_source: {
-    source: string;
-    raw: number;
-    normalized: number;
-    ratio: number;
-  }[];
+  noisy_source?: NoisySource[];
 };
 
-export default function AnalyticsPage() {
-  const API_URL = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
-    []
-  );
+/* =====================================================
+ * Page
+ * ===================================================== */
 
-  const [topQueries, setTopQueries] = useState<TopItem[]>([]);
-  const [emptyQueries, setEmptyQueries] = useState<TopItem[]>([]);
-  const [topBrands, setTopBrands] = useState<TopItem[]>([]);
-  const [sourceNoise, setSourceNoise] = useState<SourceNoise[]>([]);
-  const [signals, setSignals] = useState<DataSignals | null>(null);
+export default function AnalyticsPage() {
+  const API_URL =
+    process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [topQueries, setTopQueries] = useState<TopQuery[]>([]);
+  const [emptyQueries, setEmptyQueries] = useState<EmptyQuery[]>([]);
+  const [topBrands, setTopBrands] = useState<TopBrand[]>([]);
+  const [noisySources, setNoisySources] = useState<NoisySource[]>([]);
+  const [signals, setSignals] = useState<DataSignals | null>(null);
 
   useEffect(() => {
-    const load = async () => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setError(null);
+
       try {
         const [
-          tq,
-          eq,
-          tb,
-          sn,
-          ds,
+          topQ,
+          emptyQ,
+          brands,
+          sources,
+          signalsRes,
         ] = await Promise.all([
-          fetch(`${API_URL}/analytics/top-queries`).then((r) => r.json()),
-          fetch(`${API_URL}/analytics/empty-queries`).then((r) => r.json()),
-          fetch(`${API_URL}/analytics/top-brands`).then((r) => r.json()),
-          fetch(`${API_URL}/analytics/source-noise`).then((r) => r.json()),
-          fetch(`${API_URL}/analytics/data-signals`).then((r) => r.json()),
+          fetch(`${API_URL}/analytics/top-queries?limit=10`),
+          fetch(`${API_URL}/analytics/empty-queries?limit=10`),
+          fetch(`${API_URL}/analytics/top-brands?limit=10`),
+          fetch(`${API_URL}/analytics/source-noise`),
+          fetch(`${API_URL}/analytics/data-signals`),
         ]);
 
-        setTopQueries(tq || []);
-        setEmptyQueries(eq || []);
-        setTopBrands(tb || []);
-        setSourceNoise(sn || []);
-        setSignals(ds || null);
-      } catch (e) {
-        console.error("Failed to load analytics", e);
+        if (cancelled) return;
+
+        if (
+          !topQ.ok ||
+          !emptyQ.ok ||
+          !brands.ok ||
+          !sources.ok ||
+          !signalsRes.ok
+        ) {
+          throw new Error("Failed to load analytics");
+        }
+
+        setTopQueries(await topQ.json());
+        setEmptyQueries(await emptyQ.json());
+        setTopBrands(await brands.json());
+        setNoisySources(await sources.json());
+        setSignals(await signalsRes.json());
+      } catch {
+        if (!cancelled) {
+          setError("Не удалось загрузить аналитику. Проверьте API или соединение.");
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    };
+    }
 
     load();
+    return () => {
+      cancelled = true;
+    };
   }, [API_URL]);
+
+  /* =========================
+   * STATES
+   * ========================= */
 
   if (loading) {
     return (
-      <div style={pageStyle}>
-        <div style={{ color: "#9aa0a6" }}>📊 Загружаем аналитику…</div>
+      <div style={{ padding: 40, color: "#6b7280" }}>
+        ⏳ Загрузка аналитики…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: 40, color: "#b91c1c" }}>
+        {error}
       </div>
     );
   }
 
   return (
-    <div style={pageStyle}>
-      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        {/* HEADER */}
-        <div style={{ marginBottom: 32 }}>
-          <h1 style={{ fontSize: 32, marginBottom: 8 }}>
-            📊 Product Analytics
-          </h1>
-          <p style={{ color: "#9aa0a6", margin: 0 }}>
-            Реальные поисковые данные. Сигналы роста. Качество источников.
-          </p>
-        </div>
+    <div style={{ padding: 40, maxWidth: 1200 }}>
+      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
+        📊 Analytics Overview
+      </h1>
+      <p style={{ color: "#6b7280", marginBottom: 28 }}>
+        Аналитика пользовательского спроса, качества источников и точек роста продукта
+      </p>
 
-        {/* TOP BLOCKS */}
-        <Grid>
-          <Block title="🔥 Топ запросов">
-            {topQueries.map((q, i) => (
-              <Row key={i}>
-                <span>{q.query}</span>
-                <strong>{q.count}</strong>
-              </Row>
-            ))}
-          </Block>
-
-          <Block title="❌ Пустые запросы">
-            {emptyQueries.map((q, i) => (
-              <Row key={i} danger>
-                <span>{q.query}</span>
-                <strong>{q.count}</strong>
-              </Row>
-            ))}
-          </Block>
-
-          <Block title="🚗 Топ брендов">
-            {topBrands.map((b, i) => (
-              <Row key={i}>
-                <span>{b.brand}</span>
-                <strong>{b.count}</strong>
-              </Row>
-            ))}
-          </Block>
-        </Grid>
-
-        {/* SOURCE QUALITY */}
-        <Section title="🧪 Качество источников">
-          {sourceNoise.map((s, i) => (
-            <Row key={i}>
-              <span>{s.source}</span>
-              <span>
-                {s.empty_results} / {s.total_queries}
-              </span>
-              <strong
-                style={{
-                  color:
-                    s.noise_ratio > 0.4 ? "#ef4444" : "#22c55e",
-                }}
-              >
-                {s.noise_ratio}
-              </strong>
-            </Row>
-          ))}
-        </Section>
-
-        {/* DATA SIGNALS */}
-        {signals && (
-          <>
-            <Section title="🚨 Сигналы роста">
-              <Signal>
-                <strong>No results rate:</strong>{" "}
-                {(signals.no_results_rate * 100).toFixed(1)}%
-              </Signal>
-            </Section>
-
-            <Grid>
-              <Block title="⚠️ Brand gap">
-                {signals.brand_gap.map((b, i) => (
-                  <Row key={i} danger>
-                    <span>{b.brand}</span>
-                    <span>
-                      запросов: {b.searches}
-                    </span>
-                    <strong>
-                      документов: {b.documents}
-                    </strong>
-                  </Row>
-                ))}
-              </Block>
-
-              <Block title="🗑 Noisy sources">
-                {signals.noisy_source.map((s, i) => (
-                  <Row key={i} danger>
-                    <span>{s.source}</span>
-                    <span>
-                      raw: {s.raw} / norm: {s.normalized}
-                    </span>
-                    <strong>{s.ratio}</strong>
-                  </Row>
-                ))}
-              </Block>
-            </Grid>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- UI HELPERS ---------------- */
-
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div style={{ marginBottom: 32 }}>
-      <h3 style={{ marginBottom: 12 }}>{title}</h3>
-      <div style={blockStyle}>{children}</div>
-    </div>
-  );
-}
-
-function Block({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div style={blockStyle}>
+      {/* ==============================
+          CARDS GRID
+         ============================== */}
       <div
         style={{
-          fontWeight: 600,
-          marginBottom: 12,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+          gap: 20,
+          marginBottom: 32,
         }}
       >
-        {title}
+        <Card title="🔥 Top Queries" hint="Что пользователи ищут чаще всего">
+          <List
+            items={topQueries}
+            emptyHint="Запросов пока нет — система только начинает собирать данные."
+            render={(q) => (
+              <span>
+                {q.query} <Muted>({q.count})</Muted>
+              </span>
+            )}
+          />
+        </Card>
+
+        <Card title="❌ Empty Queries" hint="Спрос без покрытия">
+          <List
+            items={emptyQueries}
+            emptyHint="Пустых запросов нет — это хороший знак."
+            render={(q) => (
+              <span>
+                {q.query} <Muted>({q.count})</Muted>
+              </span>
+            )}
+          />
+        </Card>
+
+        <Card title="🧠 Top Brands" hint="Самые популярные бренды">
+          <List
+            items={topBrands}
+            emptyHint="Бренды ещё не выделены — нужно больше данных."
+            render={(b) => (
+              <span>
+                {b.brand} <Muted>({b.count})</Muted>
+              </span>
+            )}
+          />
+        </Card>
+
+        <Card title="🗑 Noisy Sources" hint="Источники с низким качеством данных">
+          <List
+            items={noisySources}
+            emptyHint="Все источники выглядят качественными."
+            render={(s) => (
+              <span>
+                {s.source}{" "}
+                <Muted>
+                  ({Math.round(s.quality_ratio * 100)}% качества)
+                </Muted>
+              </span>
+            )}
+          />
+        </Card>
+      </div>
+
+      {/* ==============================
+          GROWTH INSIGHTS
+         ============================== */}
+      <Card title="🚀 Growth Insights" accent>
+        <Insights signals={signals} />
+        <NextSteps />
+      </Card>
+    </div>
+  );
+}
+
+/* =====================================================
+ * UI Blocks
+ * ===================================================== */
+
+function Card({
+  title,
+  children,
+  hint,
+  accent,
+}: {
+  title: string;
+  children: React.ReactNode;
+  hint?: string;
+  accent?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        padding: 20,
+        borderRadius: 12,
+        border: "1px solid #e5e7eb",
+        background: accent ? "#f8fafc" : "#ffffff",
+      }}
+    >
+      <div style={{ marginBottom: 12 }}>
+        <div
+          style={{
+            fontSize: 15,
+            fontWeight: 600,
+            color: "#111827",
+          }}
+        >
+          {title}
+        </div>
+        {hint && (
+          <div style={{ fontSize: 12, color: "#6b7280" }}>
+            {hint}
+          </div>
+        )}
       </div>
       {children}
     </div>
   );
 }
 
-function Row({
-  children,
-  danger,
+function List<T>({
+  items,
+  render,
+  emptyHint,
 }: {
-  children: React.ReactNode;
-  danger?: boolean;
+  items: T[];
+  render: (item: T) => React.ReactNode;
+  emptyHint?: string;
 }) {
+  if (!items || items.length === 0) {
+    return <Muted>{emptyHint || "Нет данных"}</Muted>;
+  }
+
+  return (
+    <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+      {items.map((item, idx) => (
+        <li key={idx} style={{ marginBottom: 6 }}>
+          {render(item)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Muted({ children }: { children: React.ReactNode }) {
+  return <span style={{ color: "#6b7280" }}>{children}</span>;
+}
+
+/* =====================================================
+ * Growth Insights Generator
+ * ===================================================== */
+
+function Insights({ signals }: { signals: DataSignals | null }) {
+  if (!signals) {
+    return <Muted>Сигналы пока не сформированы.</Muted>;
+  }
+
+  const insights: string[] = [];
+
+  if (signals.no_results_rate) {
+    const rate = signals.no_results_rate.no_results_rate;
+    if (rate > 0.3) {
+      insights.push(
+        `❗ ${Math.round(
+          rate * 100
+        )}% запросов не находят результатов — спрос превышает текущее покрытие данных.`
+      );
+    }
+  }
+
+  if (signals.brand_gap && signals.brand_gap.length > 0) {
+    const b = signals.brand_gap[0];
+    insights.push(
+      `🧠 Высокий интерес к бренду "${b.brand}", но объявлений нет — приоритет для подключения источников.`
+    );
+  }
+
+  if (signals.noisy_source && signals.noisy_source.length > 0) {
+    const s = signals.noisy_source[0];
+    insights.push(
+      `🗑 Источник "${s.source}" даёт много шума — стоит усилить фильтрацию или снизить вес.`
+    );
+  }
+
+  if (insights.length === 0) {
+    insights.push(
+      "✅ Система выглядит сбалансированной: спрос покрывается данными, критических проблем не выявлено."
+    );
+  }
+
+  return (
+    <ul style={{ paddingLeft: 16, marginBottom: 16 }}>
+      {insights.map((i, idx) => (
+        <li key={idx} style={{ marginBottom: 8 }}>
+          {i}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/* =====================================================
+ * CTA — What to do next
+ * ===================================================== */
+
+function NextSteps() {
   return (
     <div
       style={{
-        display: "flex",
-        justifyContent: "space-between",
-        gap: 12,
-        padding: "6px 0",
-        color: danger ? "#fca5a5" : "#e5e7eb",
+        marginTop: 16,
+        padding: 14,
+        borderRadius: 10,
+        background: "#eef2ff",
+        border: "1px solid #c7d2fe",
         fontSize: 14,
       }}
     >
-      {children}
+      <strong>Рекомендуемые действия:</strong>
+      <ul style={{ marginTop: 8, paddingLeft: 18 }}>
+        <li>Добавить источники под самые частые и пустые запросы</li>
+        <li>Оптимизировать или отключить шумные источники</li>
+        <li>Использовать аналитику для планирования масштабирования</li>
+      </ul>
     </div>
   );
 }
-
-function Grid({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-        gap: 20,
-        marginBottom: 32,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Signal({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        padding: 12,
-        borderRadius: 8,
-        background: "#111827",
-        border: "1px solid #374151",
-        fontSize: 14,
-        color: "#f1f5f9",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-/* ---------------- STYLES ---------------- */
-
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh",
-  background: "#0e0e11",
-  color: "#f1f1f1",
-  padding: "40px 16px",
-  fontFamily: "Inter, system-ui, sans-serif",
-};
-
-const blockStyle: React.CSSProperties = {
-  background: "#15151a",
-  border: "1px solid #2a2a2e",
-  borderRadius: 12,
-  padding: 16,
-};

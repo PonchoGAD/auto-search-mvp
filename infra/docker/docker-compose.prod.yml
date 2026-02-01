@@ -52,13 +52,13 @@ services:
     # ❌ НЕТ ports
 
   qdrant:
-  image: qdrant/qdrant:v1.9.0
-  container_name: auto-search-qdrant
-  restart: always
-  ports:
-    - "6333:6333"
-  volumes:
-    - qdrant_data:/qdrant/storage
+    image: qdrant/qdrant:v1.9.0
+    container_name: auto-search-qdrant
+    restart: always
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
 
 
 volumes:

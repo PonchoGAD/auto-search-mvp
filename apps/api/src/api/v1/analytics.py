@@ -1,7 +1,7 @@
 # apps/api/src/api/v1/analytics.py
 
 from fastapi import APIRouter
-from typing import List, Dict
+from typing import List, Dict, Any, Optional
 
 from services.analytics import AnalyticsService
 
@@ -9,17 +9,47 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 
 # =====================================================
-# SEARCH ANALYTICS
+# RETENTION / REPEAT SEARCH
+# =====================================================
+
+@router.get(
+    "/recent-searches",
+    summary="Recent searches (retention / repeat search UX)",
+)
+def recent_searches(
+    limit: int = 10,
+    user_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Последние поиски — основа retention / repeat search UX.
+
+    Возвращает минимум:
+    - raw_query
+    - structured_query
+    + полезные поля (created_at, results_count, empty_result)
+    """
+    # жёсткое ограничение: 1..20
+    limit = min(max(limit, 1), 20)
+
+    service = AnalyticsService()
+    try:
+        # Важно: твой AnalyticsService (полный) уже поддерживает user_id опционально
+        return service.get_recent_searches(user_id=user_id, limit=limit)
+    finally:
+        service.close()
+
+
+# =====================================================
+# TOP QUERIES
 # =====================================================
 
 @router.get(
     "/top-queries",
     summary="Top search queries",
 )
-def top_queries(limit: int = 10) -> List[Dict]:
-    """
-    Самые частые поисковые запросы пользователей.
-    """
+def top_queries(limit: int = 10) -> List[Dict[str, Any]]:
+    limit = min(max(limit, 1), 50)
+
     service = AnalyticsService()
     try:
         return service.top_queries(limit=limit)
@@ -27,14 +57,17 @@ def top_queries(limit: int = 10) -> List[Dict]:
         service.close()
 
 
+# =====================================================
+# EMPTY QUERIES
+# =====================================================
+
 @router.get(
     "/empty-queries",
     summary="Queries with zero results",
 )
-def empty_queries(limit: int = 10) -> List[Dict]:
-    """
-    Запросы без результатов — точки роста продукта.
-    """
+def empty_queries(limit: int = 10) -> List[Dict[str, Any]]:
+    limit = min(max(limit, 1), 50)
+
     service = AnalyticsService()
     try:
         return service.empty_queries(limit=limit)
@@ -50,10 +83,9 @@ def empty_queries(limit: int = 10) -> List[Dict]:
     "/top-brands",
     summary="Top brands in results",
 )
-def top_brands(limit: int = 10) -> List[Dict]:
-    """
-    Самые популярные бренды в результатах поиска.
-    """
+def top_brands(limit: int = 10) -> List[Dict[str, Any]]:
+    limit = min(max(limit, 1), 50)
+
     service = AnalyticsService()
     try:
         return service.top_brands(limit=limit)
@@ -69,13 +101,7 @@ def top_brands(limit: int = 10) -> List[Dict]:
     "/source-noise",
     summary="Source noise ratio",
 )
-def source_noise_ratio() -> List[Dict]:
-    """
-    Качество источников:
-    - сколько запросов
-    - сколько пустых результатов
-    - noise_ratio
-    """
+def source_noise() -> List[Dict[str, Any]]:
     service = AnalyticsService()
     try:
         return service.source_noise_ratio()
@@ -84,39 +110,14 @@ def source_noise_ratio() -> List[Dict]:
 
 
 # =====================================================
-# RETENTION
-# =====================================================
-
-@router.get(
-    "/recent-searches",
-    summary="Recent searches (retention)",
-)
-def recent_searches(limit: int = 5):
-    """
-    Последние поиски — основа retention / repeat search UX.
-    """
-    service = AnalyticsService()
-    try:
-        return service.get_recent_searches(limit=limit)
-    finally:
-        service.close()
-
-
-# =====================================================
-# DATA SIGNALS (PROMPT 23.4)
+# DATA SIGNALS (KILLER FEATURE)
 # =====================================================
 
 @router.get(
     "/data-signals",
     summary="Product growth signals",
 )
-def data_signals():
-    """
-    Продуктовые сигналы роста:
-    - no_results_rate
-    - brand_gap
-    - noisy_source
-    """
+def data_signals() -> Dict[str, Any]:
     service = AnalyticsService()
     try:
         return service.data_signals()

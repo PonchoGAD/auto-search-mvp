@@ -1,8 +1,9 @@
-# apps/api/src/services/search_service.py
-
 from typing import List, Dict, Any, Tuple
 from pathlib import Path
+from datetime import datetime, timezone
 import yaml
+import math
+from urllib.parse import urlparse
 
 from integrations.vector_db.qdrant import QdrantStore
 from data_pipeline.index import deterministic_embedding
@@ -29,7 +30,6 @@ def load_brands() -> dict:
         return {}
 
 
-
 BRANDS_WHITELIST = load_brands()
 WHITELIST_SET = set(BRANDS_WHITELIST.keys())
 
@@ -37,22 +37,28 @@ WHITELIST_SET = set(BRANDS_WHITELIST.keys())
 # =========================
 # SOURCE BOOSTS
 # =========================
-
 SOURCE_BOOSTS = {
-    # форумы (премиум)
     "benzclub.ru": 1.5,
     "bmwclub.ru": 1.5,
     "forum": 1.5,
-
-    # нейтрально
     "telegram": 1.0,
-
-    # маркетплейсы
     "auto.ru": 0.8,
     "drom.ru": 0.8,
     "avito.ru": 0.8,
     "marketplace": 0.8,
 }
+
+# =========================
+# FAIRNESS CONFIG
+# =========================
+MAX_RESULTS_PER_SOURCE: int = 3
+DOMAIN_PENALTY_K: float = 0.4
+
+# =========================
+# RECENCY CONFIG (NEW, НЕ ЛОМАЕТ СТАРОЕ)
+# =========================
+RECENCY_MAX_DAYS = 180
+RECENCY_WEIGHT = 1.0
 
 
 class SearchService:
@@ -69,22 +75,10 @@ class SearchService:
         limit: int = 20,
         top_k: int = 50,
     ) -> List[Dict[str, Any]]:
-        """
-        Поиск:
-        - embedding запроса
-        - vector search
-        - explainable ranking (boosts / penalties)
-        """
 
-        # -------------------------
-        # 1. Query → embedding
-        # -------------------------
         query_text = self._build_query_text(structured)
         query_vector = deterministic_embedding(query_text)
 
-        # -------------------------
-        # 2. Vector search
-        # -------------------------
         hits = self.store.search(
             vector=query_vector,
             limit=top_k,
@@ -92,10 +86,9 @@ class SearchService:
 
         results: List[Dict[str, Any]] = []
         seen_urls = set()
+        source_counter: Dict[str, int] = {}
+        domain_counter: Dict[str, int] = {}
 
-        # -------------------------
-        # 3. Ranking + Dedup
-        # -------------------------
         for hit in hits:
             payload = hit.payload or {}
             source_url = payload.get("url")
@@ -103,10 +96,28 @@ class SearchService:
             if not source_url or source_url in seen_urls:
                 continue
 
+            source_name = payload.get("source") or "unknown"
+            source_counter.setdefault(source_name, 0)
+
+            if source_counter[source_name] >= MAX_RESULTS_PER_SOURCE:
+                continue
+
+            domain = "unknown"
+            try:
+                parsed = urlparse(source_url)
+                if parsed.netloc:
+                    domain = parsed.netloc.lower()
+            except Exception:
+                pass
+
+            domain_counter.setdefault(domain, 0)
+
             final_score, reasons = self._score_hit(
                 vector_score=float(hit.score),
                 payload=payload,
                 structured=structured,
+                source_rank=source_counter[source_name],
+                domain_rank=domain_counter[domain],
             )
 
             results.append(
@@ -123,26 +134,22 @@ class SearchService:
                     "score": round(final_score, 4),
                     "why_match": " + ".join(reasons) if reasons else "релевантно запросу",
                     "source_url": source_url,
-                    "source_name": payload.get("source"),
+                    "source_name": source_name,
                 }
             )
 
             seen_urls.add(source_url)
+            source_counter[source_name] += 1
+            domain_counter[domain] += 1
 
             if len(results) >= limit:
                 break
 
-        # -------------------------
-        # 4. Final sort
-        # -------------------------
         results.sort(key=lambda r: r["score"], reverse=True)
 
-        # -------------------------
-        # 5. SAVE SEARCH HISTORY (RETENTION)
-        # -------------------------
+        # SAVE SEARCH HISTORY
         try:
             session = SessionLocal()
-
             history = SearchHistory(
                 raw_query=structured.raw_query if hasattr(structured, "raw_query") else "",
                 structured_query=structured.dict(),
@@ -150,12 +157,10 @@ class SearchService:
                 empty_result=len(results) == 0,
                 source="search_api",
             )
-
             session.add(history)
             session.commit()
 
         except Exception as e:
-            # ❗️ НИКОГДА не ломаем поиск из-за аналитики
             print(f"[SEARCH][WARN] failed to save search history: {e}")
 
         finally:
@@ -175,19 +180,14 @@ class SearchService:
 
         if structured.brand:
             parts.append(structured.brand)
-
         if structured.model:
             parts.append(structured.model)
-
         if structured.fuel:
             parts.append(structured.fuel)
-
         if structured.paint_condition:
             parts.append(structured.paint_condition)
-
         if structured.region:
             parts.append(structured.region)
-
         if structured.keywords:
             parts.extend(structured.keywords)
 
@@ -202,37 +202,33 @@ class SearchService:
         vector_score: float,
         payload: Dict[str, Any],
         structured: StructuredQuery,
+        source_rank: int,
+        domain_rank: int,
     ) -> Tuple[float, List[str]]:
-        """
-        Итоговый скоринг (объяснимый):
-
-        final_score =
-            vector_score
-            * source_boost
-            * brand_boost
-            * sale_boost
-            * structured_bonus
-        """
 
         reasons: List[str] = []
+
+        # -------------------------
+        # Semantic base
+        # -------------------------
+        semantic_score = vector_score
+        reasons.append(f"semantic={round(semantic_score, 3)}")
 
         # -------------------------
         # Source boost
         # -------------------------
         source = payload.get("source") or ""
         source_boost = SOURCE_BOOSTS.get(source, 1.0)
-
         if source_boost != 1.0:
-            reasons.append(f"source_boost={source_boost} ({source})")
+            reasons.append(f"source_boost={source_boost}")
 
         # -------------------------
         # Brand boost
         # -------------------------
         payload_brand = payload.get("brand")
-
         if payload_brand and payload_brand.lower() in WHITELIST_SET:
             brand_boost = 1.15
-            reasons.append(f"brand_hit={payload_brand}")
+            reasons.append("brand_whitelisted")
         else:
             brand_boost = 0.9
             reasons.append("brand_outside_whitelist")
@@ -249,43 +245,75 @@ class SearchService:
             reasons.append("sale_intent=false")
 
         # -------------------------
-        # Structured query bonuses
+        # Price match
         # -------------------------
-        bonus = 1.0
+        price_score = 0.0
+        if structured.price_max and payload.get("price"):
+            diff = abs(structured.price_max - payload["price"])
+            price_score = max(0.0, 1.0 - diff / structured.price_max)
+            reasons.append("price_match")
 
-        if structured.brand and payload_brand == structured.brand:
-            bonus += 0.10
-            reasons.append("exact_brand_match")
+        # -------------------------
+        # Mileage match
+        # -------------------------
+        mileage_score = 0.0
+        if structured.mileage_max and payload.get("mileage"):
+            diff = abs(structured.mileage_max - payload["mileage"])
+            mileage_score = max(0.0, 1.0 - diff / structured.mileage_max)
+            reasons.append("mileage_match")
 
-        if structured.model and payload.get("model") == structured.model:
-            bonus += 0.10
-            reasons.append("exact_model_match")
+        # -------------------------
+        # RECENCY SCORE (NEW, HARDENED)
+        # -------------------------
+        recency_score = 0.0
+        created_at_ts = payload.get("created_at_ts")
 
-        if (
-            structured.price_max
-            and payload.get("price")
-            and payload["price"] <= structured.price_max
-        ):
-            bonus += 0.05
-            reasons.append("price_ok")
+        if isinstance(created_at_ts, (int, float)):
+            now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+            age_days = max(0.0, (now_ts - int(created_at_ts)) / 86400)
 
-        if (
-            structured.mileage_max
-            and payload.get("mileage")
-            and payload["mileage"] <= structured.mileage_max
-        ):
-            bonus += 0.05
-            reasons.append("mileage_ok")
+            decay = max(0.0, 1.0 - age_days / RECENCY_MAX_DAYS)
+            recency_score = decay * RECENCY_WEIGHT
+
+            reasons.append(f"recency_boost={round(recency_score, 3)}")
+
+        else:
+            # ⛑ fallback — старая логика НЕ УДАЛЕНА
+            created_at = payload.get("created_at")
+            if created_at:
+                try:
+                    days_old = (datetime.utcnow() - datetime.fromisoformat(created_at)).days
+                    recency_score = max(0.0, 1.0 - days_old / RECENCY_MAX_DAYS)
+                    reasons.append("recency_fallback")
+                except Exception:
+                    reasons.append("recency_invalid")
+            else:
+                reasons.append("recency_missing")
+
+        # -------------------------
+        # Diversity penalty
+        # -------------------------
+        diversity_penalty = 1.0 / (1.0 + source_rank * 0.5)
+        if source_rank > 0:
+            reasons.append("diversity_penalty")
+
+        # -------------------------
+        # Domain penalty
+        # -------------------------
+        domain_penalty = 1.0 / (1.0 + domain_rank * DOMAIN_PENALTY_K)
+        if domain_rank > 0:
+            reasons.append("domain_penalty")
 
         # -------------------------
         # Final score
         # -------------------------
         final_score = (
-            vector_score
+            (semantic_score + price_score + mileage_score + recency_score)
             * source_boost
             * brand_boost
             * sale_boost
-            * bonus
+            * diversity_penalty
+            * domain_penalty
         )
 
         return final_score, reasons

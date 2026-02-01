@@ -1,11 +1,18 @@
-# apps/api/src/data_pipeline/normalize.py
-
 import re
 from typing import Optional, Dict, Tuple
 
 from db.session import SessionLocal, engine
 from db.models import Base, RawDocument, NormalizedDocument
 
+# 🆕 Anti-noise / ingest quality
+from services.ingest_quality import (
+    should_skip_doc,
+    detect_brand,
+    is_sale_intent,
+    resolve_source_boost,
+    build_meta_prefix,
+    apply_meta_prefix,
+)
 
 # =========================
 # META PARSING
@@ -143,7 +150,9 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
 def run_normalize(limit: int = 500):
     """
     Normalize pipeline:
-    - парсит __meta__
+    - Anti-noise (skip мусор)
+    - build meta (__meta__)
+    - парсит meta
     - очищает текст
     - вытаскивает поля
     - подготавливает данные для ranking
@@ -165,6 +174,7 @@ def run_normalize(limit: int = 500):
         return
 
     saved = 0
+    skipped = 0
 
     for raw in raws:
         exists = (
@@ -175,26 +185,52 @@ def run_normalize(limit: int = 500):
         if exists:
             continue
 
-        # =========================
-        # META
-        # =========================
-        meta, content_wo_meta = parse_meta(raw.content or "")
+        raw_text = raw.content or ""
+
+        # =====================================================
+        # 🧹 ANTI-NOISE (до индексации)
+        # =====================================================
+        skip, skip_meta = should_skip_doc(
+            text=raw_text,
+            source=raw.source or "",
+        )
+
+        if skip:
+            skipped += 1
+            continue
+
+        # =====================================================
+        # 🧠 META ENRICHMENT (до normalize)
+        # =====================================================
+        brand_key, brand_conf = detect_brand(raw_text)
+        sale = is_sale_intent(raw_text)
+        source_boost = resolve_source_boost(raw.source or "")
+
+        meta_prefix = build_meta_prefix(
+            brand=brand_key,
+            brand_confidence=brand_conf,
+            sale_intent=sale,
+            source_boost=source_boost,
+        )
+
+        enriched_content = apply_meta_prefix(raw_text, meta_prefix)
+
+        # =====================================================
+        # META PARSE
+        # =====================================================
+        meta, content_wo_meta = parse_meta(enriched_content)
         text = clean_text(content_wo_meta)
 
         # brand: meta → fallback
         brand = meta.get("brand")
-        if brand:
+        if brand and brand != "none":
             brand = brand.upper()
         else:
             brand = extract_brand_fallback(text)
 
-        # ⚠️ дополнительные сигналы (пока остаются в meta)
-        # meta.get("sale_intent")
-        # meta.get("source_boost")
-
-        # =========================
-        # FIELDS
-        # =========================
+        # =====================================================
+        # FIELD EXTRACTION
+        # =====================================================
         fields = extract_fields(text)
 
         doc = NormalizedDocument(
@@ -218,4 +254,4 @@ def run_normalize(limit: int = 500):
     session.commit()
     session.close()
 
-    print(f"[NORMALIZE] saved: {saved}")
+    print(f"[NORMALIZE] saved: {saved}, skipped: {skipped}")

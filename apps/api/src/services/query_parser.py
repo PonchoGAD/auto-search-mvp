@@ -1,8 +1,40 @@
-# apps/api/src/services/query_parser.py
-
-from typing import List, Optional
+from typing import List, Optional, Dict, Tuple
 from pydantic import BaseModel, Field
 import re
+import yaml
+from pathlib import Path
+
+
+# =========================
+# LOAD BRANDS (SINGLE SOURCE OF TRUTH)
+# =========================
+
+def load_brands() -> Dict[str, Dict[str, List[str]]]:
+    """
+    Загружает brands.yaml один раз.
+    Формат:
+    {
+      "bmw": {
+        "en": [...],
+        "ru": [...],
+        "aliases": [...]
+      }
+    }
+    """
+    try:
+        base_dir = Path(__file__).resolve().parent.parent
+        brands_path = base_dir / "config" / "brands.yaml"
+
+        with open(brands_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+            return data.get("brands", {})
+
+    except Exception as e:
+        print(f"[QUERY][WARN] failed to load brands.yaml: {e}")
+        return {}
+
+
+BRANDS_CONFIG = load_brands()
 
 
 # =========================
@@ -15,6 +47,7 @@ class StructuredQuery(BaseModel):
 
     # Основные поля
     brand: Optional[str] = None
+    brand_confidence: float = 0.0  # 🆕 усиливает ranking, не ломает контракт
     model: Optional[str] = None
     price_max: Optional[int] = None
     mileage_max: Optional[int] = None
@@ -75,50 +108,47 @@ def _parse_with_llm(raw_text: str) -> dict:
 
 def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     text = raw_text.lower()
-
     result = StructuredQuery(raw_query=raw_text)
 
     # -------------------------
-    # BRAND (simple, expandable)
+    # BRAND (yaml-driven, RU / EN / aliases / typos)
     # -------------------------
-    BRAND_MAP = {
-        "bmw": ["bmw", "бмв"],
-        "audi": ["audi", "ауди"],
-        "mercedes": ["mercedes", "mercedes-benz", "мерседес", "мерс"],
-        "toyota": ["toyota", "тойота"],
-        "lexus": ["lexus", "лексус"],
-        "volkswagen": ["volkswagen", "vw", "фольксваген"],
-    }
-
-    for brand, aliases in BRAND_MAP.items():
-        for a in aliases:
-            if a in text:
-                result.brand = brand
-                break
-        if result.brand:
-            break
+    brand, confidence = _extract_brand(text)
+    if brand:
+        result.brand = brand
+        result.brand_confidence = confidence
 
     # -------------------------
     # PRICE (max)
     # -------------------------
-    m = re.search(
-        r"(до|<=|<)?\s*(\d[\d\s]{2,10})\s*(₽|руб|р\.|тыс|к|\$|€)",
-        text,
-    )
-    if m:
-        price = int(m.group(2).replace(" ", ""))
-        if m.group(3) in ["тыс", "к"]:
-            price *= 1000
-        result.price_max = price
+    price_patterns = [
+        r"(до|<=|<)?\s*(\d+[\d\s]*)\s*(млн|миллион|m)",
+        r"(до|<=|<)?\s*(\d+[\d\s]*)\s*(тыс|к)",
+        r"(до|<=|<)?\s*(\d+[\d\s]*)\s*(₽|руб|р\.|\$|€)",
+    ]
+
+    for p in price_patterns:
+        m = re.search(p, text)
+        if m:
+            value = int(m.group(2).replace(" ", ""))
+            unit = m.group(3)
+
+            if unit in ["млн", "миллион", "m"]:
+                value *= 1_000_000
+            elif unit in ["тыс", "к"]:
+                value *= 1_000
+
+            result.price_max = value
+            break
 
     # -------------------------
     # MILEAGE (max)
     # -------------------------
-    m = re.search(r"до\s*(\d[\d\s]{1,8})\s*(км|тыс)", text)
+    m = re.search(r"до\s*(\d+[\d\s]*)\s*(км|тыс)", text)
     if m:
         mileage = int(m.group(1).replace(" ", ""))
         if m.group(2) == "тыс":
-            mileage *= 1000
+            mileage *= 1_000
         result.mileage_max = mileage
 
     # -------------------------
@@ -130,13 +160,13 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
         result.fuel = "diesel"
     elif "гибрид" in text:
         result.fuel = "hybrid"
-    elif "электро" in text:
+    elif "электро" in text or "электр" in text:
         result.fuel = "electric"
 
     # -------------------------
     # PAINT CONDITION
     # -------------------------
-    if "без окрас" in text or "не бит" in text:
+    if "без окрас" in text or "не бит" in text or "родная краска" in text:
         result.paint_condition = "original"
     elif "крашен" in text or "бит" in text:
         result.paint_condition = "repainted"
@@ -145,11 +175,17 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     # CITY (мягко, MVP)
     # -------------------------
     m = re.search(
-        r"\b(москва|спб|питер|екатеринбург|казань|новосибирск)\b",
+        r"\b(москва|спб|питер|екатеринбург|казань|новосибирск|алматы|астана)\b",
         text,
     )
     if m:
         result.city = m.group(1)
+
+    # -------------------------
+    # RECENCY INTENT (для ranking)
+    # -------------------------
+    if any(w in text for w in ["свеж", "нов", "последн"]):
+        result.keywords.append("recent")
 
     # -------------------------
     # KEYWORDS / EXCLUSIONS
@@ -165,7 +201,39 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     for t in tokens:
         if t.startswith("не") and len(t) > 2:
             result.exclusions.append(t[1:])
-        elif t not in STOP_TOKENS:
+        elif t not in STOP_TOKENS and t not in result.keywords:
             result.keywords.append(t)
 
     return result
+
+
+# =========================
+# BRAND EXTRACTION LOGIC
+# =========================
+
+def _extract_brand(text: str) -> Tuple[Optional[str], float]:
+    """
+    Возвращает:
+    - canonical brand
+    - confidence:
+        exact → 1.0
+        alias → 0.8
+        fuzzy → 0.6
+    """
+    for brand, cfg in BRANDS_CONFIG.items():
+        # exact EN / RU
+        for w in cfg.get("en", []) + cfg.get("ru", []):
+            if re.search(rf"\b{re.escape(w.lower())}\b", text):
+                return brand, 1.0
+
+        # aliases / typos
+        for a in cfg.get("aliases", []):
+            if re.search(rf"\b{re.escape(a.lower())}\b", text):
+                return brand, 0.8
+
+        # very light fuzzy (substring, MVP-safe)
+        for w in cfg.get("en", []) + cfg.get("ru", []):
+            if w.lower() in text:
+                return brand, 0.6
+
+    return None, 0.0

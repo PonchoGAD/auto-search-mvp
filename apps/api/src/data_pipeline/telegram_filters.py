@@ -2,18 +2,26 @@
 
 import re
 import yaml
-from typing import Dict
+from typing import Dict, Tuple, Optional
+
+# =========================
+# CONSTANTS / THRESHOLDS
+# =========================
 
 MIN_TEXT_LEN = 80
-
 
 # =========================
 # LOAD BRANDS WHITELIST
 # =========================
 
 def load_brands() -> Dict[str, dict]:
+    """
+    Загружаем brands.yaml.
+    Используется ТОЛЬКО для быстрого pre-filter Telegram.
+    Основная логика брендов — в ingest_quality.
+    """
     try:
-        with open("brands.yaml", "r", encoding="utf-8") as f:
+        with open("apps/api/src/config/brands.yaml", "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
             return data.get("brands", {})
     except Exception:
@@ -41,6 +49,9 @@ STOP_WORDS = [
     "ремонт",
     "диагностика",
     "ошибка",
+    "проблема",
+    "запчасти",
+    "разбор",
 ]
 
 SALE_POSITIVE_WORDS = [
@@ -88,8 +99,12 @@ RE_MILEAGE = re.compile(r"\d[\d\s]{1,8}\s*км")
 
 def contains_brand(text: str) -> bool:
     """
-    Проверка на наличие бренда (RU/EN/aliases)
+    Проверка на наличие бренда (RU / EN / aliases).
+    Быстро, без confidence.
     """
+    if not text:
+        return False
+
     t = text.lower()
 
     for brand_data in BRANDS_WHITELIST.values():
@@ -105,8 +120,14 @@ def contains_brand(text: str) -> bool:
 
 def contains_digits(text: str) -> bool:
     """
-    Есть ли признаки объявления: год / цена / пробег
+    Есть ли признаки объявления:
+    - год
+    - цена
+    - пробег
     """
+    if not text:
+        return False
+
     return bool(
         RE_YEAR.search(text)
         or RE_PRICE.search(text)
@@ -121,8 +142,9 @@ def contains_digits(text: str) -> bool:
 def is_sale_intent(text: str, min_score: int = 2) -> bool:
     """
     Упрощённый intent-фильтр для Telegram (быстро):
+
     +2 за позитивные слова
-    +1 за цену/валюту
+    +1 за цену / валюту
     -2 за негативные слова
     """
     if not text:
@@ -146,39 +168,44 @@ def is_sale_intent(text: str, min_score: int = 2) -> bool:
 
 
 # =========================
-# MAIN FILTER
+# MAIN FILTER (PRE-INGEST)
 # =========================
 
-def is_valid_telegram_post(text: str) -> bool:
+def is_valid_telegram_post(text: str) -> Tuple[bool, Optional[str]]:
     """
-    Жёсткий pre-filter Telegram.
-    Всё лишнее режем ДО ingest.
+    Жёсткий Telegram pre-filter.
+    Используется ДО ingest и ДО RawDocument.
+
+    Возвращает:
+      (ok, reason)
+
+    reason нужен для логирования / статистики.
     """
 
     if not text:
-        return False
+        return False, "empty_text"
 
     t = text.lower()
 
-    # короткие сообщения - почти всегда шум
+    # 1️⃣ короткие сообщения — почти всегда шум
     if len(t) < MIN_TEXT_LEN:
-        return False
+        return False, "text_too_short"
 
-    # стоп-слова
+    # 2️⃣ стоп-слова (глобальный шум)
     for w in STOP_WORDS:
         if w in t:
-            return False
+            return False, "stop_word"
 
-    # ⛔ нет intent продажи - не берём
+    # 3️⃣ intent продажи
     if not is_sale_intent(t):
-        return False
+        return False, "not_sale_intent"
 
-    # ⛔ нет бренда - не берём
+    # 4️⃣ бренд (иначе это обсуждение)
     if not contains_brand(t):
-        return False
+        return False, "no_brand"
 
-    # ⛔ нет чисел (цена / год / пробег) - не объявление
+    # 5️⃣ цифры (цена / год / пробег)
     if not contains_digits(t):
-        return False
+        return False, "no_numeric_signals"
 
-    return True
+    return True, "ok"

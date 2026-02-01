@@ -1,5 +1,3 @@
-# apps/api/src/services/analytics.py
-
 from typing import Dict, List, Optional
 from sqlalchemy import func, case
 
@@ -11,23 +9,23 @@ class AnalyticsService:
     """
     Analytics / Retention service.
 
-    ⚠️ ВАЖНО:
-    - никакой бизнес-логики поиска
-    - только цифры, агрегаты и сигналы
-    - чистый JSON
+    Принципы:
+    - read-only
+    - никаких зависимостей от поиска
+    - стабильный JSON-контракт под UI
     """
 
     def __init__(self):
         self.session = SessionLocal()
 
     # =====================================================
-    # RETENTION
+    # RETENTION / REPEAT SEARCH
     # =====================================================
 
     def get_recent_searches(
         self,
         user_id: Optional[int] = None,
-        limit: int = 5,
+        limit: int = 10,
     ) -> List[Dict]:
         q = self.session.query(SearchHistory)
 
@@ -36,18 +34,20 @@ class AnalyticsService:
 
         rows = (
             q.order_by(SearchHistory.created_at.desc())
-            .limit(limit)
+            .limit(min(max(limit, 1), 20))
             .all()
         )
 
         return [
             {
                 "id": r.id,
-                "raw_query": r.raw_query,
+                "query": r.raw_query,
                 "structured_query": r.structured_query,
                 "results_count": r.results_count,
                 "empty_result": r.empty_result,
-                "created_at": r.created_at,
+                "created_at": r.created_at.isoformat()
+                if r.created_at
+                else None,
             }
             for r in rows
         ]
@@ -59,22 +59,29 @@ class AnalyticsService:
     def top_queries(self, limit: int = 10) -> List[Dict]:
         rows = (
             self.session.query(
-                SearchHistory.raw_query,
-                func.count(SearchHistory.id).label("cnt"),
+                SearchHistory.raw_query.label("query"),
+                func.count(SearchHistory.id).label("count"),
             )
+            .filter(SearchHistory.raw_query.isnot(None))
             .group_by(SearchHistory.raw_query)
             .order_by(func.count(SearchHistory.id).desc())
             .limit(limit)
             .all()
         )
 
-        return [{"query": r.raw_query, "count": int(r.cnt)} for r in rows]
+        return [
+            {
+                "query": r.query,
+                "count": int(r.count),
+            }
+            for r in rows
+        ]
 
     def empty_queries(self, limit: int = 10) -> List[Dict]:
         rows = (
             self.session.query(
-                SearchHistory.raw_query,
-                func.count(SearchHistory.id).label("cnt"),
+                SearchHistory.raw_query.label("query"),
+                func.count(SearchHistory.id).label("count"),
             )
             .filter(SearchHistory.empty_result.is_(True))
             .group_by(SearchHistory.raw_query)
@@ -83,7 +90,13 @@ class AnalyticsService:
             .all()
         )
 
-        return [{"query": r.raw_query, "count": int(r.cnt)} for r in rows]
+        return [
+            {
+                "query": r.query,
+                "count": int(r.count),
+            }
+            for r in rows
+        ]
 
     # =====================================================
     # BRAND ANALYTICS
@@ -92,8 +105,8 @@ class AnalyticsService:
     def top_brands(self, limit: int = 10) -> List[Dict]:
         rows = (
             self.session.query(
-                NormalizedDocument.brand,
-                func.count(NormalizedDocument.id).label("cnt"),
+                NormalizedDocument.brand.label("brand"),
+                func.count(NormalizedDocument.id).label("count"),
             )
             .filter(NormalizedDocument.brand.isnot(None))
             .group_by(NormalizedDocument.brand)
@@ -102,7 +115,13 @@ class AnalyticsService:
             .all()
         )
 
-        return [{"brand": r.brand, "count": int(r.cnt)} for r in rows]
+        return [
+            {
+                "brand": r.brand,
+                "count": int(r.count),
+            }
+            for r in rows
+        ]
 
     # =====================================================
     # SOURCE QUALITY
@@ -111,38 +130,39 @@ class AnalyticsService:
     def source_noise_ratio(self) -> List[Dict]:
         rows = (
             self.session.query(
-                SearchHistory.source,
+                SearchHistory.source.label("source"),
                 func.count(SearchHistory.id).label("total"),
                 func.sum(
                     case(
                         (SearchHistory.empty_result.is_(True), 1),
                         else_=0,
                     )
-                ).label("empty_cnt"),
+                ).label("empty"),
             )
             .group_by(SearchHistory.source)
             .all()
         )
 
-        result = []
+        result: List[Dict] = []
+
         for r in rows:
             total = int(r.total or 0)
-            empty_cnt = int(r.empty_cnt or 0)
-            ratio = round(empty_cnt / total, 3) if total else 0.0
+            empty = int(r.empty or 0)
+            noise_ratio = round(empty / total, 3) if total else 0.0
 
             result.append(
                 {
                     "source": r.source,
                     "total_queries": total,
-                    "empty_results": empty_cnt,
-                    "noise_ratio": ratio,
+                    "empty_queries": empty,
+                    "noise_ratio": noise_ratio,
                 }
             )
 
         return result
 
     # =====================================================
-    # DATA SIGNALS (PROMPT 23.4)
+    # DATA SIGNALS (KILLER FEATURE)
     # =====================================================
 
     def no_results_rate(self) -> Dict:
@@ -165,8 +185,10 @@ class AnalyticsService:
     def brand_gap(self, limit: int = 10) -> List[Dict]:
         searched = (
             self.session.query(
-                SearchHistory.structured_query["brand"].as_string().label("brand"),
-                func.count(SearchHistory.id).label("cnt"),
+                SearchHistory.structured_query["brand"]
+                .as_string()
+                .label("brand"),
+                func.count(SearchHistory.id).label("count"),
             )
             .filter(SearchHistory.structured_query["brand"].isnot(None))
             .group_by("brand")
@@ -183,13 +205,14 @@ class AnalyticsService:
             .all()
         }
 
-        gaps = []
+        gaps: List[Dict] = []
+
         for r in searched:
             if r.brand not in existing_brands:
                 gaps.append(
                     {
                         "brand": r.brand,
-                        "search_count": int(r.cnt),
+                        "search_count": int(r.count),
                         "documents": 0,
                         "signal": "brand_gap",
                     }
@@ -199,26 +222,27 @@ class AnalyticsService:
 
     def noisy_source(self) -> List[Dict]:
         raw_counts = {
-            r.source: r.cnt
+            r.source: int(r.count)
             for r in self.session.query(
-                RawDocument.source,
-                func.count(RawDocument.id).label("cnt"),
+                RawDocument.source.label("source"),
+                func.count(RawDocument.id).label("count"),
             )
             .group_by(RawDocument.source)
             .all()
         }
 
         norm_counts = {
-            r.source: r.cnt
+            r.source: int(r.count)
             for r in self.session.query(
-                NormalizedDocument.source,
-                func.count(NormalizedDocument.id).label("cnt"),
+                NormalizedDocument.source.label("source"),
+                func.count(NormalizedDocument.id).label("count"),
             )
             .group_by(NormalizedDocument.source)
             .all()
         }
 
-        result = []
+        result: List[Dict] = []
+
         for source, raw_cnt in raw_counts.items():
             norm_cnt = norm_counts.get(source, 0)
             ratio = round(norm_cnt / raw_cnt, 3) if raw_cnt else 0.0
@@ -244,7 +268,7 @@ class AnalyticsService:
         }
 
     # =====================================================
-    # CLOSE
+    # CLEANUP
     # =====================================================
 
     def close(self):

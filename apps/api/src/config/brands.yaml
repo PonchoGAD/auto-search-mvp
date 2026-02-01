@@ -6,7 +6,9 @@ brands:
   bmw:
     en: ["bmw"]
     ru: ["бмв"]
-    aliases: ["bayerische motoren werke"]
+    aliases:
+      - "bayerische motoren werke"
+      - "bmv"
 
   audi:
     en: ["audi"]
@@ -15,6 +17,9 @@ brands:
   mercedes:
     en: ["mercedes", "mercedes-benz"]
     ru: ["мерседес", "мерседес-бенц", "мерс"]
+    aliases:
+      - "mers"
+      - "mersedes"
 
   volkswagen:
     en: ["volkswagen", "vw"]
@@ -179,7 +184,7 @@ brands:
     ru: ["бьюик"]
 
   # =========================
-  # CHINA (расширено)
+  # CHINA
   # =========================
   chery:
     en: ["chery"]
@@ -211,7 +216,7 @@ brands:
 
   great_wall:
     en: ["great wall"]
-    ru: ["грейt вол", "грит вол"]
+    ru: ["грит вол", "грейt вол"]
 
   tank:
     en: ["tank"]

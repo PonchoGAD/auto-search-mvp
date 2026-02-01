@@ -29,18 +29,20 @@ type NoisySource = {
   signal?: string;
 };
 
+type BrandGap = {
+  brand: string;
+  search_count: number;
+  documents: number;
+  signal: string;
+};
+
 type DataSignals = {
   no_results_rate?: {
     total_searches: number;
     empty_searches: number;
     no_results_rate: number;
   };
-  brand_gap?: {
-    brand: string;
-    search_count: number;
-    documents: number;
-    signal: string;
-  }[];
+  brand_gap?: BrandGap[];
   noisy_source?: NoisySource[];
 };
 
@@ -141,24 +143,17 @@ export default function AnalyticsPage() {
         📊 Analytics Overview
       </h1>
       <p style={{ color: "#6b7280", marginBottom: 28 }}>
-        Аналитика пользовательского спроса, качества источников и точек роста продукта
+        Это не просто поиск. Это данные о спросе, качестве источников и точках роста продукта.
       </p>
 
       {/* ==============================
-          CARDS GRID
+          CORE ANALYTICS
          ============================== */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-          gap: 20,
-          marginBottom: 32,
-        }}
-      >
+      <Grid>
         <Card title="🔥 Top Queries" hint="Что пользователи ищут чаще всего">
           <List
             items={topQueries}
-            emptyHint="Запросов пока нет — система только начинает собирать данные."
+            emptyHint="Запросов пока нет."
             render={(q) => (
               <span>
                 {q.query} <Muted>({q.count})</Muted>
@@ -167,7 +162,10 @@ export default function AnalyticsPage() {
           />
         </Card>
 
-        <Card title="❌ Empty Queries" hint="Спрос без покрытия">
+        <Card
+          title="❌ Empty Demand"
+          hint="Пользователи ищут — данных нет"
+        >
           <List
             items={emptyQueries}
             emptyHint="Пустых запросов нет — это хороший знак."
@@ -179,10 +177,10 @@ export default function AnalyticsPage() {
           />
         </Card>
 
-        <Card title="🧠 Top Brands" hint="Самые популярные бренды">
+        <Card title="🧠 Top Brands" hint="Самые востребованные бренды">
           <List
             items={topBrands}
-            emptyHint="Бренды ещё не выделены — нужно больше данных."
+            emptyHint="Недостаточно данных."
             render={(b) => (
               <span>
                 {b.brand} <Muted>({b.count})</Muted>
@@ -191,7 +189,7 @@ export default function AnalyticsPage() {
           />
         </Card>
 
-        <Card title="🗑 Noisy Sources" hint="Источники с низким качеством данных">
+        <Card title="🗑 Noisy Sources" hint="Источники с низким качеством">
           <List
             items={noisySources}
             emptyHint="Все источники выглядят качественными."
@@ -199,18 +197,29 @@ export default function AnalyticsPage() {
               <span>
                 {s.source}{" "}
                 <Muted>
-                  ({Math.round(s.quality_ratio * 100)}% качества)
+                  ({Math.round(s.quality_ratio * 100)}%)
                 </Muted>
               </span>
             )}
           />
         </Card>
-      </div>
+      </Grid>
+
+      {/* ==============================
+          BRAND GAPS
+         ============================== */}
+      <Card
+        title="⚠️ Brand Gaps"
+        hint="Спрос есть — предложений нет"
+        accent
+      >
+        <BrandGaps signals={signals} />
+      </Card>
 
       {/* ==============================
           GROWTH INSIGHTS
          ============================== */}
-      <Card title="🚀 Growth Insights" accent>
+      <Card title="🚀 Data Signals & Insights" accent>
         <Insights signals={signals} />
         <NextSteps />
       </Card>
@@ -219,8 +228,23 @@ export default function AnalyticsPage() {
 }
 
 /* =====================================================
- * UI Blocks
+ * UI Components
  * ===================================================== */
+
+function Grid({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+        gap: 20,
+        marginBottom: 32,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 function Card({
   title,
@@ -240,16 +264,11 @@ function Card({
         borderRadius: 12,
         border: "1px solid #e5e7eb",
         background: accent ? "#f8fafc" : "#ffffff",
+        marginBottom: 20,
       }}
     >
       <div style={{ marginBottom: 12 }}>
-        <div
-          style={{
-            fontSize: 15,
-            fontWeight: 600,
-            color: "#111827",
-          }}
-        >
+        <div style={{ fontSize: 15, fontWeight: 600 }}>
           {title}
         </div>
         {hint && (
@@ -292,44 +311,65 @@ function Muted({ children }: { children: React.ReactNode }) {
 }
 
 /* =====================================================
- * Growth Insights Generator
+ * Brand Gaps
+ * ===================================================== */
+
+function BrandGaps({ signals }: { signals: DataSignals | null }) {
+  const gaps = signals?.brand_gap || [];
+
+  if (!gaps.length) {
+    return (
+      <Muted>
+        Явных разрывов по брендам не обнаружено.
+      </Muted>
+    );
+  }
+
+  return (
+    <ul style={{ paddingLeft: 16 }}>
+      {gaps.map((b, idx) => (
+        <li key={idx} style={{ marginBottom: 8 }}>
+          🔍 Ищут <strong>{b.brand}</strong>, но объявлений нет
+          <Muted> ({b.search_count} запросов)</Muted>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/* =====================================================
+ * Insights Generator
  * ===================================================== */
 
 function Insights({ signals }: { signals: DataSignals | null }) {
   if (!signals) {
-    return <Muted>Сигналы пока не сформированы.</Muted>;
+    return <Muted>Сигналы не сформированы.</Muted>;
   }
 
   const insights: string[] = [];
 
-  if (signals.no_results_rate) {
-    const rate = signals.no_results_rate.no_results_rate;
-    if (rate > 0.3) {
-      insights.push(
-        `❗ ${Math.round(
-          rate * 100
-        )}% запросов не находят результатов — спрос превышает текущее покрытие данных.`
-      );
-    }
-  }
-
-  if (signals.brand_gap && signals.brand_gap.length > 0) {
-    const b = signals.brand_gap[0];
+  const noResultsRate = signals.no_results_rate?.no_results_rate;
+  if (typeof noResultsRate === "number" && noResultsRate > 0.3) {
     insights.push(
-      `🧠 Высокий интерес к бренду "${b.brand}", но объявлений нет — приоритет для подключения источников.`
+      `❗ ${Math.round(noResultsRate * 100)}% запросов не дают результатов — спрос превышает покрытие данных.`
     );
   }
 
-  if (signals.noisy_source && signals.noisy_source.length > 0) {
-    const s = signals.noisy_source[0];
+  if (signals.brand_gap?.length) {
     insights.push(
-      `🗑 Источник "${s.source}" даёт много шума — стоит усилить фильтрацию или снизить вес.`
+      `🧠 Обнаружены бренды с высоким спросом и нулевым предложением — быстрый рост при добавлении источников.`
     );
   }
 
-  if (insights.length === 0) {
+  if (signals.noisy_source?.length) {
     insights.push(
-      "✅ Система выглядит сбалансированной: спрос покрывается данными, критических проблем не выявлено."
+      `🗑 Есть шумные источники — оптимизация фильтрации повысит качество выдачи.`
+    );
+  }
+
+  if (!insights.length) {
+    insights.push(
+      "✅ Система сбалансирована: спрос покрывается, критических сигналов нет."
     );
   }
 
@@ -345,7 +385,7 @@ function Insights({ signals }: { signals: DataSignals | null }) {
 }
 
 /* =====================================================
- * CTA — What to do next
+ * CTA
  * ===================================================== */
 
 function NextSteps() {
@@ -362,9 +402,9 @@ function NextSteps() {
     >
       <strong>Рекомендуемые действия:</strong>
       <ul style={{ marginTop: 8, paddingLeft: 18 }}>
-        <li>Добавить источники под самые частые и пустые запросы</li>
-        <li>Оптимизировать или отключить шумные источники</li>
-        <li>Использовать аналитику для планирования масштабирования</li>
+        <li>Добавить источники под самые частые пустые запросы</li>
+        <li>Подключить данные по брендам с высоким спросом</li>
+        <li>Оптимизировать шумные источники</li>
       </ul>
     </div>
   );

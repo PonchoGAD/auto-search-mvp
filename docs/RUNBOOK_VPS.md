@@ -4,14 +4,11 @@
 - Ubuntu 20.04+
 - Docker >= 24
 - Docker Compose v2
-- Минимум: 2 CPU / 4 GB RAM (лучше 4 CPU / 8 GB RAM)
+- Рекомендуемо: 2 CPU / 4 GB RAM (лучше 4 CPU / 8 GB)
 
 ---
 
-## Установка Docker
+## 1) Деплой (из репозитория)
 ```bash
-curl -fsSL https://get.docker.com | bash
-sudo usermod -aG docker $USER
-newgrp docker
-docker --version
-docker compose version
+cd /opt/auto-search-mvp
+git pull

@@ -8,7 +8,7 @@ import time
 
 from db.session import SessionLocal
 from db.models import SearchHistory
-from config import settings
+from core.settings import settings
 
 router = APIRouter(tags=["Health"])
 

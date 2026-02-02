@@ -34,20 +34,38 @@ class Settings(BaseSettings):
     # =========================
     # REDIS
     # =========================
-    redis_url: str = Field(default="redis://redis:6379/0", alias="REDIS_URL")
+    redis_url: str = Field(
+        default="redis://redis:6379/0",
+        alias="REDIS_URL",
+    )
 
     # =========================
     # QDRANT
     # =========================
-    qdrant_url: str = Field(default="http://qdrant:6333", alias="QDRANT_URL")
-    qdrant_collection: str = Field(default="auto_search_chunks", alias="QDRANT_COLLECTION")
+    qdrant_url: str = Field(
+        default="http://qdrant:6333",
+        alias="QDRANT_URL",
+    )
+    qdrant_collection: str = Field(
+        default="auto_search_chunks",
+        alias="QDRANT_COLLECTION",
+    )
 
     # =========================
     # INGEST LIMITS (VPS SAFE)
     # =========================
-    ingest_max_docs_per_source: int = Field(default=200, alias="INGEST_MAX_DOCS_PER_SOURCE")
-    ingest_max_pages: int = Field(default=2, alias="INGEST_MAX_PAGES")
-    ingest_throttle_sec: float = Field(default=1.5, alias="INGEST_THROTTLE_SEC")
+    ingest_max_docs_per_source: int = Field(
+        default=200,
+        alias="INGEST_MAX_DOCS_PER_SOURCE",
+    )
+    ingest_max_pages: int = Field(
+        default=2,
+        alias="INGEST_MAX_PAGES",
+    )
+    ingest_throttle_sec: float = Field(
+        default=1.5,
+        alias="INGEST_THROTTLE_SEC",
+    )
 
     # =========================
     # TELEGRAM (optional)
@@ -58,7 +76,6 @@ class Settings(BaseSettings):
     tg_channels: str = Field(default="", alias="TG_CHANNELS")
     tg_fetch_limit: int = Field(default=50, alias="TG_FETCH_LIMIT")
 
-    # pydantic v2 config
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,

@@ -3,8 +3,6 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import time
 
-from db.session import SessionLocal
-
 from services.query_parser import parse_query, StructuredQuery
 from services.search_service import SearchService
 from services.metrics_service import MetricsService
@@ -69,7 +67,7 @@ class DebugInfo(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    structuredQuery: Dict[str, Any]  # ✅ ВАЖНО
+    structuredQuery: Dict[str, Any]
     results: List[SearchResult]
     sources: List[SourceStat]
     debug: DebugInfo
@@ -91,27 +89,45 @@ def search(request: SearchRequest):
     structured: Optional[StructuredQuery] = None
     results: List[dict] = []
     answer: Optional[str] = None
-
-    # NOTE:
-    # - SearchHistory (retention) сейчас пишется внутри SearchService.search()
-    # - Здесь НЕ дублируем запись, чтобы не было двойных логов и конфликтов таблиц
+    vector_hits = 0
 
     try:
+        # -------------------------
+        # PARSE QUERY
+        # -------------------------
         structured = parse_query(request.query)
 
+        # -------------------------
+        # SEARCH (SAFE FOR DEMO)
+        # -------------------------
         service = SearchService()
-        results = service.search(structured)
 
-        if request.include_answer and AnswerBuilder:
+        try:
+            results = service.search(structured)
+            vector_hits = len(results)
+            print(f"[SEARCH][DEMO] hits={vector_hits}")
+        except Exception as e:
+            # 🔥 КЛЮЧЕВОЕ ДЛЯ SMOKE DEMO
+            # Qdrant пуст / коллекции нет / index не запускался
+            print(f"[SEARCH][DEMO][WARN] search skipped: {e}")
+            results = []
+            vector_hits = 0
+
+        # -------------------------
+        # OPTIONAL ANSWER
+        # -------------------------
+        if request.include_answer and AnswerBuilder and results:
             try:
                 builder = AnswerBuilder()
                 answer = builder.build(structured, results)
             except Exception:
                 answer = None
 
-    except Exception:
+    except Exception as e:
         latency_ms = int((time.time() - started_at) * 1000)
-        # Важно: endpoint не должен падать
+
+        print(f"[SEARCH][ERROR] {e}")
+
         return {
             "structuredQuery": structured.model_dump() if structured else {},
             "results": [],
@@ -142,7 +158,7 @@ def search(request: SearchRequest):
     latency_ms = int((time.time() - started_at) * 1000)
 
     # -------------------------
-    # METRICS (не ломает поиск)
+    # METRICS (SAFE)
     # -------------------------
     try:
         metrics = MetricsService()
@@ -162,9 +178,7 @@ def search(request: SearchRequest):
         "answer": answer,
         "debug": {
             "latency_ms": latency_ms,
-            # В MVP без доступа к raw hits считаем vector_hits как число финальных результатов.
-            # (Если захочешь — расширим SearchService, чтобы он возвращал и hits_count отдельно.)
-            "vector_hits": len(results),
+            "vector_hits": vector_hits,
             "final_results": len(results),
             "query_language": "ru",
             "empty_result": len(results) == 0,

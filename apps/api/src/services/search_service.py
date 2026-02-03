@@ -2,7 +2,6 @@ from typing import List, Dict, Any, Tuple
 from pathlib import Path
 from datetime import datetime, timezone
 import yaml
-import math
 from urllib.parse import urlparse
 
 from integrations.vector_db.qdrant import QdrantStore
@@ -55,7 +54,7 @@ MAX_RESULTS_PER_SOURCE: int = 3
 DOMAIN_PENALTY_K: float = 0.4
 
 # =========================
-# RECENCY CONFIG (NEW, НЕ ЛОМАЕТ СТАРОЕ)
+# RECENCY CONFIG
 # =========================
 RECENCY_MAX_DAYS = 180
 RECENCY_WEIGHT = 1.0
@@ -79,10 +78,26 @@ class SearchService:
         query_text = self._build_query_text(structured)
         query_vector = deterministic_embedding(query_text)
 
-        hits = self.store.search(
-            vector=query_vector,
-            limit=top_k,
-        )
+        # -------------------------
+        # QDRANT SEARCH (SAFE FOR DEMO)
+        # -------------------------
+        try:
+            hits = self.store.search(
+                vector=query_vector,
+                limit=top_k,
+            )
+        except Exception as e:
+            # 🔥 КРИТИЧНО ДЛЯ SMOKE DEMO
+            # коллекции нет / qdrant пуст / index не запускался
+            print(f"[SEARCH][DEMO][WARN] qdrant unavailable: {e}")
+            print("[SEARCH][DEMO] hits=0")
+            return []
+
+        if not hits:
+            print("[SEARCH][DEMO] hits=0")
+            return []
+
+        print(f"[SEARCH][DEMO] hits={len(hits)}")
 
         results: List[Dict[str, Any]] = []
         seen_urls = set()
@@ -147,7 +162,9 @@ class SearchService:
 
         results.sort(key=lambda r: r["score"], reverse=True)
 
-        # SAVE SEARCH HISTORY
+        # -------------------------
+        # SAVE SEARCH HISTORY (SAFE)
+        # -------------------------
         try:
             session = SessionLocal()
             history = SearchHistory(
@@ -263,7 +280,7 @@ class SearchService:
             reasons.append("mileage_match")
 
         # -------------------------
-        # RECENCY SCORE (NEW, HARDENED)
+        # RECENCY SCORE
         # -------------------------
         recency_score = 0.0
         created_at_ts = payload.get("created_at_ts")
@@ -278,7 +295,6 @@ class SearchService:
             reasons.append(f"recency_boost={round(recency_score, 3)}")
 
         else:
-            # ⛑ fallback — старая логика НЕ УДАЛЕНА
             created_at = payload.get("created_at")
             if created_at:
                 try:

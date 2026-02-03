@@ -30,8 +30,20 @@ from services.ingest_quality import (
 )
 
 # =========================
+# INDEXING (QDRANT)
+# =========================
+
+from data_pipeline.index import index_raw_documents
+
+# =========================
 # ENV CONFIG
 # =========================
+
+ENV = os.getenv("ENV", "local")
+ENABLE_INGEST = os.getenv("ENABLE_INGEST", "false").lower() == "true"
+
+DEMO_INGEST = os.getenv("DEMO_INGEST", "false").lower() == "true"
+DEMO_INGEST_LIMIT = int(os.getenv("DEMO_INGEST_LIMIT", "30"))
 
 INGEST_SOURCES_RAW = os.getenv("INGEST_SOURCES", "telegram")
 
@@ -109,16 +121,20 @@ def _resolve_created_at(item: Dict) -> Tuple[datetime, str, int, str]:
 # MAIN INGEST
 # =========================
 
-def run_ingest():
+def run_ingest() -> Dict[str, int]:
     """
     Универсальный ingest pipeline + anti-noise gate.
 
-    КЛЮЧЕВОЕ:
-    - should_skip_doc вызывается ДО записи RawDocument
-    - meta-prefix добавляется ДО normalize / qdrant
+    ГАРАНТИИ:
+    - ingest ВЫКЛЮЧЕН в prod без ENABLE_INGEST=true
+    - DEMO режим ограничивает объём данных
     - created_at ВСЕГДА присутствует
-    - готово для recency / ranking / analytics / qdrant
+    - после ingest идёт индексация в Qdrant
     """
+
+    if ENV == "prod" and not ENABLE_INGEST:
+        print("[INGEST][BLOCKED] ingest disabled in prod (ENABLE_INGEST=false)")
+        return {"saved": 0, "indexed": 0, "skipped": 0}
 
     session = SessionLocal()
     sources = _parse_sources()
@@ -135,11 +151,8 @@ def run_ingest():
         if "telegram" in sources:
             try:
                 items = fetch_telegram()
-                if not items:
-                    print("[INGEST][WARN] telegram returned 0 items")
-                else:
-                    all_items.extend(items)
-                    print(f"[INGEST][TELEGRAM] fetched: {len(items)}")
+                all_items.extend(items or [])
+                print(f"[INGEST][TELEGRAM] fetched: {len(items or [])}")
             except Exception as e:
                 print(f"[INGEST][ERROR] telegram failed: {e}")
 
@@ -199,13 +212,20 @@ def run_ingest():
                 print(f"[INGEST][ERROR] bmwclub failed: {e}")
 
         if not all_items:
-            print("[INGEST][WARN] no items fetched from any source")
-            return
+            print("[INGEST][WARN] no items fetched")
+            return {"saved": 0, "indexed": 0, "skipped": 0}
+
+        # -------------------------
+        # DEMO LIMIT
+        # -------------------------
+        if DEMO_INGEST:
+            all_items = all_items[:DEMO_INGEST_LIMIT]
+            print(f"[INGEST][DEMO] limit applied: {len(all_items)} items")
 
         # -------------------------
         # ANTI-NOISE + SAVE
         # -------------------------
-        saved = 0
+        saved_docs: List[RawDocument] = []
 
         for item in all_items:
             stats.total += 1
@@ -265,19 +285,29 @@ def run_ingest():
             )
 
             session.add(doc)
-            saved += 1
+            saved_docs.append(doc)
             stats.add(skip=False, reason="ok")
 
         session.commit()
 
+        # -------------------------
+        # INDEX → QDRANT
+        # -------------------------
+        indexed = index_raw_documents(saved_docs)
+
         print(
-            f"[INGEST] saved={saved}, "
-            f"duplicates={skipped_duplicates}, "
-            f"fetched={len(all_items)}"
+            f"[INGEST] saved={len(saved_docs)}, "
+            f"indexed={indexed}, "
+            f"duplicates={skipped_duplicates}"
         )
 
         stats.log(prefix="[INGEST][ANTI_NOISE]")
 
+        return {
+            "saved": len(saved_docs),
+            "indexed": indexed,
+            "skipped": stats.skipped,
+        }
+
     finally:
         session.close()
-w

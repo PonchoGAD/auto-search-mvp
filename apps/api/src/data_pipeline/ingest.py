@@ -1,7 +1,6 @@
 import os
 import asyncio
-from typing import List, Dict, Tuple
-from datetime import datetime, timezone
+from typing import List, Dict
 
 from db.session import SessionLocal
 from db.models import RawDocument
@@ -53,6 +52,7 @@ AVITO_LIMIT = int(os.getenv("AVITO_LIMIT", "30"))
 BENZCLUB_LIMIT = int(os.getenv("BENZCLUB_LIMIT", "30"))
 BMWCLUB_LIMIT = int(os.getenv("BMWCLUB_LIMIT", "30"))
 
+
 # =========================
 # HELPERS
 # =========================
@@ -65,63 +65,26 @@ def _parse_sources() -> List[str]:
     ]
 
 
-def _resolve_created_at(item: Dict) -> Tuple[int, str]:
-    """
-    Унифицированное получение даты документа.
-
-    Возвращает:
-      (
-        created_at_ts,     # int (unix timestamp)
-        created_at_source  # str
-      )
-    """
-
-    raw = item.get("created_at")
-
-    # datetime от источника
-    if isinstance(raw, datetime):
-        if raw.tzinfo is None:
-            raw = raw.replace(tzinfo=timezone.utc)
-        return int(raw.timestamp()), "source"
-
-    # ISO строка
-    if isinstance(raw, str):
-        try:
-            dt = datetime.fromisoformat(raw)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return int(dt.timestamp()), "source"
-        except Exception:
-            pass
-
-    # fallback — момент ingest
-    return int(datetime.now(timezone.utc).timestamp()), "ingested"
-
-
 # =========================
 # MAIN INGEST
 # =========================
 
 def run_ingest() -> Dict[str, int]:
     """
-    Универсальный ingest pipeline + anti-noise gate.
+    MVP ingest pipeline.
 
-    ГАРАНТИИ:
-    - ingest ВЫКЛЮЧЕН в prod без ENABLE_INGEST=true
-    - DEMO режим ограничивает объём данных
-    - created_at_ts ВСЕГДА присутствует
-    - после ingest идёт индексация в Qdrant
+    ⚠️ ЖЁСТКО ПОД МОДЕЛЬ RawDocument:
+    id, source, source_url, title, content, fetched_at
     """
 
     if ENV == "prod" and not ENABLE_INGEST:
-        print("[INGEST][BLOCKED] ingest disabled in prod (ENABLE_INGEST=false)")
+        print("[INGEST][BLOCKED] ingest disabled in prod")
         return {"saved": 0, "indexed": 0, "skipped": 0}
 
     session = SessionLocal()
     sources = _parse_sources()
 
     all_items: List[Dict] = []
-
     skipped_duplicates = 0
     stats = SkipStats()
 
@@ -130,82 +93,57 @@ def run_ingest() -> Dict[str, int]:
         # TELEGRAM
         # -------------------------
         if "telegram" in sources:
-            try:
-                items = fetch_telegram()
-                all_items.extend(items or [])
-                print(f"[INGEST][TELEGRAM] fetched: {len(items or [])}")
-            except Exception as e:
-                print(f"[INGEST][ERROR] telegram failed: {e}")
+            items = fetch_telegram()
+            all_items.extend(items or [])
+            print(f"[INGEST][TELEGRAM] fetched: {len(items or [])}")
 
         # -------------------------
         # AUTO.RU
         # -------------------------
         if "auto_ru" in sources:
-            try:
-                items = asyncio.run(fetch_auto_ru_serp(limit=AUTO_RU_LIMIT))
-                all_items.extend(items or [])
-                print(f"[INGEST][AUTO.RU] fetched: {len(items or [])}")
-            except Exception as e:
-                print(f"[INGEST][ERROR] auto.ru failed: {e}")
+            items = asyncio.run(fetch_auto_ru_serp(limit=AUTO_RU_LIMIT))
+            all_items.extend(items or [])
+            print(f"[INGEST][AUTO.RU] fetched: {len(items or [])}")
 
         # -------------------------
         # DROM.RU
         # -------------------------
         if "drom_ru" in sources:
-            try:
-                items = asyncio.run(fetch_drom_ru_serp(limit=DROM_RU_LIMIT))
-                all_items.extend(items or [])
-                print(f"[INGEST][DROM.RU] fetched: {len(items or [])}")
-            except Exception as e:
-                print(f"[INGEST][ERROR] drom.ru failed: {e}")
+            items = asyncio.run(fetch_drom_ru_serp(limit=DROM_RU_LIMIT))
+            all_items.extend(items or [])
+            print(f"[INGEST][DROM.RU] fetched: {len(items or [])}")
 
         # -------------------------
         # AVITO
         # -------------------------
         if "avito" in sources:
-            try:
-                items = asyncio.run(fetch_avito_serp(limit=AVITO_LIMIT))
-                all_items.extend(items or [])
-                print(f"[INGEST][AVITO] fetched: {len(items or [])}")
-            except Exception as e:
-                print(f"[INGEST][ERROR] avito failed: {e}")
+            items = asyncio.run(fetch_avito_serp(limit=AVITO_LIMIT))
+            all_items.extend(items or [])
+            print(f"[INGEST][AVITO] fetched: {len(items or [])}")
 
         # -------------------------
         # BENZCLUB
         # -------------------------
         if "benzclub" in sources:
-            try:
-                items = fetch_benzclub_listings(limit=BENZCLUB_LIMIT)
-                all_items.extend(items or [])
-                print(f"[INGEST][BENZCLUB] fetched: {len(items or [])}")
-            except Exception as e:
-                print(f"[INGEST][ERROR] benzclub failed: {e}")
+            items = fetch_benzclub_listings(limit=BENZCLUB_LIMIT)
+            all_items.extend(items or [])
+            print(f"[INGEST][BENZCLUB] fetched: {len(items or [])}")
 
         # -------------------------
         # BMWCLUB
         # -------------------------
         if "bmwclub" in sources:
-            try:
-                items = fetch_bmwclub_listings(limit=BMWCLUB_LIMIT)
-                all_items.extend(items or [])
-                print(f"[INGEST][BMWCLUB] fetched: {len(items or [])}")
-            except Exception as e:
-                print(f"[INGEST][ERROR] bmwclub failed: {e}")
+            items = fetch_bmwclub_listings(limit=BMWCLUB_LIMIT)
+            all_items.extend(items or [])
+            print(f"[INGEST][BMWCLUB] fetched: {len(items or [])}")
 
         if not all_items:
             print("[INGEST][WARN] no items fetched")
             return {"saved": 0, "indexed": 0, "skipped": 0}
 
-        # -------------------------
-        # DEMO LIMIT
-        # -------------------------
         if DEMO_INGEST:
             all_items = all_items[:DEMO_INGEST_LIMIT]
-            print(f"[INGEST][DEMO] limit applied: {len(all_items)} items")
 
-        # -------------------------
-        # ANTI-NOISE + SAVE
-        # -------------------------
         saved_docs: List[RawDocument] = []
 
         for item in all_items:
@@ -218,13 +156,7 @@ def run_ingest() -> Dict[str, int]:
                 stats.add(skip=True, reason="no_source_url")
                 continue
 
-            exists = (
-                session.query(RawDocument)
-                .filter(RawDocument.source_url == source_url)
-                .first()
-            )
-
-            if exists:
+            if session.query(RawDocument).filter_by(source_url=source_url).first():
                 skipped_duplicates += 1
                 stats.add(skip=True, reason="duplicate")
                 continue
@@ -233,29 +165,18 @@ def run_ingest() -> Dict[str, int]:
             content = item.get("content") or ""
             raw_text = f"{title}\n{content}".strip()
 
-            skip, skip_meta = should_skip_doc(
-                text=raw_text,
-                source=source,
-            )
-
+            skip, skip_meta = should_skip_doc(raw_text, source)
             if skip:
                 stats.add(skip=True, reason=skip_meta.get("reason", "unknown"))
                 continue
 
-            final_content, _ = enrich_text_with_meta(
-                raw_text=raw_text,
-                source=source,
-            )
+            final_content, _ = enrich_text_with_meta(raw_text, source)
 
-            created_at_ts, created_at_source = _resolve_created_at(item)
-
-            # 🔥 ВАЖНО: сохраняем ТОЛЬКО реальные поля модели
             doc = RawDocument(
                 source=source,
                 source_url=source_url,
                 title=title,
                 content=final_content,
-                created_at_ts=created_at_ts,
             )
 
             session.add(doc)
@@ -264,9 +185,6 @@ def run_ingest() -> Dict[str, int]:
 
         session.commit()
 
-        # -------------------------
-        # INDEX → QDRANT
-        # -------------------------
         indexed = index_raw_documents(saved_docs)
 
         print(

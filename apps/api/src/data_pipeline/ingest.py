@@ -65,56 +65,37 @@ def _parse_sources() -> List[str]:
     ]
 
 
-def _resolve_created_at(item: Dict) -> Tuple[datetime, str, int, str]:
+def _resolve_created_at(item: Dict) -> Tuple[int, str]:
     """
-    Гарантирует created_at для ВСЕХ документов.
+    Унифицированное получение даты документа.
 
     Возвращает:
       (
-        created_at_dt,
-        created_at_iso,
-        created_at_ts,
-        created_at_source
+        created_at_ts,     # int (unix timestamp)
+        created_at_source  # str
       )
     """
 
     raw = item.get("created_at")
 
-    # 1️⃣ datetime от источника
+    # datetime от источника
     if isinstance(raw, datetime):
-        dt = raw
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return (
-            dt,
-            dt.isoformat(),
-            int(dt.timestamp()),
-            "source",
-        )
+        if raw.tzinfo is None:
+            raw = raw.replace(tzinfo=timezone.utc)
+        return int(raw.timestamp()), "source"
 
-    # 2️⃣ ISO строка от источника
+    # ISO строка
     if isinstance(raw, str):
         try:
             dt = datetime.fromisoformat(raw)
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            return (
-                dt,
-                dt.isoformat(),
-                int(dt.timestamp()),
-                "source",
-            )
+            return int(dt.timestamp()), "source"
         except Exception:
             pass
 
-    # 3️⃣ Fallback — момент ingest
-    dt = datetime.now(timezone.utc)
-    return (
-        dt,
-        dt.isoformat(),
-        int(dt.timestamp()),
-        "ingested",
-    )
+    # fallback — момент ingest
+    return int(datetime.now(timezone.utc).timestamp()), "ingested"
 
 
 # =========================
@@ -128,7 +109,7 @@ def run_ingest() -> Dict[str, int]:
     ГАРАНТИИ:
     - ingest ВЫКЛЮЧЕН в prod без ENABLE_INGEST=true
     - DEMO режим ограничивает объём данных
-    - created_at ВСЕГДА присутствует
+    - created_at_ts ВСЕГДА присутствует
     - после ingest идёт индексация в Qdrant
     """
 
@@ -261,27 +242,20 @@ def run_ingest() -> Dict[str, int]:
                 stats.add(skip=True, reason=skip_meta.get("reason", "unknown"))
                 continue
 
-            final_content, meta = enrich_text_with_meta(
+            final_content, _ = enrich_text_with_meta(
                 raw_text=raw_text,
                 source=source,
             )
 
-            (
-                created_at_dt,
-                created_at_iso,
-                created_at_ts,
-                created_at_source,
-            ) = _resolve_created_at(item)
+            created_at_ts, created_at_source = _resolve_created_at(item)
 
+            # 🔥 ВАЖНО: сохраняем ТОЛЬКО реальные поля модели
             doc = RawDocument(
                 source=source,
                 source_url=source_url,
                 title=title,
                 content=final_content,
-                created_at=created_at_dt,
-                created_at_iso=created_at_iso,
                 created_at_ts=created_at_ts,
-                created_at_source=created_at_source,
             )
 
             session.add(doc)

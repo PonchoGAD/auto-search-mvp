@@ -50,7 +50,7 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
     ПРАВИЛА (MVP):
     - используем ТОЛЬКО реальные поля RawDocument
     - fetched_at = базовая временная метка
-    - никаких created_at / created_at_ts в модели
+    - Qdrant point.id = int (doc.id)
     """
 
     if not raw_docs:
@@ -64,24 +64,24 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
     now = datetime.now(tz=timezone.utc)
 
     for doc in raw_docs:
-        # --- текст ---
+        # ---------- TEXT ----------
         text = ((doc.title or "") + "\n" + (doc.content or "")).strip()
         if not text:
             continue
 
         vector = deterministic_embedding(text)
 
-        # --- время ---
+        # ---------- TIME ----------
         fetched_at = doc.fetched_at or now
         if fetched_at.tzinfo is None:
             fetched_at = fetched_at.replace(tzinfo=timezone.utc)
 
-        # --- payload (строго совместим с search) ---
+        # ---------- PAYLOAD ----------
         payload = {
             "source": doc.source,
             "url": doc.source_url,
 
-            # optional (появятся позже при normalize)
+            # future normalized fields
             "brand": None,
             "model": None,
             "price": None,
@@ -89,7 +89,7 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
             "fuel": None,
             "region": None,
 
-            # recency (ЕДИНСТВЕННЫЙ источник времени)
+            # recency
             "created_at": fetched_at.isoformat(),
             "created_at_ts": int(fetched_at.timestamp()),
             "created_at_source": "fetched",
@@ -97,7 +97,7 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
 
         points.append(
             PointStruct(
-                id=f"raw_{doc.id}",
+                id=doc.id,        # ✅ ВАЖНО: int, а не строка
                 vector=vector,
                 payload=payload,
             )

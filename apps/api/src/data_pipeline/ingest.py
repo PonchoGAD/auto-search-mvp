@@ -1,6 +1,7 @@
 import os
 import asyncio
 from typing import List, Dict
+from datetime import datetime
 
 from db.session import SessionLocal
 from db.models import RawDocument
@@ -14,7 +15,7 @@ from integrations.sources.auto_ru_playwright import fetch_auto_ru_serp
 from integrations.sources.drom_ru_playwright import fetch_drom_ru_serp
 from integrations.sources.avito_playwright import fetch_avito_serp
 
-# Форумы (HTTP, без Playwright)
+# Форумы (HTTP)
 from integrations.sources.benzclub import fetch_benzclub_listings
 from integrations.sources.bmwclub import fetch_bmwclub_listings
 
@@ -29,13 +30,13 @@ from services.ingest_quality import (
 )
 
 # =========================
-# INDEXING (QDRANT)
+# INDEXING
 # =========================
 
 from data_pipeline.index import index_raw_documents
 
 # =========================
-# ENV CONFIG
+# ENV
 # =========================
 
 ENV = os.getenv("ENV", "local")
@@ -51,7 +52,6 @@ DROM_RU_LIMIT = int(os.getenv("DROM_RU_LIMIT", "30"))
 AVITO_LIMIT = int(os.getenv("AVITO_LIMIT", "30"))
 BENZCLUB_LIMIT = int(os.getenv("BENZCLUB_LIMIT", "30"))
 BMWCLUB_LIMIT = int(os.getenv("BMWCLUB_LIMIT", "30"))
-
 
 # =========================
 # HELPERS
@@ -73,8 +73,10 @@ def run_ingest() -> Dict[str, int]:
     """
     MVP ingest pipeline.
 
-    ⚠️ ЖЁСТКО ПОД МОДЕЛЬ RawDocument:
-    id, source, source_url, title, content, fetched_at
+    ⚠️ ВАЖНО:
+    - сохраняем ТОЛЬКО поля RawDocument
+    - никаких created_at_ts / source_time
+    - async-источники вызываются безопасно
     """
 
     if ENV == "prod" and not ENABLE_INGEST:
@@ -85,57 +87,68 @@ def run_ingest() -> Dict[str, int]:
     sources = _parse_sources()
 
     all_items: List[Dict] = []
-    skipped_duplicates = 0
     stats = SkipStats()
+    skipped_duplicates = 0
 
     try:
         # -------------------------
-        # TELEGRAM
+        # TELEGRAM (sync)
         # -------------------------
         if "telegram" in sources:
-            items = fetch_telegram()
-            all_items.extend(items or [])
-            print(f"[INGEST][TELEGRAM] fetched: {len(items or [])}")
+            try:
+                items = fetch_telegram()
+                all_items.extend(items or [])
+                print(f"[INGEST][TELEGRAM] fetched={len(items or [])}")
+            except Exception as e:
+                print(f"[INGEST][ERROR] telegram: {e}")
 
         # -------------------------
-        # AUTO.RU
+        # AUTO.RU (async safe)
         # -------------------------
         if "auto_ru" in sources:
-            items = asyncio.run(fetch_auto_ru_serp(limit=AUTO_RU_LIMIT))
-            all_items.extend(items or [])
-            print(f"[INGEST][AUTO.RU] fetched: {len(items or [])}")
+            try:
+                items = asyncio.get_event_loop().run_until_complete(
+                    fetch_auto_ru_serp(limit=AUTO_RU_LIMIT)
+                )
+                all_items.extend(items or [])
+                print(f"[INGEST][AUTO.RU] fetched={len(items or [])}")
+            except Exception as e:
+                print(f"[INGEST][ERROR] auto.ru: {e}")
 
         # -------------------------
         # DROM.RU
         # -------------------------
         if "drom_ru" in sources:
-            items = asyncio.run(fetch_drom_ru_serp(limit=DROM_RU_LIMIT))
-            all_items.extend(items or [])
-            print(f"[INGEST][DROM.RU] fetched: {len(items or [])}")
+            try:
+                items = asyncio.get_event_loop().run_until_complete(
+                    fetch_drom_ru_serp(limit=DROM_RU_LIMIT)
+                )
+                all_items.extend(items or [])
+                print(f"[INGEST][DROM.RU] fetched={len(items or [])}")
+            except Exception as e:
+                print(f"[INGEST][ERROR] drom.ru: {e}")
 
         # -------------------------
         # AVITO
         # -------------------------
         if "avito" in sources:
-            items = asyncio.run(fetch_avito_serp(limit=AVITO_LIMIT))
-            all_items.extend(items or [])
-            print(f"[INGEST][AVITO] fetched: {len(items or [])}")
+            try:
+                items = asyncio.get_event_loop().run_until_complete(
+                    fetch_avito_serp(limit=AVITO_LIMIT)
+                )
+                all_items.extend(items or [])
+                print(f"[INGEST][AVITO] fetched={len(items or [])}")
+            except Exception as e:
+                print(f"[INGEST][ERROR] avito: {e}")
 
         # -------------------------
-        # BENZCLUB
+        # FORUMS
         # -------------------------
         if "benzclub" in sources:
-            items = fetch_benzclub_listings(limit=BENZCLUB_LIMIT)
-            all_items.extend(items or [])
-            print(f"[INGEST][BENZCLUB] fetched: {len(items or [])}")
+            all_items.extend(fetch_benzclub_listings(limit=BENZCLUB_LIMIT) or [])
 
-        # -------------------------
-        # BMWCLUB
-        # -------------------------
         if "bmwclub" in sources:
-            items = fetch_bmwclub_listings(limit=BMWCLUB_LIMIT)
-            all_items.extend(items or [])
-            print(f"[INGEST][BMWCLUB] fetched: {len(items or [])}")
+            all_items.extend(fetch_bmwclub_listings(limit=BMWCLUB_LIMIT) or [])
 
         if not all_items:
             print("[INGEST][WARN] no items fetched")
@@ -144,6 +157,9 @@ def run_ingest() -> Dict[str, int]:
         if DEMO_INGEST:
             all_items = all_items[:DEMO_INGEST_LIMIT]
 
+        # -------------------------
+        # SAVE
+        # -------------------------
         saved_docs: List[RawDocument] = []
 
         for item in all_items:
@@ -163,11 +179,12 @@ def run_ingest() -> Dict[str, int]:
 
             title = item.get("title") or ""
             content = item.get("content") or ""
-            raw_text = f"{title}\n{content}".strip()
 
-            skip, skip_meta = should_skip_doc(raw_text, source)
+            raw_text = f"{title}\n{content}".strip()
+            skip, meta = should_skip_doc(raw_text, source)
+
             if skip:
-                stats.add(skip=True, reason=skip_meta.get("reason", "unknown"))
+                stats.add(skip=True, reason=meta.get("reason"))
                 continue
 
             final_content, _ = enrich_text_with_meta(raw_text, source)
@@ -177,6 +194,7 @@ def run_ingest() -> Dict[str, int]:
                 source_url=source_url,
                 title=title,
                 content=final_content,
+                fetched_at=datetime.utcnow(),
             )
 
             session.add(doc)
@@ -188,8 +206,8 @@ def run_ingest() -> Dict[str, int]:
         indexed = index_raw_documents(saved_docs)
 
         print(
-            f"[INGEST] saved={len(saved_docs)}, "
-            f"indexed={indexed}, "
+            f"[INGEST] saved={len(saved_docs)} "
+            f"indexed={indexed} "
             f"duplicates={skipped_duplicates}"
         )
 

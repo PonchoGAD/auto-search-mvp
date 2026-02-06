@@ -15,7 +15,7 @@ from integrations.sources.auto_ru_playwright import fetch_auto_ru_serp
 from integrations.sources.drom_ru_playwright import fetch_drom_ru_serp
 from integrations.sources.avito_playwright import fetch_avito_serp
 
-# Форумы (HTTP)
+# Форумы (HTTP, без Playwright)
 from integrations.sources.benzclub import fetch_benzclub_listings
 from integrations.sources.bmwclub import fetch_bmwclub_listings
 
@@ -30,13 +30,13 @@ from services.ingest_quality import (
 )
 
 # =========================
-# INDEXING
+# INDEXING (QDRANT)
 # =========================
 
 from data_pipeline.index import index_raw_documents
 
 # =========================
-# ENV
+# ENV CONFIG
 # =========================
 
 ENV = os.getenv("ENV", "local")
@@ -65,100 +65,140 @@ def _parse_sources() -> List[str]:
     ]
 
 
+def _ensure_event_loop() -> asyncio.AbstractEventLoop:
+    """
+    FastAPI/AnyIO может выполнять этот код в worker thread без event loop.
+    Поэтому принудительно создаём loop и привязываем к текущему потоку.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        # В некоторых окружениях loop может существовать, но быть закрытым
+        if loop.is_closed():
+            raise RuntimeError("event loop is closed")
+        return loop
+    except Exception:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
+
+
+def _run_coro(loop: asyncio.AbstractEventLoop, coro):
+    """
+    Безопасно выполняем async корутину на loop,
+    который существует в текущем потоке.
+    """
+    return loop.run_until_complete(coro)
+
+
 # =========================
 # MAIN INGEST
 # =========================
 
 def run_ingest() -> Dict[str, int]:
     """
-    MVP ingest pipeline.
+    Универсальный ingest pipeline + anti-noise gate.
 
-    ⚠️ ВАЖНО:
-    - сохраняем ТОЛЬКО поля RawDocument
-    - никаких created_at_ts / source_time
-    - async-источники вызываются безопасно
+    ГАРАНТИИ:
+    - ingest ВЫКЛЮЧЕН в prod без ENABLE_INGEST=true
+    - DEMO режим ограничивает объём данных
+    - сохраняем только реальные поля RawDocument
+    - после ingest идёт индексация в Qdrant
     """
 
     if ENV == "prod" and not ENABLE_INGEST:
-        print("[INGEST][BLOCKED] ingest disabled in prod")
+        print("[INGEST][BLOCKED] ingest disabled in prod (ENABLE_INGEST=false)")
         return {"saved": 0, "indexed": 0, "skipped": 0}
+
+    # ✅ Ключевая фиксация AnyIO/asyncio проблемы
+    loop = _ensure_event_loop()
 
     session = SessionLocal()
     sources = _parse_sources()
 
     all_items: List[Dict] = []
-    stats = SkipStats()
     skipped_duplicates = 0
+    stats = SkipStats()
 
     try:
         # -------------------------
-        # TELEGRAM (sync)
+        # TELEGRAM
         # -------------------------
         if "telegram" in sources:
             try:
                 items = fetch_telegram()
                 all_items.extend(items or [])
-                print(f"[INGEST][TELEGRAM] fetched={len(items or [])}")
+                print(f"[INGEST][TELEGRAM] fetched: {len(items or [])}")
             except Exception as e:
-                print(f"[INGEST][ERROR] telegram: {e}")
+                print(f"[INGEST][ERROR] telegram failed: {e}")
 
         # -------------------------
-        # AUTO.RU (async safe)
+        # AUTO.RU
         # -------------------------
         if "auto_ru" in sources:
             try:
-                items = asyncio.get_event_loop().run_until_complete(
-                    fetch_auto_ru_serp(limit=AUTO_RU_LIMIT)
-                )
+                items = _run_coro(loop, fetch_auto_ru_serp(limit=AUTO_RU_LIMIT))
                 all_items.extend(items or [])
-                print(f"[INGEST][AUTO.RU] fetched={len(items or [])}")
+                print(f"[INGEST][AUTO.RU] fetched: {len(items or [])}")
             except Exception as e:
-                print(f"[INGEST][ERROR] auto.ru: {e}")
+                print(f"[INGEST][ERROR] auto.ru failed: {e}")
 
         # -------------------------
         # DROM.RU
         # -------------------------
         if "drom_ru" in sources:
             try:
-                items = asyncio.get_event_loop().run_until_complete(
-                    fetch_drom_ru_serp(limit=DROM_RU_LIMIT)
-                )
+                items = _run_coro(loop, fetch_drom_ru_serp(limit=DROM_RU_LIMIT))
                 all_items.extend(items or [])
-                print(f"[INGEST][DROM.RU] fetched={len(items or [])}")
+                print(f"[INGEST][DROM.RU] fetched: {len(items or [])}")
             except Exception as e:
-                print(f"[INGEST][ERROR] drom.ru: {e}")
+                print(f"[INGEST][ERROR] drom.ru failed: {e}")
 
         # -------------------------
         # AVITO
         # -------------------------
         if "avito" in sources:
             try:
-                items = asyncio.get_event_loop().run_until_complete(
-                    fetch_avito_serp(limit=AVITO_LIMIT)
-                )
+                items = _run_coro(loop, fetch_avito_serp(limit=AVITO_LIMIT))
                 all_items.extend(items or [])
-                print(f"[INGEST][AVITO] fetched={len(items or [])}")
+                print(f"[INGEST][AVITO] fetched: {len(items or [])}")
             except Exception as e:
-                print(f"[INGEST][ERROR] avito: {e}")
+                print(f"[INGEST][ERROR] avito failed: {e}")
 
         # -------------------------
-        # FORUMS
+        # BENZCLUB
         # -------------------------
         if "benzclub" in sources:
-            all_items.extend(fetch_benzclub_listings(limit=BENZCLUB_LIMIT) or [])
+            try:
+                items = fetch_benzclub_listings(limit=BENZCLUB_LIMIT)
+                all_items.extend(items or [])
+                print(f"[INGEST][BENZCLUB] fetched: {len(items or [])}")
+            except Exception as e:
+                print(f"[INGEST][ERROR] benzclub failed: {e}")
 
+        # -------------------------
+        # BMWCLUB
+        # -------------------------
         if "bmwclub" in sources:
-            all_items.extend(fetch_bmwclub_listings(limit=BMWCLUB_LIMIT) or [])
+            try:
+                items = fetch_bmwclub_listings(limit=BMWCLUB_LIMIT)
+                all_items.extend(items or [])
+                print(f"[INGEST][BMWCLUB] fetched: {len(items or [])}")
+            except Exception as e:
+                print(f"[INGEST][ERROR] bmwclub failed: {e}")
 
         if not all_items:
             print("[INGEST][WARN] no items fetched")
             return {"saved": 0, "indexed": 0, "skipped": 0}
 
+        # -------------------------
+        # DEMO LIMIT
+        # -------------------------
         if DEMO_INGEST:
             all_items = all_items[:DEMO_INGEST_LIMIT]
+            print(f"[INGEST][DEMO] limit applied: {len(all_items)} items")
 
         # -------------------------
-        # SAVE
+        # ANTI-NOISE + SAVE
         # -------------------------
         saved_docs: List[RawDocument] = []
 
@@ -172,23 +212,36 @@ def run_ingest() -> Dict[str, int]:
                 stats.add(skip=True, reason="no_source_url")
                 continue
 
-            if session.query(RawDocument).filter_by(source_url=source_url).first():
+            exists = (
+                session.query(RawDocument)
+                .filter(RawDocument.source_url == source_url)
+                .first()
+            )
+            if exists:
                 skipped_duplicates += 1
                 stats.add(skip=True, reason="duplicate")
                 continue
 
             title = item.get("title") or ""
             content = item.get("content") or ""
-
             raw_text = f"{title}\n{content}".strip()
-            skip, meta = should_skip_doc(raw_text, source)
 
+            # ✅ ВАЖНО: should_skip_doc вызываем ТОЛЬКО ключевыми аргументами
+            skip, skip_meta = should_skip_doc(
+                text=raw_text,
+                source=source,
+            )
             if skip:
-                stats.add(skip=True, reason=meta.get("reason"))
+                stats.add(skip=True, reason=skip_meta.get("reason", "unknown"))
                 continue
 
-            final_content, _ = enrich_text_with_meta(raw_text, source)
+            # enrich тоже безопаснее так (если там keyword-only)
+            final_content, _meta = enrich_text_with_meta(
+                raw_text=raw_text,
+                source=source,
+            )
 
+            # ✅ RawDocument сохраняем ТОЛЬКО то, что реально есть в модели
             doc = RawDocument(
                 source=source,
                 source_url=source_url,
@@ -203,11 +256,14 @@ def run_ingest() -> Dict[str, int]:
 
         session.commit()
 
+        # -------------------------
+        # INDEX → QDRANT
+        # -------------------------
         indexed = index_raw_documents(saved_docs)
 
         print(
-            f"[INGEST] saved={len(saved_docs)} "
-            f"indexed={indexed} "
+            f"[INGEST] saved={len(saved_docs)}, "
+            f"indexed={indexed}, "
             f"duplicates={skipped_duplicates}"
         )
 
@@ -221,3 +277,4 @@ def run_ingest() -> Dict[str, int]:
 
     finally:
         session.close()
+        # loop не закрываем принудительно: Telethon/Playwright могут ещё быть привязаны

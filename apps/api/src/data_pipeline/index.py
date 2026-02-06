@@ -47,10 +47,10 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
     """
     Индексирует RawDocument напрямую в Qdrant.
 
-    ГАРАНТИИ:
-    - payload полностью совместим с SearchService
-    - created_at / created_at_ts / created_at_source ВСЕГДА есть
-    - безопасно для demo / prod
+    ПРАВИЛА (MVP):
+    - используем ТОЛЬКО реальные поля RawDocument
+    - fetched_at = базовая временная метка
+    - никаких created_at / created_at_ts в модели
     """
 
     if not raw_docs:
@@ -64,24 +64,24 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
     now = datetime.now(tz=timezone.utc)
 
     for doc in raw_docs:
-        text = (doc.title or "") + "\n" + (doc.content or "")
-        text = text.strip()
-
+        # --- текст ---
+        text = ((doc.title or "") + "\n" + (doc.content or "")).strip()
         if not text:
             continue
 
         vector = deterministic_embedding(text)
 
-        created_at = doc.created_at or now
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
+        # --- время ---
+        fetched_at = doc.fetched_at or now
+        if fetched_at.tzinfo is None:
+            fetched_at = fetched_at.replace(tzinfo=timezone.utc)
 
+        # --- payload (строго совместим с search) ---
         payload = {
-            # 🔑 REQUIRED BY SEARCH
             "source": doc.source,
             "url": doc.source_url,
 
-            # OPTIONAL STRUCTURE (появится позже при normalize)
+            # optional (появятся позже при normalize)
             "brand": None,
             "model": None,
             "price": None,
@@ -89,15 +89,15 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
             "fuel": None,
             "region": None,
 
-            # 🔑 RECENCY (HARDENED)
-            "created_at": created_at.isoformat(),
-            "created_at_ts": int(created_at.timestamp()),
-            "created_at_source": doc.created_at_source or "ingested",
+            # recency (ЕДИНСТВЕННЫЙ источник времени)
+            "created_at": fetched_at.isoformat(),
+            "created_at_ts": int(fetched_at.timestamp()),
+            "created_at_source": "fetched",
         }
 
         points.append(
             PointStruct(
-                id=f"raw_{doc.id}",  # ⛑ уникально и стабильно
+                id=f"raw_{doc.id}",
                 vector=vector,
                 payload=payload,
             )
@@ -114,7 +114,7 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
 
 
 # =====================================================
-# LEGACY / FALLBACK (НЕ ЛОМАЕМ)
+# LEGACY / FALLBACK
 # =====================================================
 
 def run_index(limit: int = 500):

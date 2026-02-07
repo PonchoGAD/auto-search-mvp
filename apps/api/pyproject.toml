@@ -9,6 +9,8 @@ package-mode = false
 python = "^3.11"
 playwright = "^1.42.0"
 redis = "^5.0"
+openai = "^1.0.0"
+
 
 # API
 fastapi = "^0.110.0"

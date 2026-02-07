@@ -21,10 +21,10 @@ OPENAI_VECTOR_SIZE = 1536
 # Local models (BGE / E5)
 LOCAL_VECTOR_SIZE = 384  # bge-small / e5-small
 
-# Deterministic (fallback / demo)
+# Deterministic (fallback / demo only)
 DETERMINISTIC_VECTOR_SIZE = 32
 
-# Cache for local model (IMPORTANT: don't reload per doc)
+# Cache for local model
 _LOCAL_MODEL = None
 _LOCAL_MODEL_NAME = None
 
@@ -32,33 +32,19 @@ _LOCAL_MODEL_NAME = None
 # EMBEDDING IMPLEMENTATIONS
 # =====================================================
 
-def deterministic_embedding(text: str, size: int = DETERMINISTIC_VECTOR_SIZE) -> List[float]:
+def _deterministic_fallback(text: str, size: int = DETERMINISTIC_VECTOR_SIZE) -> List[float]:
     """
-    ✅ MUST EXIST (SearchService imports this).
-    Deterministic mock embedding: same text -> same vector.
-
-    MVP fallback:
-    - no ML
-    - fast
-    - stable for demo
+    ❗ INTERNAL ONLY
+    Used ONLY as last-resort fallback to keep MVP alive.
     """
     if not (text or "").strip():
         return []
 
     digest = hashlib.sha256(text.encode("utf-8")).digest()
-
-    vector: List[float] = []
-    for i in range(size):
-        value = digest[i % len(digest)]
-        vector.append(value / 255.0)
-
-    return vector
+    return [(digest[i % len(digest)] / 255.0) for i in range(size)]
 
 
 def embed_openai(text: str) -> List[float]:
-    """
-    OpenAI embedding (production-ready).
-    """
     if not text.strip():
         return []
 
@@ -82,15 +68,10 @@ def embed_openai(text: str) -> List[float]:
 
 
 def embed_bge_or_e5(text: str) -> List[float]:
-    """
-    Local embedding via sentence-transformers.
-    Used for bge-small / e5-small.
-    """
     if not text.strip():
         return []
 
     global _LOCAL_MODEL, _LOCAL_MODEL_NAME
-
     from sentence_transformers import SentenceTransformer
 
     model_name = os.getenv(
@@ -98,7 +79,6 @@ def embed_bge_or_e5(text: str) -> List[float]:
         "sentence-transformers/all-MiniLM-L6-v2",
     )
 
-    # ✅ cache model in memory
     if _LOCAL_MODEL is None or _LOCAL_MODEL_NAME != model_name:
         _LOCAL_MODEL = SentenceTransformer(model_name)
         _LOCAL_MODEL_NAME = model_name
@@ -109,11 +89,8 @@ def embed_bge_or_e5(text: str) -> List[float]:
 
 def embed_text(text: str) -> List[float]:
     """
-    Unified embedding dispatcher.
-
-    IMPORTANT:
-    - must not crash whole pipeline if provider unavailable
-    - fallback to deterministic to keep MVP alive
+    REAL embedding dispatcher.
+    Used by BOTH index and search.
     """
     if not text.strip():
         return []
@@ -126,20 +103,34 @@ def embed_text(text: str) -> List[float]:
             return embed_bge_or_e5(text)
 
         if EMBEDDING_PROVIDER in ("deterministic", "mock", "demo"):
-            return deterministic_embedding(text)
+            return _deterministic_fallback(text)
 
         raise ValueError(f"Unknown EMBEDDING_PROVIDER={EMBEDDING_PROVIDER}")
 
     except Exception as e:
-        # ✅ fail-safe fallback: keep system alive in MVP
-        print(f"[EMBED][WARN] provider={EMBEDDING_PROVIDER} failed, fallback to deterministic: {e}")
-        return deterministic_embedding(text)
+        print(f"[EMBED][WARN] provider={EMBEDDING_PROVIDER} failed → fallback: {e}")
+        return _deterministic_fallback(text)
+
+
+# =====================================================
+# ⚠️ CRITICAL ADAPTER (DO NOT REMOVE)
+# =====================================================
+
+def deterministic_embedding(text: str) -> List[float]:
+    """
+    ✅ ADAPTER FOR SearchService.
+
+    SearchService IMPORTS THIS FUNCTION.
+    Therefore it MUST return the SAME embedding
+    that was used during indexing.
+
+    ❌ NOT a hash anymore
+    ✅ Delegates to embed_text()
+    """
+    return embed_text(text)
 
 
 def resolve_vector_size() -> int:
-    """
-    Vector size must match Qdrant collection size.
-    """
     if EMBEDDING_PROVIDER == "openai":
         return OPENAI_VECTOR_SIZE
     if EMBEDDING_PROVIDER in ("bge", "e5", "local"):
@@ -148,20 +139,10 @@ def resolve_vector_size() -> int:
 
 
 # =====================================================
-# INDEX RAW DOCUMENTS (MAIN ENTRY)
+# INDEX RAW DOCUMENTS
 # =====================================================
 
 def index_raw_documents(raw_docs: List[RawDocument]) -> int:
-    """
-    Индексирует RawDocument напрямую в Qdrant.
-
-    ПРАВИЛА:
-    - SearchService не трогаем
-    - embedding реальный (или fallback deterministic)
-    - point.id = int (doc.id)
-    - payload совместим с SearchService
-    """
-
     if not raw_docs:
         print("[INDEX][WARN] no raw documents to index")
         return 0
@@ -174,39 +155,28 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
     now = datetime.now(tz=timezone.utc)
 
     for doc in raw_docs:
-        # ---------- TEXT ----------
         text = ((doc.title or "") + "\n" + (doc.content or "")).strip()
         if not text:
             continue
 
-        try:
-            vector = embed_text(text)
-        except Exception as e:
-            print(f"[INDEX][ERROR] embedding failed (doc={doc.id}): {e}")
-            continue
-
+        vector = embed_text(text)
         if not vector:
             continue
 
-        # ✅ extra guard: vector length must match collection
         if len(vector) != vector_size:
             print(
-                f"[INDEX][WARN] vector size mismatch (doc={doc.id}) "
-                f"len(vector)={len(vector)} expected={vector_size} -> skip"
+                f"[INDEX][WARN] vector size mismatch doc={doc.id} "
+                f"len={len(vector)} expected={vector_size}"
             )
             continue
 
-        # ---------- TIME ----------
         fetched_at = doc.fetched_at or now
         if fetched_at.tzinfo is None:
             fetched_at = fetched_at.replace(tzinfo=timezone.utc)
 
-        # ---------- PAYLOAD ----------
         payload = {
             "source": doc.source,
             "url": doc.source_url,
-
-            # future normalized fields
             "brand": None,
             "model": None,
             "price": None,
@@ -214,8 +184,6 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
             "fuel": None,
             "region": None,
             "paint_condition": None,
-
-            # recency
             "created_at": fetched_at.isoformat(),
             "created_at_ts": int(fetched_at.timestamp()),
             "created_at_source": "fetched",
@@ -223,7 +191,7 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
 
         points.append(
             PointStruct(
-                id=doc.id,          # ✅ Qdrant требует int или UUID
+                id=doc.id,
                 vector=vector,
                 payload=payload,
             )
@@ -234,19 +202,14 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
         return 0
 
     store.upsert(points)
-
     print(f"[INDEX] indexed raw documents: {len(points)}")
     return len(points)
 
 
 # =====================================================
-# LEGACY / FALLBACK
+# LEGACY
 # =====================================================
 
 def run_index(limit: int = 500):
-    """
-    Legacy indexer.
-    Оставлен для совместимости / ручного использования.
-    """
     print("[INDEX][WARN] run_index() is legacy, prefer index_raw_documents()")
     return 0

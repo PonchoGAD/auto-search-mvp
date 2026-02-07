@@ -1,4 +1,5 @@
 import os
+import hashlib
 from typing import List
 from datetime import datetime, timezone
 
@@ -20,24 +21,64 @@ OPENAI_VECTOR_SIZE = 1536
 # Local models (BGE / E5)
 LOCAL_VECTOR_SIZE = 384  # bge-small / e5-small
 
+# Deterministic (fallback / demo)
+DETERMINISTIC_VECTOR_SIZE = 32
+
+# Cache for local model (IMPORTANT: don't reload per doc)
+_LOCAL_MODEL = None
+_LOCAL_MODEL_NAME = None
+
 # =====================================================
 # EMBEDDING IMPLEMENTATIONS
 # =====================================================
+
+def deterministic_embedding(text: str, size: int = DETERMINISTIC_VECTOR_SIZE) -> List[float]:
+    """
+    ✅ MUST EXIST (SearchService imports this).
+    Deterministic mock embedding: same text -> same vector.
+
+    MVP fallback:
+    - no ML
+    - fast
+    - stable for demo
+    """
+    if not (text or "").strip():
+        return []
+
+    digest = hashlib.sha256(text.encode("utf-8")).digest()
+
+    vector: List[float] = []
+    for i in range(size):
+        value = digest[i % len(digest)]
+        vector.append(value / 255.0)
+
+    return vector
+
 
 def embed_openai(text: str) -> List[float]:
     """
     OpenAI embedding (production-ready).
     """
-    from openai import OpenAI
+    if not text.strip():
+        return []
 
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is missing")
+
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key)
 
     resp = client.embeddings.create(
         model=OPENAI_MODEL,
         input=text,
     )
 
-    return resp.data[0].embedding
+    emb = resp.data[0].embedding
+    if not isinstance(emb, list) or not emb:
+        raise RuntimeError("OpenAI returned empty embedding")
+
+    return emb
 
 
 def embed_bge_or_e5(text: str) -> List[float]:
@@ -45,6 +86,11 @@ def embed_bge_or_e5(text: str) -> List[float]:
     Local embedding via sentence-transformers.
     Used for bge-small / e5-small.
     """
+    if not text.strip():
+        return []
+
+    global _LOCAL_MODEL, _LOCAL_MODEL_NAME
+
     from sentence_transformers import SentenceTransformer
 
     model_name = os.getenv(
@@ -52,31 +98,53 @@ def embed_bge_or_e5(text: str) -> List[float]:
         "sentence-transformers/all-MiniLM-L6-v2",
     )
 
-    model = SentenceTransformer(model_name)
-    vector = model.encode(text, normalize_embeddings=True)
+    # ✅ cache model in memory
+    if _LOCAL_MODEL is None or _LOCAL_MODEL_NAME != model_name:
+        _LOCAL_MODEL = SentenceTransformer(model_name)
+        _LOCAL_MODEL_NAME = model_name
+
+    vector = _LOCAL_MODEL.encode(text, normalize_embeddings=True)
     return vector.tolist()
 
 
 def embed_text(text: str) -> List[float]:
     """
     Unified embedding dispatcher.
+
+    IMPORTANT:
+    - must not crash whole pipeline if provider unavailable
+    - fallback to deterministic to keep MVP alive
     """
     if not text.strip():
         return []
 
-    if EMBEDDING_PROVIDER == "openai":
-        return embed_openai(text)
+    try:
+        if EMBEDDING_PROVIDER == "openai":
+            return embed_openai(text)
 
-    if EMBEDDING_PROVIDER in ("bge", "e5", "local"):
-        return embed_bge_or_e5(text)
+        if EMBEDDING_PROVIDER in ("bge", "e5", "local"):
+            return embed_bge_or_e5(text)
 
-    raise ValueError(f"Unknown EMBEDDING_PROVIDER={EMBEDDING_PROVIDER}")
+        if EMBEDDING_PROVIDER in ("deterministic", "mock", "demo"):
+            return deterministic_embedding(text)
+
+        raise ValueError(f"Unknown EMBEDDING_PROVIDER={EMBEDDING_PROVIDER}")
+
+    except Exception as e:
+        # ✅ fail-safe fallback: keep system alive in MVP
+        print(f"[EMBED][WARN] provider={EMBEDDING_PROVIDER} failed, fallback to deterministic: {e}")
+        return deterministic_embedding(text)
 
 
 def resolve_vector_size() -> int:
+    """
+    Vector size must match Qdrant collection size.
+    """
     if EMBEDDING_PROVIDER == "openai":
         return OPENAI_VECTOR_SIZE
-    return LOCAL_VECTOR_SIZE
+    if EMBEDDING_PROVIDER in ("bge", "e5", "local"):
+        return LOCAL_VECTOR_SIZE
+    return DETERMINISTIC_VECTOR_SIZE
 
 
 # =====================================================
@@ -89,7 +157,7 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
 
     ПРАВИЛА:
     - SearchService не трогаем
-    - embedding реальный
+    - embedding реальный (или fallback deterministic)
     - point.id = int (doc.id)
     - payload совместим с SearchService
     """
@@ -118,6 +186,14 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
             continue
 
         if not vector:
+            continue
+
+        # ✅ extra guard: vector length must match collection
+        if len(vector) != vector_size:
+            print(
+                f"[INDEX][WARN] vector size mismatch (doc={doc.id}) "
+                f"len(vector)={len(vector)} expected={vector_size} -> skip"
+            )
             continue
 
         # ---------- TIME ----------

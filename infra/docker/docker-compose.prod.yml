@@ -23,7 +23,9 @@ services:
       - internal
 
   ingest-worker:
-    build: ./apps/ingest-worker
+    build:
+      context: ../../apps/ingest-worker
+      dockerfile: Dockerfile
     container_name: auto-search-ingest-worker
     env_file:
       - .env.prod

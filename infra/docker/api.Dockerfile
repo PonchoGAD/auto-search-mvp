@@ -11,7 +11,6 @@ COPY apps/api/pyproject.toml /app/
 RUN poetry config virtualenvs.create false \
     && poetry install --no-interaction --no-ansi --no-root
  
-RUN playwright install --with-deps chromium
 
 COPY apps/api/src /app/src
 

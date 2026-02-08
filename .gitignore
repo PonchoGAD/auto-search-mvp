@@ -65,3 +65,6 @@ Thumbs.db
 # TEMP / DEBUG
 # =========================
 file.txt
+
+__pycache__/
+*.pyc

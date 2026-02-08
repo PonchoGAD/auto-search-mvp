@@ -62,7 +62,7 @@ cd auto-search-mvp
 # =========================
 # DATABASE
 # =========================
-DATABASE_URL=postgresql+psycopg2://auto:auto@postgres:5432/auto_search
+DATABASE_URL=postgresql+psycopg2://auto:auto133@postgres:5432/auto_search
 
 # =========================
 # TELEGRAM

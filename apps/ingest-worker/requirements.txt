@@ -1,5 +1,8 @@
-playwright
-sqlalchemy
-psycopg2-binary
 requests
 beautifulsoup4
+lxml
+
+sqlalchemy>=2.0
+psycopg2-binary
+
+playwright

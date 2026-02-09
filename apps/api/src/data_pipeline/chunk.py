@@ -1,3 +1,5 @@
+#  apps\api\src\data_pipeline\chunk.py
+
 from db.session import SessionLocal, engine
 from db.models import Base, NormalizedDocument, DocumentChunk
 

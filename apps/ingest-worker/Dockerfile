@@ -31,3 +31,5 @@ RUN playwright install --with-deps chromium
 COPY . .
 
 CMD ["python", "main.py"]
+COPY ../shared /app/shared
+ENV PYTHONPATH=/app

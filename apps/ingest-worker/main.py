@@ -8,6 +8,9 @@ from sources.avito import fetch_avito_serp
 from sources.drom import fetch_drom_ru
 
 from db.models import Base, RawDocument
+from shared.db.base import Base
+from shared.db.models import RawDocument
+
 
 
 # =========================
@@ -24,6 +27,7 @@ Session = sessionmaker(bind=engine)
 # 🔴 КРИТИЧЕСКИ ВАЖНО
 # Создаём таблицы ДО любой записи
 Base.metadata.create_all(bind=engine)
+
 
 
 # =========================

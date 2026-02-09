@@ -2,7 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# system deps
+# =========================
+# SYSTEM DEPENDENCIES
+# =========================
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
@@ -22,14 +24,33 @@ RUN apt-get update && apt-get install -y \
     libgtk-3-0 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+# =========================
+# PYTHON DEPS
+# =========================
+COPY apps/ingest-worker/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# playwright browser
+# =========================
+# PLAYWRIGHT (WORKER ONLY)
+# =========================
 RUN playwright install --with-deps chromium
 
-COPY . .
+# =========================
+# COPY SOURCE CODE
+# =========================
 
-CMD ["python", "main.py"]
-COPY ../shared /app/shared
+# shared db (ВАЖНО)
+COPY apps/shared /app/shared
+
+# ingest-worker code
+COPY apps/ingest-worker /app
+
+# =========================
+# PYTHONPATH
+# =========================
 ENV PYTHONPATH=/app
+
+# =========================
+# RUN
+# =========================
+CMD ["python", "main.py"]

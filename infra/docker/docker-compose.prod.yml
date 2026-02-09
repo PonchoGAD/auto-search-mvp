@@ -24,7 +24,7 @@ services:
 
   ingest-worker:
     build:
-      context: ../../apps/ingest-worker
+      context: ../../
       dockerfile: apps/ingest-worker/Dockerfile
     container_name: auto-search-ingest-worker
     env_file:

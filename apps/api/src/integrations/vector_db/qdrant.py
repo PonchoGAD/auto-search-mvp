@@ -44,6 +44,9 @@ class QdrantStore:
                 size=vector_size,
                 distance=Distance.COSINE,
             ),
+            optimizers_config={
+                "indexing_threshold": 0  # ← КЛЮЧЕВО
+            }
         )
 
         print(f"[QDRANT] collection created: {COLLECTION_NAME}")

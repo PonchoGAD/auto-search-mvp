@@ -30,26 +30,28 @@ class QdrantStore:
     # COLLECTION
     # =====================================================
 
-    def create_collection(self, vector_size: int):
-        collections = [
-            c.name for c in self.client.get_collections().collections
-        ]
+      def create_collection(self, vector_size: int):
+    collections = [
+        c.name for c in self.client.get_collections().collections
+    ]
 
-        if COLLECTION_NAME in collections:
-            return
+    if COLLECTION_NAME in collections:
+        return
 
-        self.client.create_collection(
-            collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(
-                size=vector_size,
-                distance=Distance.COSINE,
-            ),
-            optimizers_config={
-                "indexing_threshold": 0  # ← КЛЮЧЕВО
-            }
-        )
+    self.client.create_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config=VectorParams(
+            size=vector_size,
+            distance=Distance.COSINE,
+        ),
+        optimizer_config={
+            "indexing_threshold": 20000
+        }
+    )
 
-        print(f"[QDRANT] collection created: {COLLECTION_NAME}")
+    print(f"[QDRANT] collection created: {COLLECTION_NAME}")
+
+
 
     # =====================================================
     # PAYLOAD NORMALIZATION (RECENCY HARDENING)

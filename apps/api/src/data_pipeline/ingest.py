@@ -13,9 +13,7 @@ from db.models import RawDocument
 # =========================
 
 from integrations.sources.telegram import fetch_telegram
-from integrations.sources.auto_ru_playwright import fetch_auto_ru_serp
-from integrations.sources.drom_ru_playwright import fetch_drom_ru_serp
-from integrations.sources.avito_playwright import fetch_avito_serp
+
 
 # Форумы (HTTP, без Playwright)
 from integrations.sources.benzclub import fetch_benzclub_listings

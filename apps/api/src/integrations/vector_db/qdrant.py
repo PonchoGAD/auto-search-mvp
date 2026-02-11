@@ -35,21 +35,26 @@ class QdrantStore:
         c.name for c in self.client.get_collections().collections
     ]
 
-    if COLLECTION_NAME in collections:
-        return
+    if COLLECTION_NAME not in collections:
+        self.client.create_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config=VectorParams(
+                size=vector_size,
+                distance=Distance.COSINE,
+            ),
+        )
+        print(f"[QDRANT] collection created: {COLLECTION_NAME}")
 
-    self.client.create_collection(
+    # 🔥 КЛЮЧЕВОЙ ФИКС
+    self.client.update_collection(
         collection_name=COLLECTION_NAME,
-        vectors_config=VectorParams(
-            size=vector_size,
-            distance=Distance.COSINE,
-        ),
         optimizer_config={
             "indexing_threshold": 20000
         }
     )
 
-    print(f"[QDRANT] collection created: {COLLECTION_NAME}")
+    print("[QDRANT] indexing_threshold set to 20000")
+
 
 
 

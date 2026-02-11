@@ -178,7 +178,7 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
 
         payload = {
             "source": doc.source,
-            "url": doc.source_url,
+            "source_url": doc.source_url,
             "brand": None,
             "model": None,
             "price": None,

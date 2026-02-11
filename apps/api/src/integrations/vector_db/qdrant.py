@@ -142,13 +142,11 @@ class QdrantStore:
     # =====================================================
 
     def search(self, vector: List[float], limit: int = 20):
-        """
-        Поиск по векторам.
-        Recency применяется на уровне ranking (search_service),
-        payload полностью готов.
-        """
-        return self.client.search(
-            collection_name=COLLECTION_NAME,
-            query_vector=vector,
-            limit=limit,
-        )
+    response = self.client.query_points(
+        collection_name=COLLECTION_NAME,
+        query=vector,
+        limit=limit,
+    )
+
+    return response.points
+

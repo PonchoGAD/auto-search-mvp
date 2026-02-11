@@ -105,7 +105,7 @@ class SearchService:
 
         for hit in hits:
             payload = hit.payload or {}
-            source_url = payload.get("url")
+            source_url = payload.get("source_url")
 
             if not source_url or source_url in seen_urls:
                 continue

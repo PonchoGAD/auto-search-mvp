@@ -54,6 +54,7 @@ class StructuredQuery(BaseModel):
     fuel: Optional[str] = None
     paint_condition: Optional[str] = None
     city: Optional[str] = None
+    region: Optional[str] = None
 
     # Дополнительно
     keywords: List[str] = Field(default_factory=list)

@@ -208,8 +208,11 @@ class SearchService:
             parts.append(structured.fuel)
         if structured.paint_condition:
             parts.append(structured.paint_condition)
-        if structured.region:
-            parts.append(structured.region)
+
+        location = getattr(structured, "region", None) or getattr(structured, "city", None)
+        if location:
+            parts.append(location)
+
         if structured.keywords:
             parts.extend(structured.keywords)
 

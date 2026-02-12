@@ -176,10 +176,25 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
         if fetched_at.tzinfo is None:
             fetched_at = fetched_at.replace(tzinfo=timezone.utc)
 
+        # =========================
+        # 🆕 BRAND AUTO-DETECTION (MVP)
+        # =========================
+        brand = None
+        source_url = (doc.source_url or "").lower()
+
+        if "bmw" in source_url:
+            brand = "bmw"
+        elif "audi" in source_url:
+            brand = "audi"
+        elif "mercedes" in source_url:
+            brand = "mercedes"
+        elif "hyundai" in source_url:
+            brand = "hyundai"
+
         payload = {
             "source": doc.source,
             "source_url": doc.source_url,
-            "brand": None,
+            "brand": brand,
             "model": None,
             "price": None,
             "mileage": None,

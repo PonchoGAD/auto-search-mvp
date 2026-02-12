@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct
@@ -45,9 +45,6 @@ class QdrantStore:
             )
             print(f"[QDRANT] collection created: {COLLECTION_NAME}")
 
-
-
-        
     # =====================================================
     # PAYLOAD NORMALIZATION (RECENCY HARDENING)
     # =====================================================
@@ -131,11 +128,26 @@ class QdrantStore:
     # SEARCH
     # =====================================================
 
-    def search(self, vector: List[float], limit: int = 20):
-        response = self.client.query_points(
-            collection_name=COLLECTION_NAME,
-            query=vector,
-            limit=limit,
-        )
+    def search(self, vector: List[float], limit: int = 20, brand: Optional[str] = None):
+        if brand:
+            response = self.client.query_points(
+                collection_name=COLLECTION_NAME,
+                query=vector,
+                limit=limit,
+                query_filter={
+                    "must": [
+                        {
+                            "key": "brand",
+                            "match": {"value": brand},
+                        }
+                    ]
+                },
+            )
+        else:
+            response = self.client.query_points(
+                collection_name=COLLECTION_NAME,
+                query=vector,
+                limit=limit,
+            )
 
         return response.points

@@ -89,6 +89,7 @@ class SearchService:
             hits = self.store.search(
                 vector=query_vector,
                 limit=top_k,
+                brand=structured.brand if structured.brand else None,
             )
         except Exception as e:
             print(f"[SEARCH][DEMO][WARN] qdrant unavailable: {e}")
@@ -105,6 +106,15 @@ class SearchService:
 
         for hit in hits:
             payload = hit.payload or {}
+
+            # =========================
+            # 🔒 STRICT BRAND FILTER
+            # =========================
+            if structured.brand:
+                payload_brand = payload.get("brand")
+                if not payload_brand or payload_brand != structured.brand:
+                    continue
+
             source_url = payload.get("source_url")
 
             if not source_url or source_url in seen_urls:

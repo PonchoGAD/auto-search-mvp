@@ -141,6 +141,49 @@ def resolve_vector_size() -> int:
 
 
 # =====================================================
+# 🆕 BRAND DETECTION
+# =====================================================
+
+def detect_brand(source_url, title, content):
+    """
+    Определяет бренд по source_url, title и content.
+    Возвращает строку бренда или None.
+    """
+
+    text = (
+        (source_url or "") + " " +
+        (title or "") + " " +
+        (content or "")
+    ).lower()
+
+    brand_map = {
+        "bmw": [" /bmw/", "bmw-", "/bmw/"],
+        "audi": ["/audi/"],
+        "mercedes": ["/mercedes/"],
+        "toyota": ["/toyota/"],
+        "hyundai": ["/hyundai/"],
+        "kia": ["/kia/"],
+        "honda": ["/honda/"],
+        "nissan": ["/nissan/"],
+    }
+
+    # URL specific quick checks
+    if "/bmw/" in text or "bmw-" in text:
+        return "bmw"
+
+    for brand in ["audi", "mercedes", "toyota", "hyundai", "kia", "honda", "nissan"]:
+        if f"/{brand}/" in text:
+            return brand
+
+    # Fallback text check
+    for brand in ["bmw", "audi", "mercedes", "toyota", "hyundai", "kia", "honda", "nissan"]:
+        if brand in text:
+            return brand
+
+    return None
+
+
+# =====================================================
 # INDEX RAW DOCUMENTS
 # =====================================================
 
@@ -176,20 +219,7 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
         if fetched_at.tzinfo is None:
             fetched_at = fetched_at.replace(tzinfo=timezone.utc)
 
-        # =========================
-        # 🆕 BRAND AUTO-DETECTION (MVP)
-        # =========================
-        brand = None
-        source_url = (doc.source_url or "").lower()
-
-        if "bmw" in source_url:
-            brand = "bmw"
-        elif "audi" in source_url:
-            brand = "audi"
-        elif "mercedes" in source_url:
-            brand = "mercedes"
-        elif "hyundai" in source_url:
-            brand = "hyundai"
+        brand = detect_brand(doc.source_url, doc.title, doc.content)
 
         payload = {
             "source": doc.source,

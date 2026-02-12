@@ -108,11 +108,11 @@ class SearchService:
             payload = hit.payload or {}
 
             # =========================
-            # 🔒 STRICT BRAND FILTER
+            # 🔒 SAFE BRAND FILTER
             # =========================
             if structured.brand:
-                payload_brand = payload.get("brand")
-                if not payload_brand or payload_brand != structured.brand:
+                pb = payload.get("brand")
+                if pb and pb != structured.brand:
                     continue
 
             source_url = payload.get("source_url")

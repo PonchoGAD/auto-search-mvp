@@ -45,16 +45,9 @@ class QdrantStore:
             )
             print(f"[QDRANT] collection created: {COLLECTION_NAME}")
 
-        # 🔥 КЛЮЧЕВОЙ ФИКС
-        self.client.update_collection(
-            collection_name=COLLECTION_NAME,
-            optimizer_config={
-                "indexing_threshold": 20000
-            }
-        )
 
-        print("[QDRANT] indexing_threshold set to 20000")
 
+        
     # =====================================================
     # PAYLOAD NORMALIZATION (RECENCY HARDENING)
     # =====================================================

@@ -30,33 +30,30 @@ class QdrantStore:
     # COLLECTION
     # =====================================================
 
-      def create_collection(self, vector_size: int):
-    collections = [
-        c.name for c in self.client.get_collections().collections
-    ]
+    def create_collection(self, vector_size: int):
+        collections = [
+            c.name for c in self.client.get_collections().collections
+        ]
 
-    if COLLECTION_NAME not in collections:
-        self.client.create_collection(
+        if COLLECTION_NAME not in collections:
+            self.client.create_collection(
+                collection_name=COLLECTION_NAME,
+                vectors_config=VectorParams(
+                    size=vector_size,
+                    distance=Distance.COSINE,
+                ),
+            )
+            print(f"[QDRANT] collection created: {COLLECTION_NAME}")
+
+        # 🔥 КЛЮЧЕВОЙ ФИКС
+        self.client.update_collection(
             collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(
-                size=vector_size,
-                distance=Distance.COSINE,
-            ),
+            optimizer_config={
+                "indexing_threshold": 20000
+            }
         )
-        print(f"[QDRANT] collection created: {COLLECTION_NAME}")
 
-    # 🔥 КЛЮЧЕВОЙ ФИКС
-    self.client.update_collection(
-        collection_name=COLLECTION_NAME,
-        optimizer_config={
-            "indexing_threshold": 20000
-        }
-    )
-
-    print("[QDRANT] indexing_threshold set to 20000")
-
-
-
+        print("[QDRANT] indexing_threshold set to 20000")
 
     # =====================================================
     # PAYLOAD NORMALIZATION (RECENCY HARDENING)
@@ -142,11 +139,10 @@ class QdrantStore:
     # =====================================================
 
     def search(self, vector: List[float], limit: int = 20):
-    response = self.client.query_points(
-        collection_name=COLLECTION_NAME,
-        query=vector,
-        limit=limit,
-    )
+        response = self.client.query_points(
+            collection_name=COLLECTION_NAME,
+            query=vector,
+            limit=limit,
+        )
 
-    return response.points
-
+        return response.points

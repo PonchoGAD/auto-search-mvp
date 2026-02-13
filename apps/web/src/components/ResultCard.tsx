@@ -1,7 +1,7 @@
 import React from "react";
 
 /**
- * Тип результата — совпадает с тем, что приходит из backend /search
+ * Тип результата  совпадает с тем, что приходит из backend /search
  */
 export type SearchResult = {
   brand?: string;
@@ -114,7 +114,6 @@ export default function ResultCard({ result }: Props) {
     currency,
     fuel,
     paint_condition,
-    score,
     why_match,
     source_url,
     source_name,
@@ -204,10 +203,6 @@ export default function ResultCard({ result }: Props) {
         >
           🔗 Открыть источник
         </a>
-
-        <div style={{ fontSize: 12, color: "#6b7280" }}>
-          score: {score.toFixed(3)}
-        </div>
       </div>
     </div>
   );

@@ -36,6 +36,19 @@ services:
     networks:
       - internal
 
+  web:
+    build:
+      context: ../../apps/web
+      dockerfile: Dockerfile
+    container_name: auto-search-web
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://46.62.198.240:8000
+    depends_on:
+      - api
+    restart: always
+
   postgres:
     image: postgres:16-alpine
     container_name: auto-search-postgres

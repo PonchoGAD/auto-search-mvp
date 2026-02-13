@@ -85,11 +85,26 @@ class SearchService:
         query_text = self._build_query_text(structured)
         query_vector = deterministic_embedding(query_text)
 
+        # =========================
+        # 🆕 QDRANT MUST FILTER
+        # =========================
+        qdrant_filter = None
+
+        if structured.brand:
+            qdrant_filter = {
+                "must": [
+                    {
+                        "key": "brand",
+                        "match": {"value": structured.brand}
+                    }
+                ]
+            }
+
         try:
             hits = self.store.search(
                 vector=query_vector,
                 limit=top_k,
-                brand=structured.brand if structured.brand else None,
+                query_filter=qdrant_filter,
             )
         except Exception as e:
             print(f"[SEARCH][DEMO][WARN] qdrant unavailable: {e}")
@@ -113,6 +128,20 @@ class SearchService:
             if structured.brand:
                 pb = payload.get("brand")
                 if pb and pb != structured.brand:
+                    continue
+
+            # =========================
+            # 🔒 STRICT PRICE FILTER
+            # =========================
+            if structured.price_max and payload.get("price"):
+                if payload["price"] > structured.price_max:
+                    continue
+
+            # =========================
+            # 🔒 STRICT MILEAGE FILTER
+            # =========================
+            if structured.mileage_max and payload.get("mileage"):
+                if payload["mileage"] > structured.mileage_max:
                     continue
 
             source_url = payload.get("source_url")

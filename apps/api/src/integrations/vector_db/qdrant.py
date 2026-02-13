@@ -128,20 +128,18 @@ class QdrantStore:
     # SEARCH
     # =====================================================
 
-    def search(self, vector: List[float], limit: int = 20, brand: Optional[str] = None):
-        if brand:
+    def search(
+        self,
+        vector: List[float],
+        limit: int = 20,
+        query_filter: dict | None = None,
+    ):
+        if query_filter:
             response = self.client.query_points(
                 collection_name=COLLECTION_NAME,
                 query=vector,
                 limit=limit,
-                query_filter={
-                    "must": [
-                        {
-                            "key": "brand",
-                            "match": {"value": brand},
-                        }
-                    ]
-                },
+                query_filter=query_filter,
             )
         else:
             response = self.client.query_points(

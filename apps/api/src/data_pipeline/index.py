@@ -2,8 +2,11 @@
 
 import os
 import hashlib
+import re
 from typing import List
 from datetime import datetime, timezone
+from pathlib import Path
+import yaml
 
 from qdrant_client.models import PointStruct
 
@@ -141,44 +144,85 @@ def resolve_vector_size() -> int:
 
 
 # =====================================================
+# LOAD BRANDS WHITELIST (brands.yaml)
+# =====================================================
+
+def load_brands_whitelist() -> dict:
+    try:
+        base_dir = Path(__file__).resolve().parent.parent
+        brands_path = base_dir / "config" / "brands.yaml"
+
+        with open(brands_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+            return data.get("brands", {})
+
+    except Exception as e:
+        print(f"[INDEX][WARN] failed to load brands.yaml: {e}")
+        return {}
+
+
+BRANDS_WHITELIST = load_brands_whitelist()
+WHITELIST_SET = set(BRANDS_WHITELIST.keys())
+
+
+# =====================================================
 # 🆕 BRAND DETECTION
 # =====================================================
 
 def detect_brand(source_url, title, content):
-    """
-    Определяет бренд по source_url, title и content.
-    Возвращает строку бренда или None.
-    """
+    url = (source_url or "").lower()
+    t = (title or "").lower()
+    c = (content or "").lower()
 
-    text = (
-        (source_url or "") + " " +
-        (title or "") + " " +
-        (content or "")
-    ).lower()
+    for brand in WHITELIST_SET:
+        if not brand:
+            continue
 
-    brand_map = {
-        "bmw": [" /bmw/", "bmw-", "/bmw/"],
-        "audi": ["/audi/"],
-        "mercedes": ["/mercedes/"],
-        "toyota": ["/toyota/"],
-        "hyundai": ["/hyundai/"],
-        "kia": ["/kia/"],
-        "honda": ["/honda/"],
-        "nissan": ["/nissan/"],
-    }
+        b = brand.lower()
 
-    # URL specific quick checks
-    if "/bmw/" in text or "bmw-" in text:
-        return "bmw"
-
-    for brand in ["audi", "mercedes", "toyota", "hyundai", "kia", "honda", "nissan"]:
-        if f"/{brand}/" in text:
+        # 1) source_url
+        if b in url:
             return brand
 
-    # Fallback text check
-    for brand in ["bmw", "audi", "mercedes", "toyota", "hyundai", "kia", "honda", "nissan"]:
-        if brand in text:
+        # 2) title
+        if b in t:
             return brand
+
+        # 3) content
+        if b in c:
+            return brand
+
+    return None
+
+
+# =====================================================
+# 🆕 MODEL DETECTION
+# =====================================================
+
+def detect_model(source_url: str | None) -> str | None:
+    if not source_url:
+        return None
+
+    url = source_url.lower()
+    parts = [p for p in url.split("/") if p]
+
+    brands = ["bmw", "audi", "mercedes", "toyota", "hyundai", "kia", "honda", "nissan"]
+
+    for i, part in enumerate(parts):
+        if part in brands:
+            if i + 1 < len(parts):
+                candidate = parts[i + 1]
+
+                if not candidate:
+                    return None
+
+                if candidate.isdigit() and len(candidate) > 6:
+                    return None
+
+                if candidate.isdigit():
+                    return None
+
+                return candidate
 
     return None
 
@@ -219,13 +263,29 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
         if fetched_at.tzinfo is None:
             fetched_at = fetched_at.replace(tzinfo=timezone.utc)
 
+        # =====================================================
+        # 🔥 SALE INTENT FILTER (SKIP CATALOGS)
+        # =====================================================
+
+        url = (doc.source_url or "").lower()
+
+        if "/all/" in url:
+            continue
+
+        if url.endswith("/"):
+            continue
+
+        if not re.search(r"\d{6,}", url):
+            continue
+
         brand = detect_brand(doc.source_url, doc.title, doc.content)
+        model = detect_model(doc.source_url)
 
         payload = {
             "source": doc.source,
             "source_url": doc.source_url,
             "brand": brand,
-            "model": None,
+            "model": model,
             "price": None,
             "mileage": None,
             "fuel": None,

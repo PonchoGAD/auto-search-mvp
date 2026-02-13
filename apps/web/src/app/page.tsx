@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import QuickFilters from "../components/QuickFilters";
 import ResultsBySource from "../components/ResultsBySource";
 
@@ -28,10 +28,6 @@ export default function HomePage() {
 
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
-  const API_URL = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
-    []
-  );
 
   const handleSearch = useCallback(
     async (overrideQuery?: string) => {
@@ -43,7 +39,7 @@ export default function HomePage() {
       setResults([]);
 
       try {
-        const res = await fetch(`${API_URL}/api/v1/search`, {
+        const res = await fetch("/api/v1/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: q }),
@@ -60,7 +56,7 @@ export default function HomePage() {
         setLoading(false);
       }
     },
-    [query, loading, API_URL]
+    [query, loading]
   );
 
   // =========================

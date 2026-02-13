@@ -44,7 +44,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://46.62.198.240:8000
+      - NEXT_PUBLIC_API_URL=http://auto-search-api:8000
+
     depends_on:
       - api
     restart: always

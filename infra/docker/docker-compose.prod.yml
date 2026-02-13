@@ -43,9 +43,6 @@ services:
     container_name: auto-search-web
     ports:
       - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://auto-search-api:8000
-
     depends_on:
       - api
     restart: always

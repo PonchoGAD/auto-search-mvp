@@ -135,7 +135,7 @@ export default function ResultsBySource({ results }: Props) {
               opacity: isDominant && isCollapsed ? 0.85 : 1,
             }}
           >
-            {/* ================= HEADER ================= */}
+            {/* ================ HEADER ================= */}
             <div
               style={{
                 display: "flex",

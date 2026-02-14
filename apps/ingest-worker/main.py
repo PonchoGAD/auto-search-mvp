@@ -104,4 +104,12 @@ async def run():
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    while True:
+        try:
+            print("[INGEST] cycle started")
+            asyncio.run(run())
+            print("[INGEST] cycle completed — sleeping 300s")
+        except Exception as e:
+            print(f"[INGEST] error: {e}")
+
+        time.sleep(300)

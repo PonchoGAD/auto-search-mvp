@@ -72,7 +72,6 @@ def _ensure_event_loop() -> asyncio.AbstractEventLoop:
     """
     try:
         loop = asyncio.get_event_loop()
-        # В некоторых окружениях loop может существовать, но быть закрытым
         if loop.is_closed():
             raise RuntimeError("event loop is closed")
         return loop
@@ -83,10 +82,6 @@ def _ensure_event_loop() -> asyncio.AbstractEventLoop:
 
 
 def _run_coro(loop: asyncio.AbstractEventLoop, coro):
-    """
-    Безопасно выполняем async корутину на loop,
-    который существует в текущем потоке.
-    """
     return loop.run_until_complete(coro)
 
 
@@ -109,7 +104,6 @@ def run_ingest() -> Dict[str, int]:
         print("[INGEST][BLOCKED] ingest disabled in prod (ENABLE_INGEST=false)")
         return {"saved": 0, "indexed": 0, "skipped": 0}
 
-    # ✅ Ключевая фиксация AnyIO/asyncio проблемы
     loop = _ensure_event_loop()
 
     session = SessionLocal()
@@ -191,11 +185,10 @@ def run_ingest() -> Dict[str, int]:
             return {"saved": 0, "indexed": 0, "skipped": 0}
 
         # -------------------------
-        # DEMO LIMIT
+        # DEMO LIMIT REMOVED
         # -------------------------
-        if DEMO_INGEST:
-            all_items = all_items[:DEMO_INGEST_LIMIT]
-            print(f"[INGEST][DEMO] limit applied: {len(all_items)} items")
+        print(f"[INGEST] total items before processing: {len(all_items)}")
+        # demo cap removed — processing full dataset
 
         # -------------------------
         # ANTI-NOISE + SAVE
@@ -226,7 +219,6 @@ def run_ingest() -> Dict[str, int]:
             content = item.get("content") or ""
             raw_text = f"{title}\n{content}".strip()
 
-            # ✅ ВАЖНО: should_skip_doc вызываем ТОЛЬКО ключевыми аргументами
             skip, skip_meta = should_skip_doc(
                 text=raw_text,
                 source=source,
@@ -235,13 +227,11 @@ def run_ingest() -> Dict[str, int]:
                 stats.add(skip=True, reason=skip_meta.get("reason", "unknown"))
                 continue
 
-            # enrich тоже безопаснее так (если там keyword-only)
             final_content, _meta = enrich_text_with_meta(
                 raw_text=raw_text,
                 source=source,
             )
 
-            # ✅ RawDocument сохраняем ТОЛЬКО то, что реально есть в модели
             doc = RawDocument(
                 source=source,
                 source_url=source_url,
@@ -277,4 +267,3 @@ def run_ingest() -> Dict[str, int]:
 
     finally:
         session.close()
-        # loop не закрываем принудительно: Telethon/Playwright могут ещё быть привязаны

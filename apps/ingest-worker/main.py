@@ -49,6 +49,12 @@ def save_items(items):
 
     try:
         for item in items:
+
+            # 🔥 Оставляем skip только если URL пустой
+            if not item.get("source_url"):
+                skipped += 1
+                continue
+
             exists = (
                 session.query(RawDocument)
                 .filter_by(
@@ -84,9 +90,9 @@ def save_items(items):
 # =========================
 
 async def run():
-    auto_items = await fetch_auto_ru_serp(limit=30)
-    avito_items = await fetch_avito_serp(limit=30)
-    drom_items = fetch_drom_ru(limit=30)
+    auto_items = await fetch_auto_ru_serp(limit=300)
+    avito_items = await fetch_avito_serp(limit=300)
+    drom_items = fetch_drom_ru(limit=300)
 
     total = auto_items + avito_items + drom_items
     saved, skipped = save_items(total)

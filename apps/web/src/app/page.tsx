@@ -28,18 +28,29 @@ export default function HomePage() {
 
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
+  // 🔥 Added protection refs
+  const lastQueryRef = useRef<string>("");
+  const abortRef = useRef<AbortController | null>(null);
 
   const handleSearch = useCallback(
     async (overrideQuery?: string) => {
       const q = (overrideQuery ?? query).trim();
-      if (!q || loading) return;
+      if (!q) return;
+
+      if (q === lastQueryRef.current) return;
+      lastQueryRef.current = q;
+
+      if (abortRef.current) {
+        abortRef.current.abort();
+      }
+      abortRef.current = new AbortController();
 
       setLoading(true);
       setError(null);
-      setResults([]);
 
       try {
         const res = await fetch("/api/v1/search", {
+          signal: abortRef.current.signal,
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: q }),
@@ -50,13 +61,16 @@ export default function HomePage() {
         const data = await res.json();
         setResults(data.results || []);
       } catch (e: unknown) {
+        if (e instanceof DOMException && e.name === "AbortError") {
+          return;
+        }
         const msg = e instanceof Error ? e.message : "Ошибка поиска";
         setError(msg);
       } finally {
         setLoading(false);
       }
     },
-    [query, loading]
+    [query]
   );
 
   // =========================
@@ -90,8 +104,6 @@ export default function HomePage() {
     const el = document.getElementById("search-input") as HTMLInputElement | null;
     el?.focus();
   }, []);
-
-  // Example queries removed as they were unused
 
   return (
     <div

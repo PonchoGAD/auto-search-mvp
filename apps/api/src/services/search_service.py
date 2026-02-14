@@ -51,7 +51,7 @@ SOURCE_BOOSTS = {
 # =========================
 # FAIRNESS CONFIG
 # =========================
-MAX_RESULTS_PER_SOURCE: int = 50
+MAX_RESULTS_PER_SOURCE: int = 300
 DOMAIN_PENALTY_K: float = 0.4
 
 # =========================
@@ -78,8 +78,8 @@ class SearchService:
     def search(
         self,
         structured: StructuredQuery,
-        limit: int = 50,
-        top_k: int = 100,
+        limit: int = 200,
+        top_k: int = 300,
     ) -> List[Dict[str, Any]]:
 
         query_text = self._build_query_text(structured)

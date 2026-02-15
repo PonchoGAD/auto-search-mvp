@@ -22,12 +22,19 @@ def run_index(limit: int = 200):
 
         print(f"[INDEX] indexing {len(docs)} documents")
 
+        indexed_count = 0
+
         for doc in docs:
-            store.add_document(doc)
-            doc.indexed = True
+            try:
+                store.add_document(doc)
+                doc.indexed = True
+                indexed_count += 1
+            except Exception as e:
+                print(f"[INDEX][ERROR] doc_id={doc.id} error={e}")
 
         session.commit()
-        print("[INDEX] done")
+
+        print(f"[INDEX] done indexed={indexed_count}")
 
     finally:
         session.close()

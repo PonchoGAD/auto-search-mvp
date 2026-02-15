@@ -1,7 +1,8 @@
 from db.session import SessionLocal
 from db.models import RawDocument
 
-from integrations.vector_db.qdrant import QdrantStore
+from vector_db.qdrant import QdrantStore
+
 
 
 def run_index(limit: int = 200):

@@ -14,6 +14,7 @@ from sqlalchemy.sql import func
 from datetime import datetime
 
 from db.session import Base
+from sqlalchemy import Boolean, Column
 
 
 # ======================================================
@@ -34,7 +35,7 @@ class RawDocument(Base):
     fetched_at = Column(DateTime, default=datetime.utcnow)
 
     # 🔥 Флаг индексации в Qdrant
-    indexed = Column(Boolean, default=False)
+    indexed = Column(Boolean, default=False, nullable=False)
 
 
 # ======================================================

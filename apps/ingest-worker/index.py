@@ -1,8 +1,11 @@
+from typing import List
+
 from db.session import SessionLocal
 from db.models import RawDocument
 
 from vector_db.qdrant import QdrantStore
-
+from data_pipeline.chunk import chunk_text
+from data_pipeline.embed import embed_text
 
 
 def run_index(limit: int = 200):
@@ -10,7 +13,7 @@ def run_index(limit: int = 200):
     store = QdrantStore()
 
     try:
-        docs = (
+        docs: List[RawDocument] = (
             session.query(RawDocument)
             .filter(RawDocument.indexed == False)
             .limit(limit)
@@ -23,19 +26,24 @@ def run_index(limit: int = 200):
 
         print(f"[INDEX] indexing {len(docs)} documents")
 
-        indexed_count = 0
-
         for doc in docs:
-            try:
-                store.add_document(doc)
-                doc.indexed = True
-                indexed_count += 1
-            except Exception as e:
-                print(f"[INDEX][ERROR] doc_id={doc.id} error={e}")
+            chunks = chunk_text(doc.content or "")
+
+            for chunk in chunks:
+                vector = embed_text(chunk)
+
+                store.upsert([
+                    store.build_point(
+                        document=doc,
+                        chunk_text=chunk,
+                        vector=vector,
+                    )
+                ])
+
+            doc.indexed = True
 
         session.commit()
-
-        print(f"[INDEX] done indexed={indexed_count}")
+        print("[INDEX] done")
 
     finally:
         session.close()

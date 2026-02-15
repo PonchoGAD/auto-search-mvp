@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timezone
 from typing import List, Optional
+from uuid import uuid4
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct
@@ -168,3 +169,19 @@ class QdrantStore:
             )
 
         return response.points
+
+    # =====================================================
+    # BUILD POINT
+    # =====================================================
+
+    def build_point(self, document, chunk_text: str, vector):
+        return PointStruct(
+            id=str(uuid4()),
+            vector=vector,
+            payload={
+                "source": document.source,
+                "source_url": document.source_url,
+                "title": document.title,
+                "content": chunk_text,
+            },
+        )

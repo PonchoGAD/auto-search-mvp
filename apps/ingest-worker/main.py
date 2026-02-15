@@ -113,24 +113,23 @@ async def run():
     # =========================
     # TOTAL
     # =========================
-    total = (
-        auto_items
-        + avito_items
-        + drom_items
-        + telegram_items
-    )
+    total = auto_items + avito_items + drom_items + telegram_items
 
     saved, skipped = save_items(total)
-
-    # =========================
-    # INDEXING PIPELINE
-    # =========================
-    run_index(limit=200)
 
     print(
         f"[INGEST-WORKER] fetched={len(total)} "
         f"saved={saved} skipped={skipped}"
     )
+
+    # 🔥 ВЫЗОВ INDEX
+    from index import run_index
+    run_index(limit=200)
+
+    # =========================
+    # INDEXING PIPELINE (старый вызов остаётся)
+    # =========================
+    run_index(limit=200)
 
 
 # =========================

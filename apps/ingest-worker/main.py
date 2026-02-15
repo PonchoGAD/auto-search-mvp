@@ -11,6 +11,8 @@ from db.models import RawDocument
 from sources.auto_ru import fetch_auto_ru_serp
 from sources.avito import fetch_avito_serp
 from sources.drom import fetch_drom_ru
+from sources.telegram import fetch_telegram
+
 
 
 # =========================
@@ -100,7 +102,22 @@ async def run():
     drom_items = fetch_drom_ru(limit=50)
     time.sleep(random.uniform(1.0, 3.0))
 
-    total = auto_items + avito_items + drom_items
+    # =========================
+    # TELEGRAM
+    # =========================
+    telegram_items = fetch_telegram(limit_per_channel=30)
+    time.sleep(random.uniform(1.0, 3.0))
+
+    # =========================
+    # TOTAL
+    # =========================
+    total = (
+        auto_items
+        + avito_items
+        + drom_items
+        + telegram_items
+    )
+
     saved, skipped = save_items(total)
 
     print(

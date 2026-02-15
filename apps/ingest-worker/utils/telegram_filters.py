@@ -21,7 +21,7 @@ def load_brands() -> Dict[str, dict]:
  Основная логика брендов — в ingest_quality.
  """
  try:
-     with open("config/brands.yaml", "r", encoding="utf-8") as f:
+     with open("/app/config/brands.yaml", "r", encoding="utf-8") as f:
          data = yaml.safe_load(f) or {}
          return data.get("brands", {})
  except Exception:

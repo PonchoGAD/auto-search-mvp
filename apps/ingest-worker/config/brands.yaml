@@ -1,0 +1,267 @@
+brands:
+
+  # =========================
+  # EUROPE
+  # =========================
+  bmw:
+    en: ["bmw"]
+    ru: ["бмв"]
+    aliases:
+      - "bayerische motoren werke"
+      - "bmv"
+
+  audi:
+    en: ["audi"]
+    ru: ["ауди"]
+
+  mercedes:
+    en: ["mercedes", "mercedes-benz"]
+    ru: ["мерседес", "мерседес-бенц", "мерс"]
+    aliases:
+      - "mers"
+      - "mersedes"
+
+  volkswagen:
+    en: ["volkswagen", "vw"]
+    ru: ["фольксваген", "фв"]
+
+  porsche:
+    en: ["porsche"]
+    ru: ["порше"]
+
+  opel:
+    en: ["opel"]
+    ru: ["опель"]
+
+  skoda:
+    en: ["skoda"]
+    ru: ["шкода"]
+
+  seat:
+    en: ["seat"]
+    ru: ["сеат"]
+
+  peugeot:
+    en: ["peugeot"]
+    ru: ["пежо"]
+
+  renault:
+    en: ["renault"]
+    ru: ["рено"]
+
+  citroen:
+    en: ["citroen"]
+    ru: ["ситроен"]
+
+  alfa_romeo:
+    en: ["alfa romeo"]
+    ru: ["альфа ромео"]
+
+  volvo:
+    en: ["volvo"]
+    ru: ["вольво"]
+
+  mini:
+    en: ["mini"]
+    ru: ["мини"]
+
+  land_rover:
+    en: ["land rover"]
+    ru: ["ленд ровер"]
+
+  jaguar:
+    en: ["jaguar"]
+    ru: ["ягуар"]
+
+  bentley:
+    en: ["bentley"]
+    ru: ["бентли"]
+
+  rolls_royce:
+    en: ["rolls-royce", "rolls royce"]
+    ru: ["роллс-ройс"]
+
+  ferrari:
+    en: ["ferrari"]
+    ru: ["феррари"]
+
+  lamborghini:
+    en: ["lamborghini"]
+    ru: ["ламборгини"]
+
+  maserati:
+    en: ["maserati"]
+    ru: ["мазерати"]
+
+  # =========================
+  # JAPAN
+  # =========================
+  toyota:
+    en: ["toyota"]
+    ru: ["тойота"]
+
+  lexus:
+    en: ["lexus"]
+    ru: ["лексус"]
+
+  nissan:
+    en: ["nissan"]
+    ru: ["ниссан"]
+
+  infiniti:
+    en: ["infiniti"]
+    ru: ["инфинити"]
+
+  honda:
+    en: ["honda"]
+    ru: ["хонда"]
+
+  mazda:
+    en: ["mazda"]
+    ru: ["мазда"]
+
+  subaru:
+    en: ["subaru"]
+    ru: ["субару"]
+
+  mitsubishi:
+    en: ["mitsubishi"]
+    ru: ["митсубиси"]
+
+  suzuki:
+    en: ["suzuki"]
+    ru: ["сузуки"]
+
+  isuzu:
+    en: ["isuzu"]
+    ru: ["исузу"]
+
+  daihatsu:
+    en: ["daihatsu"]
+    ru: ["дайхатсу"]
+
+  # =========================
+  # USA
+  # =========================
+  ford:
+    en: ["ford"]
+    ru: ["форд"]
+
+  chevrolet:
+    en: ["chevrolet", "chevy"]
+    ru: ["шевроле"]
+
+  cadillac:
+    en: ["cadillac"]
+    ru: ["кадиллак"]
+
+  gmc:
+    en: ["gmc"]
+    ru: ["джиэмси", "джи-эм-си"]
+
+  jeep:
+    en: ["jeep"]
+    ru: ["джип"]
+
+  dodge:
+    en: ["dodge"]
+    ru: ["додж"]
+
+  chrysler:
+    en: ["chrysler"]
+    ru: ["крайслер"]
+
+  tesla:
+    en: ["tesla"]
+    ru: ["тесла"]
+
+  lincoln:
+    en: ["lincoln"]
+    ru: ["линкольн"]
+
+  buick:
+    en: ["buick"]
+    ru: ["бьюик"]
+
+  # =========================
+  # CHINA
+  # =========================
+  chery:
+    en: ["chery"]
+    ru: ["чери"]
+
+  geely:
+    en: ["geely"]
+    ru: ["джили"]
+
+  haval:
+    en: ["haval"]
+    ru: ["хавейл"]
+
+  exeed:
+    en: ["exeed"]
+    ru: ["эксид"]
+
+  omoda:
+    en: ["omoda"]
+    ru: ["омода"]
+
+  changan:
+    en: ["changan"]
+    ru: ["чанган"]
+
+  byd:
+    en: ["byd"]
+    ru: ["бид"]
+
+  great_wall:
+    en: ["great wall"]
+    ru: ["грит вол", "грейt вол"]
+
+  tank:
+    en: ["tank"]
+    ru: ["танк"]
+
+  hongqi:
+    en: ["hongqi"]
+    ru: ["хунци"]
+
+  faw:
+    en: ["faw"]
+    ru: ["фав"]
+
+  jac:
+    en: ["jac"]
+    ru: ["джак"]
+
+  dongfeng:
+    en: ["dongfeng"]
+    ru: ["донгфенг"]
+
+  baic:
+    en: ["baic"]
+    ru: ["байк"]
+
+  gac:
+    en: ["gac"]
+    ru: ["гак"]
+
+  li_auto:
+    en: ["li auto", "lixiang"]
+    ru: ["лисян"]
+
+  zeekr:
+    en: ["zeekr"]
+    ru: ["зикр"]
+
+  voyah:
+    en: ["voyah"]
+    ru: ["воя"]
+
+  avatr:
+    en: ["avatr"]
+    ru: ["аватр"]
+
+  lynk_co:
+    en: ["lynk & co", "lynk co"]
+    ru: ["линк энд ко"]

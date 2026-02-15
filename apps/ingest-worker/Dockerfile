@@ -18,4 +18,6 @@ COPY apps/ingest-worker /app
 
 ENV PYTHONPATH=/app
 
+COPY apps/ingest-worker/config /app/config
+
 CMD ["python", "main.py"]

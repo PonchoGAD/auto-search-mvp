@@ -72,6 +72,19 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
 
             seen.add(ad_url)
 
+            # 🔒 Anti-login / garbage filter
+            if "my.drom.ru/sign" in ad_url:
+                continue
+
+            if not title:
+                continue
+
+            if "вход" in title.lower() or "регистрац" in title.lower():
+                continue
+
+            if "/sign?" in ad_url:
+                continue
+
             items.append(
                 {
                     "source": "drom.ru",

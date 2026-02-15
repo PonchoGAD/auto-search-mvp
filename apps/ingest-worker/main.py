@@ -13,6 +13,7 @@ from sources.avito import fetch_avito_serp
 from sources.drom import fetch_drom_ru
 from sources.telegram import fetch_telegram
 
+from index import run_index
 
 
 # =========================
@@ -103,9 +104,10 @@ async def run():
     time.sleep(random.uniform(1.0, 3.0))
 
     # =========================
-    # TELEGRAM
+    # TELEGRAM DEBUG
     # =========================
-    telegram_items = fetch_telegram(limit_per_channel=30)
+    telegram_items = fetch_telegram()
+    print(f"[INGEST] telegram fetched={len(telegram_items)}")
     time.sleep(random.uniform(1.0, 3.0))
 
     # =========================
@@ -119,6 +121,11 @@ async def run():
     )
 
     saved, skipped = save_items(total)
+
+    # =========================
+    # INDEXING PIPELINE
+    # =========================
+    run_index(limit=200)
 
     print(
         f"[INGEST-WORKER] fetched={len(total)} "

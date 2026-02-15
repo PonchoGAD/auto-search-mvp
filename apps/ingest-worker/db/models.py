@@ -33,6 +33,9 @@ class RawDocument(Base):
 
     fetched_at = Column(DateTime, default=datetime.utcnow)
 
+    # 🔥 Флаг индексации в Qdrant
+    indexed = Column(Boolean, default=False)
+
 
 # ======================================================
 # NORMALIZED DOCUMENTS (очищенные + извлечённые поля)

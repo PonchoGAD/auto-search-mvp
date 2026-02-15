@@ -1,13 +1,25 @@
 from typing import List, Dict
 from playwright_base import PlaywrightBase
+import random
 
 AVITO_BASE_URL = "https://www.avito.ru/all/avtomobili"
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "Mozilla/5.0 (X11; Linux x86_64)",
+]
 
 
 async def fetch_avito_serp(limit: int = 50) -> List[Dict]:
     base = PlaywrightBase(headless=True)
     await base.launch()
     page = await base.new_page()
+
+    # ✔ Random User-Agent через Playwright
+    await page.set_extra_http_headers({
+        "User-Agent": random.choice(USER_AGENTS)
+    })
 
     try:
         await base.safe_goto(page, AVITO_BASE_URL)

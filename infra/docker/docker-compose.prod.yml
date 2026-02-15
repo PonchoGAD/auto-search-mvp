@@ -29,6 +29,12 @@ services:
     container_name: auto-search-ingest-worker
     env_file:
       - .env.prod
+    environment:
+      - TG_API_ID=34456629
+      - TG_API_HASH=b54959eed146203ec150e86cbe990bdd
+      - TG_SESSION_STRING=1ApWapzMBu1V9weXSsqzcO_HzhyDp6jLMd_zve467mf-SkTdTvMobhRH8oAz-p_PvtH5pIZA_dpx1B6rTOIoTDDqSSSaMnx6DtObcfsjA_zyNzSr2h4pk-fpvNqOmEDWYlyUDVkYK8k7Y4PZFHDy1F5ryJnk4Vck-BM9sRgp6SUOFX6B5_MkQAO04MjzPqJwlYlzga6CZ1_TDrW2GRQAYQNQ6A_PXz23IoDETphllA4lJ9fFMQfEYud7kIg-7Xuef1Jj-FwMz3WWGaBv3oG_xSgJAHRik3PmhBMge4KwDpmGabF3IQ7_bcY6KB2EBJiOckLBO0FQMCPgih6WuBlNUzkhUip_kZEM=
+      - TG_CHANNELS=@autoru_official,@cars_ru,@car_market_ru,@mercedesclubrussia,@mbmarket_ru,@bmwclubrussia,@bmwmarket,@chinamarket_auto,@lixiang_russia
+      - TG_FETCH_LIMIT=50
     depends_on:
       postgres:
         condition: service_healthy

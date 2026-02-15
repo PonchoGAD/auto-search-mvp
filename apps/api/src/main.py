@@ -24,7 +24,7 @@ app.include_router(search_router, prefix="/api/v1")
 app.include_router(search_history_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(demo_router, prefix="/api/v1")
-app.include_router(admin_router, prefix="/api/v1")
+app.include_router(admin_router)
 
 # ⚠️ допустимо для MVP
 Base.metadata.create_all(bind=engine)

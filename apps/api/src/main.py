@@ -8,7 +8,7 @@ from api.v1.search import router as search_router
 from api.v1.search_history import router as search_history_router
 from api.v1.analytics import router as analytics_router
 from api.v1.demo import router as demo_router
-from app.api.v1 import admin
+from api.v1 import admin
 
 
 from core.settings import settings

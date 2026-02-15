@@ -9,7 +9,6 @@ from api.v1.search_history import router as search_history_router
 from api.v1.analytics import router as analytics_router
 from api.v1.demo import router as demo_router
 from api.v1.admin import router as admin_router
-from sources.telegram import fetch_telegram
 
 from core.settings import settings
 

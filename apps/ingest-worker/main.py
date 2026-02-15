@@ -2,7 +2,6 @@ import asyncio
 import os
 import time
 import random
-import requests
 
 from sqlalchemy.exc import OperationalError
 
@@ -92,9 +91,14 @@ def save_items(items):
 # =========================
 
 async def run():
-    auto_items = await fetch_auto_ru_serp(limit=300)
-    avito_items = await fetch_avito_serp(limit=300)
-    drom_items = fetch_drom_ru(limit=300)
+    auto_items = await fetch_auto_ru_serp(limit=50)
+    time.sleep(random.uniform(1.0, 3.0))
+
+    avito_items = await fetch_avito_serp(limit=50)
+    time.sleep(random.uniform(1.0, 3.0))
+
+    drom_items = fetch_drom_ru(limit=50)
+    time.sleep(random.uniform(1.0, 3.0))
 
     total = auto_items + avito_items + drom_items
     saved, skipped = save_items(total)
@@ -109,6 +113,8 @@ async def run():
 # PRODUCTION LOOP WITH BACKOFF
 # =========================
 
+import requests
+
 SLEEP_BASE = 900  # 15 минут
 MAX_BACKOFF = 3600  # максимум 1 час
 
@@ -119,13 +125,12 @@ if __name__ == "__main__":
         try:
             print("[INGEST] cycle started")
 
-            # сохраняем существующую async-логику
             asyncio.run(run())
 
             print(f"[INGEST] cycle completed — sleeping {SLEEP_BASE}s")
             time.sleep(SLEEP_BASE)
 
-            backoff = SLEEP_BASE  # сбрасываем если успех
+            backoff = SLEEP_BASE
 
         except requests.exceptions.HTTPError as e:
             if "429" in str(e):

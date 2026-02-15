@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict
+import random
 
 DROM_BASE_URL = "https://auto.drom.ru/"
 
@@ -12,8 +13,14 @@ HEADERS = {
     )
 }
 
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "Mozilla/5.0 (X11; Linux x86_64)",
+]
 
-def fetch_drom_ru(limit: int = 150) -> List[Dict]:
+
+def fetch_drom_ru(limit: int = 50) -> List[Dict]:
     """
     Stable Drom.ru ingestion (NO Playwright).
     HTML-only, VPS-safe.
@@ -34,7 +41,11 @@ def fetch_drom_ru(limit: int = 150) -> List[Dict]:
 
         url = f"{DROM_BASE_URL}?page={page}"
 
-        resp = requests.get(url, headers=HEADERS, timeout=20)
+        headers = {
+            "User-Agent": random.choice(USER_AGENTS)
+        }
+
+        resp = requests.get(url, headers=headers, timeout=15)
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, "html.parser")

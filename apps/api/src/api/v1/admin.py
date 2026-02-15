@@ -7,7 +7,8 @@ from db.session import SessionLocal
 from db.models import RawDocument
 from integrations.vector_db.qdrant import QdrantStore, COLLECTION_NAME
 
-from app.core.settings import settings
+from core.settings import settings
+
 
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])

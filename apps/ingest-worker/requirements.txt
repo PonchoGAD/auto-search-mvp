@@ -6,3 +6,5 @@ sqlalchemy>=2.0
 psycopg2-binary
 
 playwright
+telethon==1.34.0
+PyYAML

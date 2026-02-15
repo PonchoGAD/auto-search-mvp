@@ -1,6 +1,8 @@
 import asyncio
 import os
 import time
+import random
+import requests
 
 from sqlalchemy.exc import OperationalError
 
@@ -103,13 +105,37 @@ async def run():
     )
 
 
+# =========================
+# PRODUCTION LOOP WITH BACKOFF
+# =========================
+
+SLEEP_BASE = 900  # 15 минут
+MAX_BACKOFF = 3600  # максимум 1 час
+
+backoff = SLEEP_BASE
+
 if __name__ == "__main__":
     while True:
         try:
             print("[INGEST] cycle started")
-            asyncio.run(run())
-            print("[INGEST] cycle completed — sleeping 300s")
-        except Exception as e:
-            print(f"[INGEST] error: {e}")
 
-        time.sleep(300)
+            # сохраняем существующую async-логику
+            asyncio.run(run())
+
+            print(f"[INGEST] cycle completed — sleeping {SLEEP_BASE}s")
+            time.sleep(SLEEP_BASE)
+
+            backoff = SLEEP_BASE  # сбрасываем если успех
+
+        except requests.exceptions.HTTPError as e:
+            if "429" in str(e):
+                print(f"[INGEST] 429 detected — backing off {backoff}s")
+                time.sleep(backoff)
+                backoff = min(backoff * 2, MAX_BACKOFF)
+            else:
+                print(f"[INGEST] error: {e}")
+                time.sleep(600)
+
+        except Exception as e:
+            print(f"[INGEST] unexpected error: {e}")
+            time.sleep(600)

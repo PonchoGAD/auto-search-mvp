@@ -13,7 +13,7 @@ HEADERS = {
 }
 
 
-def fetch_drom_ru(limit: int = 300) -> List[Dict]:
+def fetch_drom_ru(limit: int = 150) -> List[Dict]:
     """
     Stable Drom.ru ingestion (NO Playwright).
     HTML-only, VPS-safe.

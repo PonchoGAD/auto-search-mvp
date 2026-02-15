@@ -4,7 +4,7 @@ from playwright_base import PlaywrightBase
 AVITO_BASE_URL = "https://www.avito.ru/all/avtomobili"
 
 
-async def fetch_avito_serp(limit: int = 300) -> List[Dict]:
+async def fetch_avito_serp(limit: int = 150) -> List[Dict]:
     base = PlaywrightBase(headless=True)
     await base.launch()
     page = await base.new_page()

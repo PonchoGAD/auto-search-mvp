@@ -4,7 +4,7 @@ from playwright_base import PlaywrightBase
 AUTO_RU_BASE_URL = "https://auto.ru/cars/all/"
 
 
-async def fetch_auto_ru_serp(limit: int = 300) -> List[Dict]:
+async def fetch_auto_ru_serp(limit: int = 150) -> List[Dict]:
     base = PlaywrightBase(headless=True)
     await base.launch()
     page = await base.new_page()

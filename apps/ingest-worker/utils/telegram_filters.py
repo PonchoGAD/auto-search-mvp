@@ -8,7 +8,7 @@ from typing import Dict, Tuple, Optional
 # CONSTANTS / THRESHOLDS
 # =========================
 
-MIN_TEXT_LEN = 80
+MIN_TEXT_LEN = 40
 
 # =========================
 # LOAD BRANDS WHITELIST

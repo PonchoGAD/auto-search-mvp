@@ -37,10 +37,11 @@ def run_index(limit: int = 200):
             chunks = chunk_text(text)
 
             points = []
+
             for chunk in chunks:
                 vector = embed_text(chunk)
 
-                # создать коллекцию один раз, когда знаем размер вектора
+                # 🔥 Гарантированное создание коллекции ДО первого upsert
                 if not collection_ready:
                     store.create_collection(vector_size=len(vector))
                     collection_ready = True

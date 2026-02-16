@@ -1,3 +1,5 @@
+print("INGEST WORKER BOOTED")
+
 import asyncio
 import os
 import time

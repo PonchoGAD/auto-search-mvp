@@ -38,11 +38,12 @@ class QdrantStore:
         if host in ("localhost", "127.0.0.1"):
             host = "qdrant"
 
-        self.client = QdrantClient(
-            host=host,
-            port=port,
-            check_compatibility=False,
-        )
+        kwargs = {"host": host, "port": port}
+
+        try:
+            self.client = QdrantClient(**kwargs, check_compatibility=False)
+        except TypeError:
+            self.client = QdrantClient(**kwargs)
 
         print(f"[QDRANT] client init host={host} port={port} collection={COLLECTION_NAME}")
 

@@ -1,6 +1,5 @@
 import os
 import random
-import time
 import asyncio
 from typing import List, Dict
 
@@ -65,9 +64,7 @@ async def _fetch_from_channel(
 
         text = msg.text.strip()
 
-        # =========================
         # 🔒 HARD ANTI-NOISE FILTER
-        # =========================
         ok, reason = is_valid_telegram_post(text)
 
         if not ok:
@@ -82,8 +79,6 @@ async def _fetch_from_channel(
                 "source_url": source_url,
                 "title": text[:120].replace("\n", " ").strip(),
                 "content": text,
-
-                # 🔑 RECENCY — КАНОНИЧНЫЙ ФОРМАТ
                 "created_at": msg.date.isoformat() if getattr(msg, "date", None) else None,
                 "created_at_ts": int(msg.date.timestamp()) if getattr(msg, "date", None) else None,
                 "created_at_source": "telegram",
@@ -103,21 +98,12 @@ async def _fetch_from_channel(
 
 
 # =========================
-# PUBLIC API
+# ASYNC PUBLIC API
 # =========================
 
-def fetch_telegram(limit_per_channel: int | None = None) -> List[Dict]:
+async def fetch_telegram(limit_per_channel: int | None = None) -> List[Dict]:
     """
-    Entry point для ingestion Telegram.
-
-    ГАРАНТИИ:
-    - мусор не выходит из этого уровня
-    - ingest получает только валидные объявления
-    - created_at/created_at_ts всегда есть (если date есть у сообщения)
-    - аналитика и recency не врут
-
-    Возвращает список dict для RawDocument:
-      {source, source_url, title, content, created_at, created_at_ts, created_at_source}
+    Асинхронный fetch Telegram.
     """
 
     if not TG_API_ID or not TG_API_HASH or not TG_SESSION_STRING:
@@ -131,21 +117,18 @@ def fetch_telegram(limit_per_channel: int | None = None) -> List[Dict]:
     limit = limit_per_channel or TG_FETCH_LIMIT
     results: List[Dict] = []
 
-    async def _run():
-        async with TelegramClient(
-            StringSession(TG_SESSION_STRING),
-            TG_API_ID,
-            TG_API_HASH,
-        ) as client:
-            for channel in channels:
-                time.sleep(random.uniform(1.5, 3.0))
-                try:
-                    items = await _fetch_from_channel(client, channel, limit)
-                    results.extend(items)
-                except Exception as e:
-                    print(f"[TELEGRAM][ERROR] {channel}: {e}")
-
-    asyncio.run(_run())
+    async with TelegramClient(
+        StringSession(TG_SESSION_STRING),
+        TG_API_ID,
+        TG_API_HASH,
+    ) as client:
+        for channel in channels:
+            await asyncio.sleep(random.uniform(1.5, 3.0))
+            try:
+                items = await _fetch_from_channel(client, channel, limit)
+                results.extend(items)
+            except Exception as e:
+                print(f"[TELEGRAM][ERROR] {channel}: {e}")
 
     print(f"[TELEGRAM] total accepted from all channels: {len(results)}")
 
@@ -153,8 +136,8 @@ def fetch_telegram(limit_per_channel: int | None = None) -> List[Dict]:
 
 
 # =========================
-# SYNC WRAPPER
+# SYNC WRAPPER (SAFE)
 # =========================
 
-def fetch_telegram_sync(*args, **kwargs):
-    return asyncio.run(fetch_telegram(*args, **kwargs))
+def fetch_telegram_sync(limit_per_channel: int | None = None) -> List[Dict]:
+    return asyncio.run(fetch_telegram(limit_per_channel))

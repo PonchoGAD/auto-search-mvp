@@ -4,6 +4,7 @@ import time
 import random
 
 from sqlalchemy.exc import OperationalError
+from sqlalchemy import text
 
 from db.session import engine, SessionLocal, Base
 from db.models import RawDocument
@@ -40,6 +41,29 @@ def wait_for_db(engine, retries: int = 10, delay: int = 3):
 # 🔴 КЛЮЧЕВОЙ БЛОК
 wait_for_db(engine)
 Base.metadata.create_all(bind=engine)
+
+
+# =========================
+# DB SCHEMA PATCH (MVP MIGRATION)
+# =========================
+def ensure_schema():
+    """
+    create_all НЕ добавляет колонки в существующую таблицу.
+    Поэтому делаем безопасный патч:
+    - добавляем raw_documents.indexed если его нет
+    """
+    session = SessionLocal()
+    try:
+        session.execute(text("""
+            ALTER TABLE raw_documents
+            ADD COLUMN IF NOT EXISTS indexed BOOLEAN DEFAULT FALSE;
+        """))
+        session.commit()
+        print("[DB] schema ensured: raw_documents.indexed")
+    finally:
+        session.close()
+
+ensure_schema()
 
 
 # =========================
@@ -95,20 +119,20 @@ def save_items(items):
 
 async def run():
     auto_items = await fetch_auto_ru_serp(limit=50)
-    time.sleep(random.uniform(1.0, 3.0))
+    await asyncio.sleep(random.uniform(1.0, 3.0))
 
     avito_items = await fetch_avito_serp(limit=50)
-    time.sleep(random.uniform(1.0, 3.0))
+    await asyncio.sleep(random.uniform(1.0, 3.0))
 
     drom_items = fetch_drom_ru(limit=50)
-    time.sleep(random.uniform(1.0, 3.0))
+    await asyncio.sleep(random.uniform(1.0, 3.0))
 
     # =========================
     # TELEGRAM DEBUG
     # =========================
     telegram_items = fetch_telegram()
     print(f"[INGEST] telegram fetched={len(telegram_items)}")
-    time.sleep(random.uniform(1.0, 3.0))
+    await asyncio.sleep(random.uniform(1.0, 3.0))
 
     # =========================
     # TOTAL
@@ -122,12 +146,8 @@ async def run():
         f"saved={saved} skipped={skipped}"
     )
 
-    # 🔥 ВЫЗОВ INDEX
-    from index import run_index
-    run_index(limit=200)
-
     # =========================
-    # INDEXING PIPELINE (старый вызов остаётся)
+    # INDEXING (QDRANT)
     # =========================
     run_index(limit=200)
 

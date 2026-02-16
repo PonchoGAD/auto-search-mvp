@@ -113,6 +113,7 @@ def save_items(items):
             saved += 1
 
         session.commit()
+        print(f"[DB] saved={saved}")
     finally:
         session.close()
 
@@ -124,6 +125,8 @@ def save_items(items):
 # =========================
 
 async def run():
+    print("RUN() STARTED")
+
     auto_items = await fetch_auto_ru_serp(limit=50)
     await asyncio.sleep(random.uniform(1.0, 3.0))
 
@@ -155,6 +158,7 @@ async def run():
     # =========================
     # INDEXING (QDRANT)
     # =========================
+    print("RUN INDEX CALLED")
     run_index(limit=200)
 
 

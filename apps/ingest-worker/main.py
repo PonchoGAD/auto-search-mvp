@@ -46,20 +46,26 @@ Base.metadata.create_all(bind=engine)
 # =========================
 # DB SCHEMA PATCH (MVP MIGRATION)
 # =========================
+
 def ensure_schema():
-    """
-    create_all НЕ добавляет колонки в существующую таблицу.
-    Поэтому делаем безопасный патч:
-    - добавляем raw_documents.indexed если его нет
-    """
     session = SessionLocal()
     try:
         session.execute(text("""
-            ALTER TABLE raw_documents
-            ADD COLUMN IF NOT EXISTS indexed BOOLEAN DEFAULT FALSE;
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name='raw_documents'
+                    AND column_name='indexed'
+                ) THEN
+                    ALTER TABLE raw_documents
+                    ADD COLUMN indexed BOOLEAN DEFAULT FALSE;
+                END IF;
+            END $$;
         """))
         session.commit()
-        print("[DB] schema ensured: raw_documents.indexed")
+        print("[DB] ensured raw_documents.indexed")
     finally:
         session.close()
 

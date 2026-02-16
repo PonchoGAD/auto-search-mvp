@@ -11,7 +11,7 @@ from db.models import RawDocument
 from sources.auto_ru import fetch_auto_ru_serp
 from sources.avito import fetch_avito_serp
 from sources.drom import fetch_drom_ru
-from sources.telegram import fetch_telegram
+from sources.telegram import fetch_telegram_sync as fetch_telegram
 
 from index import run_index
 

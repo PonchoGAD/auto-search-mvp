@@ -150,3 +150,11 @@ def fetch_telegram(limit_per_channel: int | None = None) -> List[Dict]:
     print(f"[TELEGRAM] total accepted from all channels: {len(results)}")
 
     return results
+
+
+# =========================
+# SYNC WRAPPER
+# =========================
+
+def fetch_telegram_sync(*args, **kwargs):
+    return asyncio.run(fetch_telegram(*args, **kwargs))

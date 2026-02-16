@@ -1,7 +1,4 @@
-print("INGEST WORKER BOOTED")
-
 import asyncio
-import os
 import time
 import random
 
@@ -14,41 +11,33 @@ from db.models import RawDocument
 from sources.auto_ru import fetch_auto_ru_serp
 from sources.avito import fetch_avito_serp
 from sources.drom import fetch_drom_ru
-from sources.telegram import fetch_telegram_sync as fetch_telegram
 
-from index import run_index
+# ✅ ВАЖНО: импортируем ASYNC telegram (НЕ sync wrapper)
+from sources.telegram import fetch_telegram  # <- async def fetch_telegram(...)
 
+SLEEP_BASE = 900   # 15 минут
+MAX_BACKOFF = 3600 # 1 час
 
 # =========================
 # DB WAIT (CRITICAL)
 # =========================
-
-def wait_for_db(engine, retries: int = 10, delay: int = 3):
-    """
-    Ждём, пока PostgreSQL реально начнёт принимать соединения.
-    Без этого ingest-worker будет падать при старте.
-    """
+def wait_for_db(engine, retries: int = 30, delay: int = 2):
     for i in range(retries):
         try:
             with engine.connect():
-                print("[DB] connected")
+                print("[DB] connected", flush=True)
                 return
         except OperationalError:
-            print(f"[DB] waiting... ({i + 1}/{retries})")
+            print(f"[DB] waiting... ({i + 1}/{retries})", flush=True)
             time.sleep(delay)
-
     raise RuntimeError("DB not available after retries")
 
-
-# 🔴 КЛЮЧЕВОЙ БЛОК
 wait_for_db(engine)
 Base.metadata.create_all(bind=engine)
-
 
 # =========================
 # DB SCHEMA PATCH (MVP MIGRATION)
 # =========================
-
 def ensure_schema():
     session = SessionLocal()
     try:
@@ -67,17 +56,15 @@ def ensure_schema():
             END $$;
         """))
         session.commit()
-        print("[DB] ensured raw_documents.indexed")
+        print("[DB] ensured raw_documents.indexed", flush=True)
     finally:
         session.close()
 
 ensure_schema()
 
-
 # =========================
 # SAVE
 # =========================
-
 def save_items(items):
     session = SessionLocal()
     saved = 0
@@ -85,28 +72,22 @@ def save_items(items):
 
     try:
         for item in items:
-
-            # 🔥 Оставляем skip только если URL пустой
             if not item.get("source_url"):
                 skipped += 1
                 continue
 
             exists = (
                 session.query(RawDocument)
-                .filter_by(
-                    source=item["source"],
-                    source_url=item["source_url"],
-                )
+                .filter_by(source_url=item["source_url"])
                 .first()
             )
-
             if exists:
                 skipped += 1
                 continue
 
             session.add(
                 RawDocument(
-                    source=item["source"],
+                    source=item.get("source", "unknown"),
                     source_url=item["source_url"],
                     title=item.get("title"),
                     content=item.get("content"),
@@ -115,87 +96,82 @@ def save_items(items):
             saved += 1
 
         session.commit()
-        print(f"[DB] saved={saved}")
+        print(f"[DB] saved={saved} skipped={skipped}", flush=True)
     finally:
         session.close()
 
     return saved, skipped
 
+# =========================
+# SAFE FETCH HELPERS (timeouts)
+# =========================
+async def safe_await(label: str, coro, timeout_s: int = 120):
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout_s)
+    except asyncio.TimeoutError:
+        print(f"[INGEST][TIMEOUT] {label} > {timeout_s}s", flush=True)
+        return []
+    except Exception as e:
+        print(f"[INGEST][ERROR] {label}: {e}", flush=True)
+        return []
 
 # =========================
 # RUN
 # =========================
+async def run_cycle():
+    print("[INGEST] run_cycle STARTED", flush=True)
 
-async def run():
-    print("RUN() STARTED")
+    auto_items = await safe_await("auto_ru", fetch_auto_ru_serp(limit=50), timeout_s=180)
+    await asyncio.sleep(random.uniform(0.5, 1.5))
 
-    auto_items = await fetch_auto_ru_serp(limit=50)
-    await asyncio.sleep(random.uniform(1.0, 3.0))
+    avito_items = await safe_await("avito", fetch_avito_serp(limit=50), timeout_s=180)
+    await asyncio.sleep(random.uniform(0.5, 1.5))
 
-    avito_items = await fetch_avito_serp(limit=50)
-    await asyncio.sleep(random.uniform(1.0, 3.0))
+    # drom sync — завернём в try, чтобы не валило цикл
+    try:
+        drom_items = fetch_drom_ru(limit=50) or []
+    except Exception as e:
+        print(f"[INGEST][ERROR] drom: {e}", flush=True)
+        drom_items = []
+    await asyncio.sleep(random.uniform(0.5, 1.5))
 
-    drom_items = fetch_drom_ru(limit=50)
-    await asyncio.sleep(random.uniform(1.0, 3.0))
+    # ✅ TELEGRAM — ASYNC await (никаких fetch_telegram_sync!)
+    telegram_items = await safe_await("telegram", fetch_telegram(limit_per_channel=50), timeout_s=180)
+    print(f"[INGEST] telegram fetched={len(telegram_items)}", flush=True)
 
-    # =========================
-    # TELEGRAM DEBUG
-    # =========================
-    telegram_items = fetch_telegram()
-    print(f"[INGEST] telegram fetched={len(telegram_items)}")
-    await asyncio.sleep(random.uniform(1.0, 3.0))
-
-    # =========================
-    # TOTAL
-    # =========================
-    total = auto_items + avito_items + drom_items + telegram_items
+    total = (auto_items or []) + (avito_items or []) + (drom_items or []) + (telegram_items or [])
+    print(f"[INGEST] total fetched={len(total)}", flush=True)
 
     saved, skipped = save_items(total)
+    print(f"[INGEST] saved={saved} skipped={skipped}", flush=True)
 
-    print(
-        f"[INGEST-WORKER] fetched={len(total)} "
-        f"saved={saved} skipped={skipped}"
-    )
-
-    # =========================
-    # INDEXING (QDRANT)
-    # =========================
-    print("RUN INDEX CALLED")
-    run_index(limit=200)
-
+    # ✅ ЛЕНИВЫЙ IMPORT индекса — после DB save
+    if saved > 0:
+        print("[INDEX] run_index CALLED", flush=True)
+        from index import run_index
+        run_index(limit=200)
+    else:
+        print("[INDEX] skipped (nothing saved)", flush=True)
 
 # =========================
-# PRODUCTION LOOP WITH BACKOFF
+# PRODUCTION LOOP
 # =========================
+def main():
+    backoff = SLEEP_BASE
+    print("[INGEST WORKER] BOOTED", flush=True)
 
-import requests
-
-SLEEP_BASE = 900  # 15 минут
-MAX_BACKOFF = 3600  # максимум 1 час
-
-backoff = SLEEP_BASE
-
-if __name__ == "__main__":
     while True:
         try:
-            print("[INGEST] cycle started")
-
-            asyncio.run(run())
-
-            print(f"[INGEST] cycle completed — sleeping {SLEEP_BASE}s")
+            print("[INGEST] cycle started", flush=True)
+            asyncio.run(run_cycle())
+            print(f"[INGEST] cycle completed — sleeping {SLEEP_BASE}s", flush=True)
             time.sleep(SLEEP_BASE)
-
             backoff = SLEEP_BASE
 
-        except requests.exceptions.HTTPError as e:
-            if "429" in str(e):
-                print(f"[INGEST] 429 detected — backing off {backoff}s")
-                time.sleep(backoff)
-                backoff = min(backoff * 2, MAX_BACKOFF)
-            else:
-                print(f"[INGEST] error: {e}")
-                time.sleep(600)
-
         except Exception as e:
-            print(f"[INGEST] unexpected error: {e}")
-            time.sleep(600)
+            print(f"[INGEST] unexpected error: {e}", flush=True)
+            time.sleep(min(backoff, MAX_BACKOFF))
+            backoff = min(backoff * 2, MAX_BACKOFF)
+
+if __name__ == "__main__":
+    main()

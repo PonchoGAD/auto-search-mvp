@@ -15,3 +15,6 @@ PyYAML
 
 sentence-transformers==2.7.0
 torch==2.2.2
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.2

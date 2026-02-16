@@ -20,4 +20,5 @@ ENV PYTHONPATH=/app
 
 COPY apps/ingest-worker/config /app/config
 
-CMD ["python", "main.py"]
+CMD ["python", "-u", "main.py"]
+

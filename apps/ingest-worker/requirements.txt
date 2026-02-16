@@ -11,5 +11,6 @@ playwright
 telethon==1.34.0
 PyYAML
 
-sentence-transformers
-torch
+sentence-transformers==2.7.0
+torch==2.2.2
+

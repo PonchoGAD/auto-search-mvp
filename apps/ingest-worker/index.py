@@ -22,51 +22,41 @@ def run_index(limit: int = 200):
 
         if not docs:
             print("[INDEX] no new documents")
-            return
+            return 0
 
         print(f"[INDEX] indexing {len(docs)} documents")
 
-        collection_ready = False
+        # 🔥 1️⃣ Получаем размер вектора
+        test_vector = embed_text("test")
+        vector_size = len(test_vector)
+
+        # 🔥 2️⃣ Создаём коллекцию если нет
+        store.create_collection(vector_size)
+
+        total_chunks = 0
 
         for doc in docs:
-            text = (doc.content or "").strip()
-            if not text:
-                doc.indexed = True
-                continue
-
-            chunks = chunk_text(text)
-
-            points = []
+            chunks = chunk_text(doc.content or "")
 
             for chunk in chunks:
                 vector = embed_text(chunk)
 
-                # 🔥 Гарантированное создание коллекции ДО первого upsert
-                if not collection_ready:
-                    store.create_collection(vector_size=len(vector))
-                    collection_ready = True
-
-                points.append(
-                    store.build_point(
-                        document=doc,
-                        chunk_text=chunk,
-                        vector=vector,
-                    )
+                point = store.build_point(
+                    document=doc,
+                    chunk_text=chunk,
+                    vector=vector,
                 )
 
-            # upsert одним батчем по документу
-            if points:
-                store.upsert(points)
+                store.upsert([point])
+                total_chunks += 1
 
             doc.indexed = True
 
         session.commit()
-        print("[INDEX] done")
 
-    except Exception as e:
-        session.rollback()
-        print(f"[INDEX] error: {e}")
-        raise
+        print(f"[INDEX] done, chunks={total_chunks}")
+
+        return total_chunks
 
     finally:
         session.close()

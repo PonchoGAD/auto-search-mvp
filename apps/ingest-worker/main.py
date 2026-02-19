@@ -13,10 +13,15 @@ from sources.avito import fetch_avito_serp
 from sources.drom import fetch_drom_ru
 
 # ✅ ВАЖНО: импортируем ASYNC telegram (НЕ sync wrapper)
-from sources.telegram import fetch_telegram  # <- async def fetch_telegram(...)
+from sources.telegram import fetch_telegram  # async def
+
+# ✅ ДОБАВЛЕНО — форумы
+from sources.benzclub import fetch_benzclub_listings
+from sources.bmwclub import fetch_bmwclub_listings
 
 SLEEP_BASE = 900   # 15 минут
 MAX_BACKOFF = 3600 # 1 час
+
 
 # =========================
 # DB WAIT (CRITICAL)
@@ -32,8 +37,10 @@ def wait_for_db(engine, retries: int = 30, delay: int = 2):
             time.sleep(delay)
     raise RuntimeError("DB not available after retries")
 
+
 wait_for_db(engine)
 Base.metadata.create_all(bind=engine)
+
 
 # =========================
 # DB SCHEMA PATCH (MVP MIGRATION)
@@ -60,7 +67,9 @@ def ensure_schema():
     finally:
         session.close()
 
+
 ensure_schema()
+
 
 # =========================
 # SAVE
@@ -102,6 +111,7 @@ def save_items(items):
 
     return saved, skipped
 
+
 # =========================
 # SAFE FETCH HELPERS (timeouts)
 # =========================
@@ -114,6 +124,7 @@ async def safe_await(label: str, coro, timeout_s: int = 120):
     except Exception as e:
         print(f"[INGEST][ERROR] {label}: {e}", flush=True)
         return []
+
 
 # =========================
 # RUN
@@ -135,11 +146,36 @@ async def run_cycle():
         drom_items = []
     await asyncio.sleep(random.uniform(0.5, 1.5))
 
-    # ✅ TELEGRAM — ASYNC await (никаких fetch_telegram_sync!)
+    # ✅ TELEGRAM — ASYNC await
     telegram_items = await safe_await("telegram", fetch_telegram(limit_per_channel=50), timeout_s=180)
     print(f"[INGEST] telegram fetched={len(telegram_items)}", flush=True)
 
-    total = (auto_items or []) + (avito_items or []) + (drom_items or []) + (telegram_items or [])
+    # ✅ ДОБАВЛЕНО — BENZCLUB
+    try:
+        benz_items = fetch_benzclub_listings(limit=30) or []
+    except Exception as e:
+        print(f"[INGEST][ERROR] benzclub: {e}", flush=True)
+        benz_items = []
+
+    # ✅ ДОБАВЛЕНО — BMWCLUB
+    try:
+        bmw_items = fetch_bmwclub_listings(limit=30) or []
+    except Exception as e:
+        print(f"[INGEST][ERROR] bmwclub: {e}", flush=True)
+        bmw_items = []
+
+    # =========================
+    # TOTAL (РАСШИРЕНО)
+    # =========================
+    total = (
+        (auto_items or [])
+        + (avito_items or [])
+        + (drom_items or [])
+        + (telegram_items or [])
+        + benz_items
+        + bmw_items
+    )
+
     print(f"[INGEST] total fetched={len(total)}", flush=True)
 
     saved, skipped = save_items(total)
@@ -152,6 +188,7 @@ async def run_cycle():
         run_index(limit=200)
     else:
         print("[INDEX] skipped (nothing saved)", flush=True)
+
 
 # =========================
 # PRODUCTION LOOP
@@ -172,6 +209,7 @@ def main():
             print(f"[INGEST] unexpected error: {e}", flush=True)
             time.sleep(min(backoff, MAX_BACKOFF))
             backoff = min(backoff * 2, MAX_BACKOFF)
+
 
 if __name__ == "__main__":
     main()

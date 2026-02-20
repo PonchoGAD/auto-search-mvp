@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import styles from "./page.module.css";
-import ResultsBySource from "./components/ResultsBySource";
+import ResultsBySource from '../components/ResultsBySource';
 
 type SearchResult = {
   brand?: string;

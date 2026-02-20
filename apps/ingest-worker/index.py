@@ -13,6 +13,9 @@ def run_index(limit: int = 200):
     store = QdrantStore()
 
     try:
+        raw_new = session.query(RawDocument).filter(RawDocument.indexed == False).count()
+        print(f"[INDEX] raw_new={raw_new}")
+
         docs: List[RawDocument] = (
             session.query(RawDocument)
             .filter(RawDocument.indexed == False)
@@ -49,6 +52,7 @@ def run_index(limit: int = 200):
 
                 store.upsert([point])
                 total_chunks += 1
+                print(f"[INDEX] chunks_created={total_chunks}")
 
             doc.indexed = True
 

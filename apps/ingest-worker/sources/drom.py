@@ -33,6 +33,7 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
 
     items: List[Dict] = []
     seen = set()
+    filtered = 0
 
     # 🔥 PAGINATION: pages 1..5
     for page in range(1, 6):
@@ -62,27 +63,62 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
             title = card.get_text(strip=True)
 
             if not ad_url or "auto.drom.ru" not in ad_url:
+                filtered += 1
                 continue
 
             if not ad_url.startswith("http"):
                 ad_url = "https://auto.drom.ru" + ad_url
 
+            # ---- DENYLIST ----
+            deny_patterns = [
+                "/addbull/",
+                "/rate_car/",
+                "/moto/",
+                "/spec/",
+                "/sign",
+                "/my/",
+            ]
+
+            if any(p in ad_url for p in deny_patterns):
+                filtered += 1
+                continue
+
+            # root brand pages like /bmw/
+            if ad_url.rstrip("/").count("/") <= 3:
+                filtered += 1
+                continue
+
+            # ---- ALLOWLIST ----
+            is_ad = (
+                ad_url.endswith(".html") or
+                ad_url.rstrip("/").split("/")[-1].isdigit()
+            )
+
+            if not is_ad:
+                filtered += 1
+                continue
+
             if ad_url in seen:
+                filtered += 1
                 continue
 
             seen.add(ad_url)
 
             # 🔒 Anti-login / garbage filter
             if "my.drom.ru/sign" in ad_url:
+                filtered += 1
                 continue
 
             if not title:
+                filtered += 1
                 continue
 
             if "вход" in title.lower() or "регистрац" in title.lower():
+                filtered += 1
                 continue
 
             if "/sign?" in ad_url:
+                filtered += 1
                 continue
 
             items.append(
@@ -94,5 +130,5 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
                 }
             )
 
-    print(f"[DROM] fetched={len(items)}")
+    print(f"[DROM] fetched={len(items)} filtered={filtered}")
     return items

@@ -35,14 +35,33 @@ def detect_brand(text: str) -> str | None:
     return None
 
 
+def normalize_benzclub_url(url: str) -> str:
+    import re
+    from urllib.parse import urlparse, parse_qs
+
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query)
+
+    thread_id = None
+
+    if "t" in qs:
+        thread_id = qs["t"][0]
+
+    match = re.search(r"showthread\.php\?t=(\d+)", url)
+    if match:
+        thread_id = match.group(1)
+
+    if not thread_id:
+        return url
+
+    return f"{BASE_URL}/forum/showthread.php?t={thread_id}"
+
+
 def _clean_post_text(text: str) -> str:
     if not text:
         return ""
 
-    # убираем цитаты [quote]...[/quote]
     text = re.sub(r"\[quote.*?\].*?\[/quote\]", " ", text, flags=re.S | re.I)
-
-    # убираем подписи
     text = re.sub(r"Sent from.*", " ", text, flags=re.I)
     text = re.sub(r"Отправлено.*", " ", text, flags=re.I)
 
@@ -82,7 +101,11 @@ def _fetch_listing_page(url: str) -> List[str]:
         href = a.get("href")
         if not href:
             continue
-        links.append(urljoin(BASE_URL, href))
+
+        full_url = urljoin(BASE_URL, href)
+        full_url = normalize_benzclub_url(full_url)
+
+        links.append(full_url)
 
     return list(set(links))
 
@@ -100,6 +123,8 @@ def fetch_benzclub_listings(limit: int = 30) -> List[Dict]:
             continue
 
         for thread_url in threads:
+            thread_url = normalize_benzclub_url(thread_url)
+
             if thread_url in seen:
                 continue
             seen.add(thread_url)

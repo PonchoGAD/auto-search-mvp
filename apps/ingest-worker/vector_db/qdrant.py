@@ -176,13 +176,43 @@ class QdrantStore:
     # =====================================================
 
     def build_point(self, document, chunk_text: str, vector):
+
+        payload = {
+            "source": document.source,
+            "source_url": document.source_url,
+            "title": document.title,
+            "content": chunk_text,
+        }
+
+        if hasattr(document, "brand"):
+            payload["brand"] = getattr(document, "brand", None)
+
+        if hasattr(document, "model"):
+            payload["model"] = getattr(document, "model", None)
+
+        if hasattr(document, "price"):
+            payload["price"] = getattr(document, "price", None)
+
+        if hasattr(document, "mileage"):
+            payload["mileage"] = getattr(document, "mileage", None)
+
+        if hasattr(document, "fuel"):
+            payload["fuel"] = getattr(document, "fuel", None)
+
+        if hasattr(document, "region"):
+            payload["region"] = getattr(document, "region", None)
+
+        if hasattr(document, "sale_intent"):
+            payload["sale_intent"] = getattr(document, "sale_intent", 1)
+
+        if hasattr(document, "created_at"):
+            payload["created_at"] = getattr(document, "created_at", None)
+
+        if hasattr(document, "created_at_ts"):
+            payload["created_at_ts"] = getattr(document, "created_at_ts", None)
+
         return PointStruct(
             id=str(uuid4()),
             vector=vector,
-            payload={
-                "source": document.source,
-                "source_url": document.source_url,
-                "title": document.title,
-                "content": chunk_text,
-            },
+            payload=payload,
         )

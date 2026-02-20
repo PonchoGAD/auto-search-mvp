@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from datetime import datetime
 import re
+import os
 
 BASE_URL = "https://www.bmwclub.ru"
 
@@ -19,6 +20,8 @@ HEADERS = {
         "Chrome/120.0.0.0 Safari/537.36"
     )
 }
+
+BMWCLUB_ENABLED = os.getenv("BMWCLUB_ENABLED", "false").lower() == "true"
 
 
 def detect_brand(text: str) -> str | None:
@@ -49,6 +52,11 @@ def _clean_post_text(text: str) -> str:
 
 def _fetch_thread(url: str) -> Dict:
     r = requests.get(url, headers=HEADERS, timeout=30)
+
+    if r.status_code == 403:
+        print("[BMWCLUB] 403 forbidden, skipping source")
+        return {}
+
     r.raise_for_status()
 
     soup = BeautifulSoup(r.text, "html.parser")
@@ -85,6 +93,10 @@ def _fetch_listing_page(url: str) -> List[str]:
 
 
 def fetch_bmwclub_listings(limit: int = 30) -> List[Dict]:
+    if not BMWCLUB_ENABLED:
+        print("[BMWCLUB] disabled by config")
+        return []
+
     results: List[Dict] = []
     seen = set()
 
@@ -107,14 +119,17 @@ def fetch_bmwclub_listings(limit: int = 30) -> List[Dict]:
                 print(f"[BMWCLUB][THREAD_ERROR] {thread_url}: {e}")
                 continue
 
-            brand = detect_brand(data["content"])
+            if not data:
+                continue
+
+            brand = detect_brand(data.get("content"))
 
             results.append(
                 {
                     "source": "bmwclub.ru",
                     "source_url": thread_url,
-                    "title": data["title"],
-                    "content": data["content"],
+                    "title": data.get("title"),
+                    "content": data.get("content"),
                     "brand": brand,
                     "model": None,
                     "price": None,

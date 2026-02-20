@@ -71,7 +71,7 @@ SOURCE_BOOSTS = {
 # =========================
 # FAIRNESS CONFIG
 # =========================
-MAX_RESULTS_PER_SOURCE: int = 300
+MAX_RESULTS_PER_SOURCE: int = 40
 DOMAIN_PENALTY_K: float = 0.4
 
 # =========================
@@ -98,20 +98,36 @@ class SearchService:
     def search(
         self,
         structured: StructuredQuery,
-        limit: int = 200,
-        top_k: int = 300,
+        limit: int = None,
+        top_k: int = None,
     ) -> List[Dict[str, Any]]:
+
+        if limit is None:
+            limit = int(os.getenv("SEARCH_LIMIT", "50"))
+
+        if top_k is None:
+            top_k = int(os.getenv("SEARCH_TOP_K", "120"))
 
         query_text = self._build_query_text(structured)
         query_vector = embed_query(query_text)
 
         # =========================
-        # QDRANT FILTER DISABLED
+        # QDRANT FILTER
         # =========================
         qdrant_filter = None
 
+        if structured.brand:
+            qdrant_filter = {
+                "must": [
+                    {
+                        "key": "brand",
+                        "match": {"value": structured.brand}
+                    }
+                ]
+            }
+
         print("[API][DEBUG] collection=auto_search_chunks")
-        print("[API][DEBUG] filter=None")
+        print(f"[API][DEBUG] filter={qdrant_filter}")
 
         try:
             hits = self.store.search(

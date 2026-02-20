@@ -43,7 +43,7 @@ infra/compose.yml
 
 # =========================
 # PLAYWRIGHT
-# =========================
+# ========================
 playwright/.cache/
 ms-playwright/
 

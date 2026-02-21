@@ -1,3 +1,4 @@
+// apps/web/src/app/search/page.tsx
 "use client";
 
 import {
@@ -34,6 +35,7 @@ export default function SearchPage() {
   const [error, setError] = useState<string | null>(null);
 
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const API_URL = useMemo(
     () => process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
@@ -44,14 +46,21 @@ export default function SearchPage() {
     async (q: string) => {
       if (!q.trim()) return;
 
+      // cancel previous in-flight request
+      if (abortRef.current) {
+        abortRef.current.abort();
+      }
+      abortRef.current = new AbortController();
+
       setLoading(true);
       setError(null);
 
       try {
-        const res = await fetch(`${API_URL}/api/v1/search`, {
+        const res = await fetch("/api/v1/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: q }),
+          signal: abortRef.current.signal,
         });
 
         if (!res.ok) {
@@ -61,6 +70,9 @@ export default function SearchPage() {
         const data = await res.json();
         setResults(data.results || []);
       } catch (e: unknown) {
+        // ignore abort errors
+        if (e instanceof DOMException && e.name === "AbortError") return;
+
         const msg = e instanceof Error ? e.message : "Ошибка поиска";
         setError(msg);
       } finally {

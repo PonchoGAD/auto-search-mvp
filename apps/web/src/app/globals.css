@@ -11,7 +11,7 @@
 .bg {
   position: fixed;
   inset: 0;
-  background-image: url("/bg/hero-auto.jpg");
+  background-image: url("/bg/hero-auto.jpeg");
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;

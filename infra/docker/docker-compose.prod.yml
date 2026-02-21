@@ -39,15 +39,6 @@ services:
     restart: always
     env_file:
       - .env.prod
-    environment:
-      - TG_API_ID=${TG_API_ID}
-      - TG_API_HASH=${TG_API_HASH}
-      - TG_SESSION_STRING=${TG_SESSION_STRING}
-      - TG_CHANNELS=${TG_CHANNELS}
-      - TG_FETCH_LIMIT=50
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
-      - POSTGRES_HOST=postgres
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,11 +84,6 @@ services:
     restart: always
     volumes:
       - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "http://localhost:6333/collections"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
     networks:
       - internal
   

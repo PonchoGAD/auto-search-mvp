@@ -11,15 +11,17 @@ from utils.telegram_filters import is_valid_telegram_post
 
 
 # =========================
-# ENV
+# SAFE ENV HELPERS
 # =========================
 
-TG_API_ID = int(os.getenv("TG_API_ID", "0"))
-TG_API_HASH = os.getenv("TG_API_HASH", "")
-TG_SESSION_STRING = os.getenv("TG_SESSION_STRING", "")
-
-TG_FETCH_LIMIT = int(os.getenv("TG_FETCH_LIMIT", "50"))
-TG_CHANNELS_RAW = os.getenv("TG_CHANNELS", "")
+def _get_int_env(name: str, default: int = 0) -> int:
+    value = os.getenv(name)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
 
 
 # =========================
@@ -32,6 +34,7 @@ def load_channels() -> List[str]:
     Пример:
     TG_CHANNELS=@cars_ru,@auto_moscow
     """
+    TG_CHANNELS_RAW = os.getenv("TG_CHANNELS", "")
     return [c.strip() for c in TG_CHANNELS_RAW.split(",") if c.strip()]
 
 
@@ -106,8 +109,14 @@ async def fetch_telegram(limit_per_channel: int | None = None) -> List[Dict]:
     Асинхронный fetch Telegram.
     """
 
+    TG_API_ID = _get_int_env("TG_API_ID", 0)
+    TG_API_HASH = os.getenv("TG_API_HASH", "")
+    TG_SESSION_STRING = os.getenv("TG_SESSION_STRING", "")
+    TG_FETCH_LIMIT = _get_int_env("TG_FETCH_LIMIT", 50)
+
     if not TG_API_ID or not TG_API_HASH or not TG_SESSION_STRING:
-        raise RuntimeError("Telegram ENV variables are not set")
+        print("[TELEGRAM][WARN] Telegram ENV variables are not properly set")
+        return []
 
     channels = load_channels()
     if not channels:

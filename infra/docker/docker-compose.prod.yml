@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   api:
     build:
@@ -6,22 +8,26 @@ services:
     container_name: auto-search-api
     restart: always
     ports:
-      - "127.0.0.1:8000:8000"
+      - "8000:8000"
     env_file:
       - .env.prod
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - REDIS_HOST=redis
+      - POSTGRES_HOST=postgres
     depends_on:
       postgres:
-        condition: service_started
+        condition: service_healthy
       redis:
+        condition: service_healthy
+      qdrant:
         condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
       interval: 30s
       timeout: 5s
-      retries: 3
+      retries: 5
     networks:
       - internal
 
@@ -30,33 +36,21 @@ services:
       context: ../../
       dockerfile: apps/ingest-worker/Dockerfile
     container_name: auto-search-ingest-worker
+    restart: always
     env_file:
       - .env.prod
     environment:
-      - TG_API_ID=34456629
-      - TG_API_HASH=b54959eed146203ec150e86cbe990bdd
-      - TG_SESSION_STRING=1ApWapzMBu1V9weXSsqzcO_HzhyDp6jLMd_zve467mf-SkTdTvMobhRH8oAz-p_PvtH5pIZA_dpx1B6rTOIoTDDqSSSaMnx6DtObcfsjA_zyNzSr2h4pk-fpvNqOmEDWYlyUDVkYK8k7Y4PZFHDy1F5ryJnk4Vck-BM9sRgp6SUOFX6B5_MkQAO04MjzPqJwlYlzga6CZ1_TDrW2GRQAYQNQ6A_PXz23IoDETphllA4lJ9fFMQfEYud7kIg-7Xuef1Jj-FwMz3WWGaBv3oG_xSgJAHRik3PmhBMge4KwDpmGabF3IQ7_bcY6KB2EBJiOckLBO0FQMCPgih6WuBlNUzkhUip_kZEM=
-      - TG_CHANNELS=@autoru_official,@cars_ru,@car_market_ru,@mercedesclubrussia,@mbmarket_ru,@bmwclubrussia,@bmwmarket,@chinamarket_auto,@lixiang_russia
       - TG_FETCH_LIMIT=50
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - POSTGRES_HOST=postgres
     depends_on:
       postgres:
         condition: service_healthy
-    restart: "no"
+      qdrant:
+        condition: service_started
     networks:
       - internal
-
-  web:
-    build:
-      context: ../../apps/web
-      dockerfile: Dockerfile
-    container_name: auto-search-web
-    ports:
-      - "127.0.0.1:3000:3000"
-    depends_on:
-      - api
-    restart: always
 
   postgres:
     image: postgres:16-alpine
@@ -80,7 +74,7 @@ services:
     image: redis:7-alpine
     container_name: auto-search-redis
     restart: always
-    command: ["redis-server", "--protected-mode", "yes", "--save", "60", "1", "--appendonly", "yes"]
+    command: ["redis-server", "--protected-mode", "yes", "--appendonly", "yes"]
     healthcheck:
       test: ["CMD", "redis-cli", "PING"]
       interval: 10s
@@ -95,6 +89,24 @@ services:
     restart: always
     volumes:
       - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:6333/collections"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  nginx:
+    image: nginx:alpine
+    container_name: auto-search-nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - api
     networks:
       - internal
 

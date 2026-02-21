@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import styles from "./page.module.css";
-import ResultsBySource from '../components/ResultsBySource';
+import ResultsBySource from "../components/ResultsBySource";
 
 type SearchResult = {
   brand?: string;
@@ -107,25 +107,21 @@ export default function HomePage() {
 
   const composedQuery = useMemo(() => {
     const parts: string[] = [];
-
-    const base = query.trim();
-    if (base) parts.push(base);
-
+    if (query.trim()) parts.push(query.trim());
     if (brand) parts.push(brand);
     if (price) parts.push(price);
     if (mileage) parts.push(mileage);
     if (condition) parts.push(condition);
     if (fuel) parts.push(fuel);
-
-    return parts.join(", ").replace(/\s+/g, " ").trim();
+    return parts.join(", ");
   }, [query, brand, price, mileage, condition, fuel]);
 
   const handleSearch = useCallback(
     async (overrideQuery?: string) => {
       const q = (overrideQuery ?? composedQuery).trim();
       if (!q) return;
-
       if (q === lastQueryRef.current) return;
+
       lastQueryRef.current = q;
 
       if (abortRef.current) abortRef.current.abort();
@@ -136,10 +132,10 @@ export default function HomePage() {
 
       try {
         const res = await fetch("/api/v1/search", {
-          signal: abortRef.current.signal,
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: q }),
+          signal: abortRef.current.signal,
         });
 
         if (!res.ok) {
@@ -149,9 +145,9 @@ export default function HomePage() {
         const data = await res.json();
         setResults(data.results || []);
       } catch (e: unknown) {
-        if (e instanceof DOMException && e.name === "AbortError") return;
-        const msg = e instanceof Error ? e.message : "Ошибка поиска";
-        setError(msg);
+        const error = e instanceof Error ? e : new Error("Unknown error");
+        if (error.name === "AbortError") return;
+        setError(error.message || "Ошибка поиска");
       } finally {
         setLoading(false);
       }
@@ -159,14 +155,12 @@ export default function HomePage() {
     [composedQuery]
   );
 
-  // Debounce: когда печатают — ищем по составному запросу
   useEffect(() => {
-    const q = composedQuery.trim();
-    if (!q) return;
-
+    if (!composedQuery.trim()) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
+
     debounceRef.current = setTimeout(() => {
-      handleSearch(q);
+      handleSearch(composedQuery);
     }, 450);
 
     return () => {
@@ -186,16 +180,10 @@ export default function HomePage() {
     lastQueryRef.current = "";
   };
 
-  useEffect(() => {
-    const el = document.getElementById("search-input") as HTMLInputElement | null;
-    el?.focus();
-  }, []);
-
   return (
     <div className={styles.page}>
-      {/* фон — ты добавишь картинку сюда: apps/web/public/bg/hero-auto.jpg */}
-      <div className={styles.bg} aria-hidden="true" />
-      <div className={styles.overlay} aria-hidden="true" />
+      <div className={styles.bg} />
+      <div className={styles.overlay} />
 
       <div className={styles.container}>
         <header className={styles.header}>
@@ -222,13 +210,10 @@ export default function HomePage() {
           </div>
         </header>
 
-        {/* Search panel */}
         <section className={styles.panel}>
           <div className={styles.searchRow}>
             <input
-              id="search-input"
               className={styles.searchInput}
-              type="text"
               placeholder="BMW до 2 млн, пробег до 50 тыс, без окраса"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -238,47 +223,21 @@ export default function HomePage() {
               className={styles.primaryBtn}
               onClick={() => handleSearch()}
               disabled={loading}
-              title="Запустить поиск"
             >
               {loading ? "Ищем…" : "Найти"}
             </button>
 
-            <button className={styles.secondaryBtn} onClick={clear} title="Сбросить фильтры">
+            <button className={styles.secondaryBtn} onClick={clear}>
               Очистить
             </button>
           </div>
 
           <div className={styles.filtersRow}>
-            <FilterSelect
-              label="Марка"
-              value={brand}
-              onChange={setBrand}
-              options={BRAND_OPTIONS}
-            />
-            <FilterSelect
-              label="Цена"
-              value={price}
-              onChange={setPrice}
-              options={PRICE_OPTIONS}
-            />
-            <FilterSelect
-              label="Пробег"
-              value={mileage}
-              onChange={setMileage}
-              options={MILEAGE_OPTIONS}
-            />
-            <FilterSelect
-              label="Состояние"
-              value={condition}
-              onChange={setCondition}
-              options={CONDITION_OPTIONS}
-            />
-            <FilterSelect
-              label="Топливо"
-              value={fuel}
-              onChange={setFuel}
-              options={FUEL_OPTIONS}
-            />
+            <FilterSelect label="Марка" value={brand} onChange={setBrand} options={BRAND_OPTIONS} />
+            <FilterSelect label="Цена" value={price} onChange={setPrice} options={PRICE_OPTIONS} />
+            <FilterSelect label="Пробег" value={mileage} onChange={setMileage} options={MILEAGE_OPTIONS} />
+            <FilterSelect label="Состояние" value={condition} onChange={setCondition} options={CONDITION_OPTIONS} />
+            <FilterSelect label="Топливо" value={fuel} onChange={setFuel} options={FUEL_OPTIONS} />
           </div>
 
           <div className={styles.hintRow}>
@@ -291,9 +250,8 @@ export default function HomePage() {
 
         {loading && (
           <section className={styles.loadingBlock}>
-            <div className={styles.loadingText}>🔍 Анализируем источники…</div>
             <div className={styles.skeletonGrid}>
-              {[1, 2, 3, 4].map((i) => (
+              {[1, 2, 3].map((i) => (
                 <div key={i} className={styles.skeletonCard} />
               ))}
             </div>
@@ -306,19 +264,8 @@ export default function HomePage() {
           </section>
         )}
 
-        {!loading && !error && results.length === 0 && composedQuery.trim() && (
-          <section className={styles.empty}>
-            <div className={styles.emptyTitle}>Пока пусто</div>
-            <div className={styles.emptyText}>
-              Попробуй упростить запрос или снять часть фильтров.
-            </div>
-          </section>
-        )}
-
         <footer className={styles.footer}>
-          <div className={styles.footerLine}>
-            Источники: форумы, маркетплейсы, Telegram-каналы (в зависимости от доступности).
-          </div>
+          SaaS Semantic Auto Search © 2026
         </footer>
       </div>
     </div>
@@ -346,14 +293,12 @@ function FilterSelect({
           onChange={(e) => onChange(e.target.value)}
         >
           {options.map((o) => (
-            <option key={`${label}-${o.label}-${o.value}`} value={o.value}>
+            <option key={`${label}-${o.label}`} value={o.value}>
               {o.label}
             </option>
           ))}
         </select>
-        <span className={styles.selectChevron} aria-hidden="true">
-          ▾
-        </span>
+        <span className={styles.selectChevron}>▾</span>
       </div>
     </div>
   );

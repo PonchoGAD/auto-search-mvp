@@ -9,6 +9,7 @@ from api.v1.search_history import router as search_history_router
 from api.v1.analytics import router as analytics_router
 from api.v1.demo import router as demo_router
 from api.v1.admin import router as admin_router
+from api.v1.metrics import router as metrics_router
 
 from core.settings import settings
 
@@ -24,7 +25,11 @@ app.include_router(search_router, prefix="/api/v1")
 app.include_router(search_history_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(demo_router, prefix="/api/v1")
+app.include_router(metrics_router, prefix="/api/v1")
 app.include_router(admin_router)
 
 # ⚠️ допустимо для MVP
 Base.metadata.create_all(bind=engine)
+
+
+

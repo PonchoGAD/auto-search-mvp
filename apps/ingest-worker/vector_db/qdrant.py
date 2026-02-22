@@ -6,8 +6,76 @@ from uuid import uuid4
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct
 
+from pathlib import Path
+import yaml
+import re
+
 
 COLLECTION_NAME = "auto_search_chunks"
+
+
+# =====================================================
+# BRAND + META EXTRACTION
+# =====================================================
+
+def _load_brands_config():
+    base_dir = Path(__file__).resolve().parent.parent
+    brands_path = base_dir / "config" / "brands.yaml"
+    with open(brands_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return data.get("brands", {})
+
+
+BRANDS_CONFIG = _load_brands_config()
+
+
+def detect_brand(text: str):
+    t = (text or "").lower()
+
+    for brand, cfg in BRANDS_CONFIG.items():
+        for w in cfg.get("en", []) + cfg.get("ru", []):
+            if re.search(rf"\b{re.escape(w.lower())}\b", t):
+                return brand
+        for a in cfg.get("aliases", []):
+            if re.search(rf"\b{re.escape(a.lower())}\b", t):
+                return brand
+    return None
+
+
+def extract_price(text: str):
+    m = re.search(r"(\d[\d\s]{3,})\s*₽", text)
+    if m:
+        return int(m.group(1).replace(" ", ""))
+    return None
+
+
+def extract_year(text: str):
+    m = re.search(r"\b(20\d{2}|19\d{2})\b", text)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def extract_mileage(text: str):
+    m = re.search(r"(\d[\d\s]{2,})\s*(км|km)", text.lower())
+    if m:
+        return int(m.group(1).replace(" ", ""))
+    return None
+
+
+def is_catalog_url(url: str):
+    u = (url or "").lower()
+
+    if "avito.ru/all/" in u:
+        return True
+
+    if re.match(r"^https?://auto\.drom\.ru/[^/]+/?$", u):
+        return True
+
+    if u.endswith("/"):
+        return True
+
+    return False
 
 
 class QdrantStore:
@@ -34,7 +102,6 @@ class QdrantStore:
             except Exception:
                 pass
 
-        # 🔒 ВАЖНО: внутри docker-сети нельзя localhost
         if host in ("localhost", "127.0.0.1"):
             host = "qdrant"
 
@@ -71,16 +138,8 @@ class QdrantStore:
     # =====================================================
 
     def _normalize_created_at(self, payload: dict) -> dict:
-        """
-        Гарантирует наличие:
-        - created_at (ISO str)
-        - created_at_ts (int)
-        - created_at_source (source | ingested)
-        """
-
         raw = payload.get("created_at")
 
-        # 1️⃣ datetime из payload
         if isinstance(raw, datetime):
             dt = raw
             if not dt.tzinfo:
@@ -91,7 +150,6 @@ class QdrantStore:
             payload.setdefault("created_at_source", "source")
             return payload
 
-        # 2️⃣ ISO string из payload
         if isinstance(raw, str):
             try:
                 dt = datetime.fromisoformat(raw)
@@ -105,7 +163,6 @@ class QdrantStore:
             except Exception:
                 pass
 
-        # 3️⃣ Fallback — ingest time
         now = datetime.now(tz=timezone.utc)
         payload["created_at"] = now.isoformat()
         payload["created_at_ts"] = int(now.timestamp())
@@ -127,7 +184,6 @@ class QdrantStore:
         for p in points:
             payload = p.payload or {}
 
-            # 🔑 RECENCY HARDENING
             payload = self._normalize_created_at(payload)
 
             normalized_points.append(
@@ -177,33 +233,35 @@ class QdrantStore:
 
     def build_point(self, document, chunk_text: str, vector):
 
+        if is_catalog_url(document.source_url):
+            return None
+
+        text_blob = f"{document.title or ''}\n{document.content or ''}"
+
+        brand = detect_brand(text_blob)
+        price = extract_price(text_blob)
+        year = extract_year(text_blob)
+        mileage = extract_mileage(text_blob)
+
         payload = {
             "source": document.source,
             "source_url": document.source_url,
             "title": document.title,
-            "content": chunk_text,
+            "content": document.content,
+
+            "brand": brand,
+            "price": price,
+            "year": year,
+            "mileage": mileage,
+
+            "sale_intent": 0 if is_catalog_url(document.source_url) else 1,
         }
-
-        if hasattr(document, "brand"):
-            payload["brand"] = getattr(document, "brand", None)
-
-        if hasattr(document, "model"):
-            payload["model"] = getattr(document, "model", None)
-
-        if hasattr(document, "price"):
-            payload["price"] = getattr(document, "price", None)
-
-        if hasattr(document, "mileage"):
-            payload["mileage"] = getattr(document, "mileage", None)
 
         if hasattr(document, "fuel"):
             payload["fuel"] = getattr(document, "fuel", None)
 
         if hasattr(document, "region"):
             payload["region"] = getattr(document, "region", None)
-
-        if hasattr(document, "sale_intent"):
-            payload["sale_intent"] = getattr(document, "sale_intent", 1)
 
         if hasattr(document, "created_at"):
             payload["created_at"] = getattr(document, "created_at", None)

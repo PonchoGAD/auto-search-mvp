@@ -116,16 +116,6 @@ class SearchService:
         # =========================
         qdrant_filter = None
 
-        if structured.brand:
-            qdrant_filter = {
-                "must": [
-                    {
-                        "key": "brand",
-                        "match": {"value": structured.brand}
-                    }
-                ]
-            }
-
         print("[API][DEBUG] collection=auto_search_chunks")
         print(f"[API][DEBUG] filter={qdrant_filter}")
 
@@ -139,24 +129,50 @@ class SearchService:
             print(f"[SEARCH][DEMO][WARN] qdrant unavailable: {e}")
             return []
 
+        # fallback if empty
+        if not hits:
+            try:
+                hits = self.store.search(
+                    query=structured.raw_query,
+                    filter=None,
+                )
+            except Exception as e:
+                print(f"[SEARCH][DEMO][WARN] fallback search failed: {e}")
+                return []
+
         print(f"[API][DEBUG] qdrant_hits={len(hits)}")
 
         if not hits:
             print("[SEARCH][DEMO] hits=0")
             return []
 
+        # =========================
+        # SOFT BRAND BOOST
+        # =========================
+        scored_results = []
+
+        for hit in hits:
+            base_score = hit.score
+            payload = hit.payload or {}
+
+            brand_boost = 0
+
+            if structured.brand:
+                if payload.get("brand") and payload["brand"].lower() == structured.brand.lower():
+                    brand_boost = 0.15  # мягкий буст
+
+            final_score = base_score + brand_boost
+
+            scored_results.append((final_score, payload))
+
+        scored_results.sort(key=lambda x: x[0], reverse=True)
+
         results: List[Dict[str, Any]] = []
         seen_urls = set()
         source_counter: Dict[str, int] = {}
         domain_counter: Dict[str, int] = {}
 
-        for hit in hits:
-            payload = hit.payload or {}
-
-            if structured.brand:
-                pb = payload.get("brand")
-                if pb and pb != structured.brand:
-                    continue
+        for final_score, payload in scored_results:
 
             if structured.price_max and payload.get("price"):
                 if payload["price"] > structured.price_max:
@@ -187,13 +203,7 @@ class SearchService:
 
             domain_counter.setdefault(domain, 0)
 
-            final_score, reasons = self._score_hit(
-                vector_score=float(hit.score or 0.0),
-                payload=payload,
-                structured=structured,
-                source_rank=source_counter[source_name],
-                domain_rank=domain_counter[domain],
-            )
+            reasons = [f"semantic={round(final_score, 4)}"]
 
             if DEMO_SEARCH_MODE and final_score <= 0:
                 final_score = MIN_DEMO_SCORE

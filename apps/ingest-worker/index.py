@@ -50,9 +50,10 @@ def run_index(limit: int = 200):
                     vector=vector,
                 )
 
-                store.upsert([point])
-                total_chunks += 1
-                print(f"[INDEX] chunks_created={total_chunks}")
+                if point:
+                    store.upsert([point])
+                    total_chunks += 1
+                    print(f"[INDEX] chunks_created={total_chunks}")
 
             doc.indexed = True
 

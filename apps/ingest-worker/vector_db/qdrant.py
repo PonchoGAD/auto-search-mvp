@@ -27,18 +27,37 @@ def _load_brands_config():
 
 
 BRANDS_CONFIG = _load_brands_config()
+WHITELIST_SET = set(BRANDS_CONFIG.keys())
 
 
-def detect_brand(text: str):
-    t = (text or "").lower()
+def detect_brand(source_url, title, content):
+    url = (source_url or "").lower()
+    t = (title or "").lower()
+    c = (content or "").lower()
 
-    for brand, cfg in BRANDS_CONFIG.items():
-        for w in cfg.get("en", []) + cfg.get("ru", []):
-            if re.search(rf"\b{re.escape(w.lower())}\b", t):
-                return brand
-        for a in cfg.get("aliases", []):
-            if re.search(rf"\b{re.escape(a.lower())}\b", t):
-                return brand
+    # 🔥 1️⃣ special domain rules
+    if "benzclub.ru" in url:
+        return "mercedes"
+
+    if "bmwclub" in url:
+        return "bmw"
+
+    # 🔥 2️⃣ whitelist scan
+    for brand in WHITELIST_SET:
+        if not brand:
+            continue
+
+        b = brand.lower()
+
+        if b in url:
+            return brand
+
+        if b in t:
+            return brand
+
+        if b in c:
+            return brand
+
     return None
 
 
@@ -236,9 +255,14 @@ class QdrantStore:
         if is_catalog_url(document.source_url):
             return None
 
+        brand = detect_brand(
+            document.source_url,
+            document.title,
+            document.content,
+        )
+
         text_blob = f"{document.title or ''}\n{document.content or ''}"
 
-        brand = detect_brand(text_blob)
         price = extract_price(text_blob)
         year = extract_year(text_blob)
         mileage = extract_mileage(text_blob)

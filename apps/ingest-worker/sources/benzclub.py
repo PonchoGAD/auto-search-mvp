@@ -8,7 +8,7 @@ import re
 BASE_URL = "https://www.benzclub.ru"
 
 LISTING_PATHS = [
-    "/forum/forumdisplay.php?f=37",  # Продажа авто
+    "/forum/forumdisplay.php?f=37",  # Продажа авт
     "/forum/forumdisplay.php?f=38",  # Купля-продажа
 ]
 

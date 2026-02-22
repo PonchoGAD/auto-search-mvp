@@ -35,14 +35,17 @@ def detect_brand(source_url, title, content):
     t = (title or "").lower()
     c = (content or "").lower()
 
-    # 🔥 1️⃣ special domain rules
+    # 🔥 DOMAIN RULES
     if "benzclub.ru" in url:
         return "mercedes"
 
     if "bmwclub" in url:
         return "bmw"
 
-    # 🔥 2️⃣ whitelist scan
+    if "toyotaclub" in url:
+        return "toyota"
+
+    # 🔥 WHITELIST SCAN
     for brand in WHITELIST_SET:
         if not brand:
             continue
@@ -252,17 +255,21 @@ class QdrantStore:
 
     def build_point(self, document, chunk_text: str, vector):
 
+        # 1️⃣ SKIP CATALOGS
         if is_catalog_url(document.source_url):
             return None
 
+        # 2️⃣ FULL TEXT BLOB
+        text_blob = f"{document.title or ''}\n{document.content or ''}"
+
+        # 3️⃣ BRAND DETECTION (MUST NOT DEPEND ON document.brand)
         brand = detect_brand(
             document.source_url,
             document.title,
             document.content,
         )
 
-        text_blob = f"{document.title or ''}\n{document.content or ''}"
-
+        # 4️⃣ META EXTRACTION
         price = extract_price(text_blob)
         year = extract_year(text_blob)
         mileage = extract_mileage(text_blob)
@@ -278,9 +285,10 @@ class QdrantStore:
             "year": year,
             "mileage": mileage,
 
-            "sale_intent": 0 if is_catalog_url(document.source_url) else 1,
+            "sale_intent": 1,
         }
 
+        # optional fields
         if hasattr(document, "fuel"):
             payload["fuel"] = getattr(document, "fuel", None)
 

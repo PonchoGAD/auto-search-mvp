@@ -11,6 +11,32 @@ import yaml
 import re
 
 
+# =====================================================
+# SAFE INT NORMALIZATION
+# =====================================================
+
+def safe_int(value: str | None):
+    if not value:
+        return None
+
+    if isinstance(value, int):
+        return value
+
+    # убираем NBSP и обычные пробелы
+    cleaned = str(value).replace("\xa0", "").replace(" ", "")
+
+    # оставляем только цифры
+    cleaned = re.sub(r"[^\d]", "", cleaned)
+
+    if not cleaned:
+        return None
+
+    try:
+        return int(cleaned)
+    except Exception:
+        return None
+
+
 COLLECTION_NAME = "auto_search_chunks"
 
 
@@ -65,9 +91,9 @@ def detect_brand(source_url, title, content):
 
 
 def extract_price(text: str):
-    m = re.search(r"(\d[\d\s]{3,})\s*(₽|руб|р)", text.lower())
+    m = re.search(r"(\d[\d\s\xa0]{3,})\s*(₽|руб|р)", text.lower())
     if m:
-        return int(m.group(1).replace(" ", ""))
+        return safe_int(m.group(1))
     return None
 
 
@@ -79,9 +105,9 @@ def extract_year(text: str):
 
 
 def extract_mileage(text: str):
-    m = re.search(r"(\d[\d\s]{2,})\s*(км|km)", text.lower())
+    m = re.search(r"(\d[\d\s\xa0]{2,})\s*(км|km)", text.lower())
     if m:
-        return int(m.group(1).replace(" ", ""))
+        return safe_int(m.group(1))
     return None
 
 
@@ -275,6 +301,13 @@ class QdrantStore:
         price = extract_price(text_blob)
         year = extract_year(text_blob)
         mileage = extract_mileage(text_blob)
+
+        # sanity limits
+        if price and price > 100_000_000:
+            price = None
+
+        if mileage and mileage > 2_000_000:
+            mileage = None
 
         payload = {
             "source": document.source,

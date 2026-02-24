@@ -69,24 +69,29 @@ def _clean_post_text(text: str) -> str:
     return text
 
 
-def _fetch_thread(url: str) -> Dict:
+def _fetch_thread(url: str) -> Dict | None:
     r = requests.get(url, headers=HEADERS, timeout=30)
     r.raise_for_status()
 
     soup = BeautifulSoup(r.text, "html.parser")
 
     title_el = soup.select_one("h1")
-    title = title_el.get_text(strip=True) if title_el else ""
+    parsed_title = title_el.get_text(strip=True) if title_el else ""
 
     first_post = soup.select_one("div.postbody")
     content = first_post.get_text(" ", strip=True) if first_post else ""
 
     clean_text = _clean_post_text(content)
+    parsed_text = f"{parsed_title}\n\n{clean_text}".strip()
+
+    if not parsed_text or len(parsed_text.strip()) < 100:
+        return None
 
     return {
-        "title": title,
-        "content": f"{title}\n\n{clean_text}",
-        "clean_text": clean_text,
+        "source": "benzclub.ru",
+        "source_url": url,
+        "title": parsed_title.strip(),
+        "content": parsed_text.strip(),
     }
 
 
@@ -131,6 +136,8 @@ def fetch_benzclub_listings(limit: int = 30) -> List[Dict]:
 
             try:
                 data = _fetch_thread(thread_url)
+                if not data:
+                    continue
             except Exception as e:
                 print(f"[BENZCLUB][THREAD_ERROR] {thread_url}: {e}")
                 continue

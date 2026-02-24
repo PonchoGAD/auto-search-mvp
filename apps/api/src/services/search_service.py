@@ -147,7 +147,7 @@ class SearchService:
             return []
 
         # =========================
-        # SOFT BRAND BOOST
+        # PRODUCTION RANKING
         # =========================
         scored_results = []
 
@@ -155,13 +155,30 @@ class SearchService:
             base_score = hit.score
             payload = hit.payload or {}
 
-            brand_boost = 0
+            # 🔥 Recency score
+            now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+            created_ts = payload.get("created_at_ts")
 
-            if structured.brand:
-                if payload.get("brand") and payload["brand"].lower() == structured.brand.lower():
-                    brand_boost = 0.15  # мягкий буст
+            recency_score = 0
+            if created_ts:
+                age_days = (now_ts - created_ts) / 86400
+                recency_score = max(0, 1 - age_days / 180)
 
-            final_score = base_score + brand_boost
+            semantic = base_score
+
+            brand_match = 0
+            if structured.brand and payload.get("brand"):
+                if payload["brand"].lower() == structured.brand.lower():
+                    brand_match = 1
+
+            sale_intent = payload.get("sale_intent", 1)
+
+            final_score = (
+                semantic * 0.6
+                + recency_score * 0.2
+                + brand_match * 0.1
+                + sale_intent * 0.1
+            )
 
             scored_results.append((final_score, payload))
 
@@ -286,7 +303,7 @@ class SearchService:
         return " ".join(parts).strip()
 
     # =====================================================
-    # SCORING
+    # SCORING (legacy, not used in production ranking above)
     # =====================================================
 
     def _score_hit(

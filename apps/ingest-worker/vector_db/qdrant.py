@@ -65,7 +65,7 @@ def detect_brand(source_url, title, content):
 
 
 def extract_price(text: str):
-    m = re.search(r"(\d[\d\s]{3,})\s*₽", text)
+    m = re.search(r"(\d[\d\s]{3,})\s*(₽|руб|р)", text.lower())
     if m:
         return int(m.group(1).replace(" ", ""))
     return None
@@ -268,6 +268,8 @@ class QdrantStore:
             document.title,
             document.content,
         )
+        if brand:
+            brand = brand.lower().strip()
 
         # 4️⃣ META EXTRACTION
         price = extract_price(text_blob)
@@ -280,7 +282,7 @@ class QdrantStore:
             "title": document.title,
             "content": document.content,
 
-            "brand": brand,
+            "brand": brand if brand else None,
             "price": price,
             "year": year,
             "mileage": mileage,

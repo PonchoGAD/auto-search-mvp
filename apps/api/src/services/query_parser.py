@@ -40,7 +40,7 @@ def load_brands() -> Dict[str, Dict[str, List[str]]]:
         # ⚠️ ВАЖНО:
         # Этот путь должен указывать на apps/api/src/config/brands.yaml
         # Если у тебя brands.yaml лежит в другом месте — поменяй base_dir уровни.
-        base_dir = Path(_file_).resolve().parent.parent  # .../src
+        base_dir = Path(__file__).resolve().parent.parent  # .../src
         brands_path = base_dir / "config" / "brands.yaml"
 
         with open(brands_path, "r", encoding="utf-8") as f:

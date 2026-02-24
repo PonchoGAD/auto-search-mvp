@@ -255,9 +255,9 @@ class QdrantStore:
 
     def build_point(self, document, chunk_text: str, vector):
 
-        # 1️⃣ SKIP CATALOGS
-        if is_catalog_url(document.source_url):
-            return None
+        # 1️⃣ SKIP CATALOGS (temporarily disabled)
+        # if is_catalog_url(document.source_url):
+        #     return None
 
         # 2️⃣ FULL TEXT BLOB
         text_blob = f"{document.title or ''}\n{document.content or ''}"

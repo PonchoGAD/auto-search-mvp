@@ -18,6 +18,7 @@ from sources.telegram import fetch_telegram  # async def
 # ✅ ДОБАВЛЕНО — форумы
 from sources.benzclub import fetch_benzclub_listings
 from sources.bmwclub import fetch_bmwclub_listings
+from sources.dev_seed import fetch_dev_seed
 
 SLEEP_BASE = 900   # 15 минут
 MAX_BACKOFF = 3600 # 1 час
@@ -164,6 +165,13 @@ async def run_cycle():
         print(f"[INGEST][ERROR] bmwclub: {e}", flush=True)
         bmw_items = []
 
+    # ✅ DEV SEED (временный тестовый источник)
+    try:
+        dev_items = fetch_dev_seed(limit=5) or []
+    except Exception as e:
+        print(f"[INGEST][ERROR] dev_seed: {e}", flush=True)
+        dev_items = []
+
     # =========================
     # TOTAL (РАСШИРЕНО)
     # =========================
@@ -174,6 +182,7 @@ async def run_cycle():
         + (telegram_items or [])
         + benz_items
         + bmw_items
+        + dev_items
     )
 
     print(f"[INGEST] total fetched={len(total)}", flush=True)

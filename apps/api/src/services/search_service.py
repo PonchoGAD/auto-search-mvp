@@ -114,7 +114,39 @@ class SearchService:
         # =========================
         # QDRANT FILTER
         # =========================
-        qdrant_filter = None
+        qdrant_filter = {"must": []}
+
+        # 1️⃣ BRAND (если уверенность высокая)
+        if structured.brand and (getattr(structured, "brand_confidence", 0) or 0) >= 0.9:
+            qdrant_filter["must"].append({
+                "key": "brand",
+                "match": {"value": structured.brand.lower().strip()}
+            })
+
+        # 2️⃣ PRICE MAX
+        if structured.price_max:
+            qdrant_filter["must"].append({
+                "key": "price",
+                "range": {"lte": structured.price_max}
+            })
+
+        # 3️⃣ MILEAGE MAX
+        if structured.mileage_max:
+            qdrant_filter["must"].append({
+                "key": "mileage",
+                "range": {"lte": structured.mileage_max}
+            })
+
+        # 4️⃣ YEAR MIN (не старше N лет)
+        if structured.year_min:
+            qdrant_filter["must"].append({
+                "key": "year",
+                "range": {"gte": structured.year_min}
+            })
+
+        # если пусто → None
+        if not qdrant_filter["must"]:
+            qdrant_filter = None
 
         print("[API][DEBUG] collection=auto_search_chunks")
         print(f"[API][DEBUG] filter={qdrant_filter}")
@@ -129,15 +161,17 @@ class SearchService:
             print(f"[SEARCH][DEMO][WARN] qdrant unavailable: {e}")
             return []
 
-        # fallback if empty
-        if not hits:
+        # fallback if empty: retry without filter (same vector)
+        if not hits and qdrant_filter is not None:
+            print("[API][DEBUG] fallback: retry without filter", flush=True)
             try:
                 hits = self.store.search(
-                    query=structured.raw_query,
-                    filter=None,
+                    vector=query_vector,
+                    limit=top_k,
+                    query_filter=None,
                 )
             except Exception as e:
-                print(f"[SEARCH][DEMO][WARN] fallback search failed: {e}")
+                print(f"[SEARCH][DEMO][WARN] fallback search failed: {e}", flush=True)
                 return []
 
         print(f"[API][DEBUG] qdrant_hits={len(hits)}")
@@ -174,13 +208,21 @@ class SearchService:
             sale_intent = payload.get("sale_intent", 1)
 
             final_score = (
-                semantic * 0.6
+                semantic * 0.5
                 + recency_score * 0.2
-                + brand_match * 0.1
-                + sale_intent * 0.1
+                + brand_match * 0.15
+                + sale_intent * 0.15
             )
 
-            scored_results.append((final_score, payload))
+            reasons = [
+                f"semantic={round(semantic, 4)}",
+                f"recency={round(recency_score, 4)}",
+                f"brand={brand_match}",
+                f"sale={sale_intent}",
+                f"final={round(final_score, 4)}",
+            ]
+
+            scored_results.append((final_score, payload, reasons))
 
         scored_results.sort(key=lambda x: x[0], reverse=True)
 
@@ -189,7 +231,13 @@ class SearchService:
         source_counter: Dict[str, int] = {}
         domain_counter: Dict[str, int] = {}
 
-        for final_score, payload in scored_results:
+        for final_score, payload, reasons in scored_results:
+
+            if structured.price_max and payload.get("price") is None:
+                continue
+
+            if structured.mileage_max and payload.get("mileage") is None:
+                continue
 
             if structured.price_max and payload.get("price"):
                 if payload["price"] > structured.price_max:
@@ -197,6 +245,11 @@ class SearchService:
 
             if structured.mileage_max and payload.get("mileage"):
                 if payload["mileage"] > structured.mileage_max:
+                    continue
+
+            # YEAR CHECK
+            if structured.year_min and payload.get("year"):
+                if payload["year"] < structured.year_min:
                     continue
 
             source_url = payload.get("source_url")
@@ -219,8 +272,6 @@ class SearchService:
                 pass
 
             domain_counter.setdefault(domain, 0)
-
-            reasons = [f"semantic={round(final_score, 4)}"]
 
             if DEMO_SEARCH_MODE and final_score <= 0:
                 final_score = MIN_DEMO_SCORE

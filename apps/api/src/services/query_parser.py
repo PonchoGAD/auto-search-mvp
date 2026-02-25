@@ -128,46 +128,51 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     # -------------------------
     # PRICE (max)
     # -------------------------
-    price_patterns = [
-        r"(до|<=|<)?\s*(\d+[\d\s\xa0.,])\s(млн|миллион|m)\b",
-        r"(до|<=|<)?\s*(\d+[\d\s\xa0.,])\s(тыс|к)\b",
-        r"(до|<=|<)?\s*(\d+[\d\s\xa0.,])\s(₽|руб|р\.|р)\b",
-    ]
 
-    for p in price_patterns:
-        m = re.search(p, text)
-        if not m:
-            continue
+    price_match = re.search(
+        r"(?:до|<=|<)?\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион|m)\b",
+        text
+    )
 
-        num = _digits_only(m.group(2))
-        if not num:
-            continue
+    if price_match:
+        value = float(price_match.group(1).replace(",", "."))
+        result.price_max = int(value * 1_000_000)
 
-        value = int(num)
-        unit = (m.group(3) or "").lower()
+    else:
+        price_match = re.search(
+            r"(?:до|<=|<)?\s*(\d+[\d\s\xa0])\s(₽|руб|р\.?)\b",
+            text
+        )
 
-        if unit in ["млн", "миллион", "m"]:
-            value *= 1_000_000
-        elif unit in ["тыс", "к"]:
-            value *= 1_000
-
-        result.price_max = value
-        break
+        if price_match:
+            num = _digits_only(price_match.group(1))
+            if num:
+                result.price_max = int(num)
 
     # -------------------------
     # MILEAGE (max)
     # -------------------------
-    m = re.search(r"пробег\s*до\s*(\d+[\d\s\xa0.,])\s(тыс|км)?", text)
 
-    if not m:
-        m = re.search(r"до\s*(\d+[\d\s\xa0.,])\s(тыс\s*км|км)", text)
+    mileage_match = re.search(
+        r"пробег\s*(?:до)?\s*(\d+[\d\s\xa0])\s(тыс|км)?",
+        text
+    )
 
-    if m:
-        mileage = int(_digits_only(m.group(1)) or "0")
-        unit = (m.group(2) or "").replace(" ", "")
-        if "тыс" in unit:
-            mileage *= 1000
-        if mileage > 0:
+    if not mileage_match:
+        mileage_match = re.search(
+            r"до\s*(\d+[\d\s\xa0])\s(тыс)\s*(?:км)?",
+            text
+        )
+
+    if mileage_match:
+        num = _digits_only(mileage_match.group(1))
+        if num:
+            mileage = int(num)
+            unit = mileage_match.group(2) or ""
+
+            if "тыс" in unit:
+                mileage *= 1000
+
             result.mileage_max = mileage
 
     # -------------------------

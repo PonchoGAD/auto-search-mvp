@@ -91,13 +91,15 @@ def detect_brand(source_url, title, content):
 
 
 def extract_price(text: str):
+    text = text.lower().replace("\xa0", " ")
+
     patterns = [
-        r"(\d[\d\s\xa0]{3,})\s*(₽|руб|р)",
-        r"цена[:\s]*(\d[\d\s\xa0]{3,})",
+        r"(\d[\d\s]\d)\s(₽|руб|р)",
+        r"цена[:\s](\d[\d\s]\d)",
     ]
 
     for p in patterns:
-        m = re.search(p, text.lower())
+        m = re.search(p, text)
         if m:
             return safe_int(m.group(1))
 
@@ -112,13 +114,15 @@ def extract_year(text: str):
 
 
 def extract_mileage(text: str):
+    text = text.lower().replace("\xa0", " ")
+
     patterns = [
-        r"пробег[:\s](\d[\d\s\xa0]{2,})\s(км|km)",
-        r"(\d[\d\s\xa0]{2,})\s*(км|km)",
+        r"пробег[:\s]([\d\s]+)\s(км|km)?",
+        r"([\d\s]+)\s*(км|km)",
     ]
 
     for p in patterns:
-        m = re.search(p, text.lower())
+        m = re.search(p, text)
         if m:
             value = safe_int(m.group(1))
             if value and value < 2_000_000:

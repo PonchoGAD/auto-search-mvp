@@ -281,6 +281,9 @@ class QdrantStore:
 
     def build_point(self, document, chunk_text: str, vector):
 
+        if not chunk_text or len(chunk_text) < 30:
+            return None
+
         # 1️⃣ SKIP CATALOGS (temporarily disabled)
         # if is_catalog_url(document.source_url):
         #     return None

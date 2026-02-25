@@ -117,7 +117,7 @@ class SearchService:
         qdrant_filter = {"must": []}
 
         # 1️⃣ BRAND (если уверенность высокая)
-        if structured.brand and (getattr(structured, "brand_confidence", 0) or 0) >= 0.9:
+        if structured.brand and (getattr(structured, "brand_confidence", 0) or 0) >= 0.8:
             qdrant_filter["must"].append({
                 "key": "brand",
                 "match": {"value": structured.brand.lower().strip()}
@@ -233,18 +233,20 @@ class SearchService:
 
         for final_score, payload, reasons in scored_results:
 
-            if structured.price_max and payload.get("price") is None:
-                continue
-
-            if structured.mileage_max and payload.get("mileage") is None:
-                continue
-
-            if structured.price_max and payload.get("price"):
-                if payload["price"] > structured.price_max:
+            # 🔥 FIXED PRICE FILTER
+            if structured.price_max:
+                price = payload.get("price")
+                if price is None:
+                    continue
+                if price > structured.price_max:
                     continue
 
-            if structured.mileage_max and payload.get("mileage"):
-                if payload["mileage"] > structured.mileage_max:
+            # 🔥 FIXED MILEAGE FILTER
+            if structured.mileage_max:
+                mileage = payload.get("mileage")
+                if mileage is None:
+                    continue
+                if mileage > structured.mileage_max:
                     continue
 
             # YEAR CHECK

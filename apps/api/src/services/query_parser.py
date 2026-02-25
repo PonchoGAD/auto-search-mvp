@@ -129,14 +129,9 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     # PRICE (max)
     # -------------------------
     price_patterns = [
-        # "до 2 млн", "2 млн", "<= 2 млн"
         r"(до|<=|<)?\s*(\d+[\d\s\xa0.,])\s(млн|миллион|m)\b",
-        # "до 500 тыс", "500к"
         r"(до|<=|<)?\s*(\d+[\d\s\xa0.,])\s(тыс|к)\b",
-        # "до 1 690 000 руб", "1690000р"
         r"(до|<=|<)?\s*(\d+[\d\s\xa0.,])\s(₽|руб|р\.|р)\b",
-        # "$ 10 000" / "€ 10 000" (на будущее)
-        r"(до|<=|<)?\s*(\d+[\d\s\xa0.,])\s(\$|€)\b",
     ]
 
     for p in price_patterns:
@@ -149,7 +144,7 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
             continue
 
         value = int(num)
-        unit = m.group(3)
+        unit = (m.group(3) or "").lower()
 
         if unit in ["млн", "миллион", "m"]:
             value *= 1_000_000
@@ -162,8 +157,11 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     # -------------------------
     # MILEAGE (max)
     # -------------------------
-    # строго: "до 50000 км" или "до 50 тыс км"
-    m = re.search(r"до\s*(\d+[\d\s\xa0.,])\s(тыс\s*км|км)\b", text)
+    m = re.search(r"пробег\s*до\s*(\d+[\d\s\xa0.,])\s(тыс|км)?", text)
+
+    if not m:
+        m = re.search(r"до\s*(\d+[\d\s\xa0.,])\s(тыс\s*км|км)", text)
+
     if m:
         mileage = int(_digits_only(m.group(1)) or "0")
         unit = (m.group(2) or "").replace(" ", "")

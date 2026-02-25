@@ -91,9 +91,16 @@ def detect_brand(source_url, title, content):
 
 
 def extract_price(text: str):
-    m = re.search(r"(\d[\d\s\xa0]{3,})\s*(₽|руб|р)", text.lower())
-    if m:
-        return safe_int(m.group(1))
+    patterns = [
+        r"(\d[\d\s\xa0]{3,})\s*(₽|руб|р)",
+        r"цена[:\s]*(\d[\d\s\xa0]{3,})",
+    ]
+
+    for p in patterns:
+        m = re.search(p, text.lower())
+        if m:
+            return safe_int(m.group(1))
+
     return None
 
 
@@ -105,9 +112,18 @@ def extract_year(text: str):
 
 
 def extract_mileage(text: str):
-    m = re.search(r"(\d[\d\s\xa0]{2,})\s*(км|km)", text.lower())
-    if m:
-        return safe_int(m.group(1))
+    patterns = [
+        r"пробег[:\s](\d[\d\s\xa0]{2,})\s(км|km)",
+        r"(\d[\d\s\xa0]{2,})\s*(км|km)",
+    ]
+
+    for p in patterns:
+        m = re.search(p, text.lower())
+        if m:
+            value = safe_int(m.group(1))
+            if value and value < 2_000_000:
+                return value
+
     return None
 
 
@@ -338,6 +354,11 @@ class QdrantStore:
 
         if hasattr(document, "created_at_ts"):
             payload["created_at_ts"] = getattr(document, "created_at_ts", None)
+
+        print(
+            f"[INDEX][META] brand={brand} price={price} mileage={mileage}",
+            flush=True
+        )
 
         return PointStruct(
             id=str(uuid4()),

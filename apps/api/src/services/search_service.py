@@ -233,17 +233,16 @@ class SearchService:
 
         for final_score, payload, reasons in scored_results:
 
-            # 🔥 ЖЁСТКАЯ ФИЛЬТРАЦИЯ NULL + LIMIT
+            # PRICE FILTER
             if structured.price_max:
-                if payload.get("price") is None:
-                    continue
-                if payload["price"] > structured.price_max:
+                price = payload.get("price")
+                if price is not None and price > structured.price_max:
                     continue
 
+            # MILEAGE FILTER
             if structured.mileage_max:
-                if payload.get("mileage") is None:
-                    continue
-                if payload["mileage"] > structured.mileage_max:
+                mileage = payload.get("mileage")
+                if mileage is not None and mileage > structured.mileage_max:
                     continue
 
             # YEAR CHECK

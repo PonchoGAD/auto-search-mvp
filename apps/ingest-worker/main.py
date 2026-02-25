@@ -128,6 +128,19 @@ async def safe_await(label: str, coro, timeout_s: int = 120):
 
 
 # =========================
+# RETRY SYNC (DROM 429 FIX)
+# =========================
+def retry_sync(func, attempts=3, sleep_s=3):
+    for i in range(attempts):
+        try:
+            return func()
+        except Exception as e:
+            if i == attempts - 1:
+                raise
+            time.sleep(sleep_s)
+
+
+# =========================
 # RUN
 # =========================
 async def run_cycle():
@@ -139,9 +152,9 @@ async def run_cycle():
     avito_items = await safe_await("avito", fetch_avito_serp(limit=50), timeout_s=180)
     await asyncio.sleep(random.uniform(0.5, 1.5))
 
-    # drom sync — завернём в try, чтобы не валило цикл
+    # drom sync — с retry (429 protection)
     try:
-        drom_items = fetch_drom_ru(limit=50) or []
+        drom_items = retry_sync(lambda: fetch_drom_ru(limit=50)) or []
     except Exception as e:
         print(f"[INGEST][ERROR] drom: {e}", flush=True)
         drom_items = []
@@ -190,13 +203,10 @@ async def run_cycle():
     saved, skipped = save_items(total)
     print(f"[INGEST] saved={saved} skipped={skipped}", flush=True)
 
-    # ✅ ЛЕНИВЫЙ IMPORT индекса — после DB save
-    if saved > 0:
-        print("[INDEX] run_index CALLED", flush=True)
-        from index import run_index
-        run_index(limit=200)
-    else:
-        print("[INDEX] skipped (nothing saved)", flush=True)
+    # 🔥 Индексация запускается ВСЕГДА
+    print("[INDEX] run_index CALLED (always)", flush=True)
+    from index import run_index
+    run_index(limit=200)
 
 
 # =========================

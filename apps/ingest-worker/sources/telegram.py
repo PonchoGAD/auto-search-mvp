@@ -109,6 +109,9 @@ async def fetch_telegram(limit_per_channel: int | None = None) -> List[Dict]:
     Асинхронный fetch Telegram.
     """
 
+    if os.getenv("DISABLE_TELEGRAM", "false") == "true":
+        return []
+
     TG_API_ID = _get_int_env("TG_API_ID", 0)
     TG_API_HASH = os.getenv("TG_API_HASH", "")
     TG_SESSION_STRING = os.getenv("TG_SESSION_STRING", "")

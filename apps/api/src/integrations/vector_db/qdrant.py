@@ -23,7 +23,6 @@ class QdrantStore:
         self.client = QdrantClient(
             host=host,
             port=port,
-            check_compatibility=False,  # важно для версии сервера 1.9.x
         )
 
     # =====================================================

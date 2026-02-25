@@ -17,7 +17,7 @@
 .bg {
   position: fixed;
   inset: 0;
-  background: url("/bg/hero-auto.jpeg") center center / cover no-repeat;
+  background: url("/hero-auto.jpeg") center center / cover no-repeat;
   z-index: 0;
 }
 

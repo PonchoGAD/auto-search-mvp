@@ -86,17 +86,18 @@ def detect_brand(source_url, title, content):
 
 
 def extract_price(text: str):
-    text = text.lower().replace("\xa0", " ")
+    t = (text or "").lower().replace("\xa0", " ")
 
-    patterns = [
-        r"(\d[\d\s]\d)\s(₽|руб|р)",
-        r"цена[:\s](\d[\d\s]\d)",
-    ]
+    # 1 750 000 ₽
+    m = re.search(r"(\d[\d\s]{4,})\s*(₽|руб|р)", t)
+    if m:
+        return safe_int(m.group(1))
 
-    for p in patterns:
-        m = re.search(p, text)
-        if m:
-            return safe_int(m.group(1))
+    # 2.5 млн
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(млн|миллион)", t)
+    if m:
+        val = float(m.group(1).replace(",", "."))
+        return int(val * 1_000_000)
 
     return None
 
@@ -111,16 +112,12 @@ def extract_year(text: str):
 def extract_mileage(text: str):
     t = (text or "").lower().replace("\xa0", " ")
 
-    m = re.search(
-        r"(?:пробег[:\s])?([\d\s\xa0.,]{2,})\s(км|km)\b",
-        t
-    )
+    m = re.search(r"(\d[\d\s]{3,})\s*км\b", t)
     if m:
-        digits = re.sub(r"[^\d]", "", m.group(1))
-        if digits:
-            val = int(digits)
-            if 1000 <= val <= 2_000_000:
-                return val
+        val = safe_int(m.group(1))
+        if val and 1000 <= val <= 2_000_000:
+            return val
+
     return None
 
 
@@ -129,14 +126,13 @@ def extract_fuel(text: str):
 
     if "гибрид" in t:
         return "hybrid"
-    if "дизель" in t or "диз" in t:
+    if "дизель" in t:
         return "diesel"
-    if "электро" in t or "электр" in t:
-        return "electric"
-    if "газ/бензин" in t or "гбо" in t:
-        return "gas_petrol"
-    if "бенз" in t:
+    if "бензин" in t:
         return "petrol"
+    if "электро" in t:
+        return "electric"
+
     return None
 
 

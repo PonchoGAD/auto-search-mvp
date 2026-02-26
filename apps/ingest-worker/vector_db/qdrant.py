@@ -114,19 +114,15 @@ def extract_year(text: str):
 
 
 def extract_mileage(text: str):
-    text = text.lower().replace("\xa0", " ")
+    t = (text or "").lower().replace("\xa0", " ")
 
-    patterns = [
-        r"пробег[:\s]([\d\s]+)\s(км|km)?",
-        r"([\d\s]+)\s*(км|km)",
-    ]
-
-    for p in patterns:
-        m = re.search(p, text)
-        if m:
-            value = safe_int(m.group(1))
-            if value and value < 2_000_000:
-                return value
+    # строго с словом "пробег"
+    m = re.search(r"пробег[:\s]([\d\s.,]+)\s(км|km)?\b", t)
+    if m:
+        raw = m.group(1).replace(" ", "")
+        v = safe_int(raw)
+        if v and 1000 <= v <= 2_000_000:
+            return v
 
     return None
 

@@ -116,35 +116,37 @@ class SearchService:
         # =========================
         qdrant_filter = {"must": []}
 
-        # 1️⃣ BRAND (если уверенность высокая)
         if structured.brand and (getattr(structured, "brand_confidence", 0) or 0) >= 0.8:
             qdrant_filter["must"].append({
                 "key": "brand",
                 "match": {"value": structured.brand.lower().strip()}
             })
 
-        # 2️⃣ PRICE MAX
         if structured.price_max:
             qdrant_filter["must"].append({
                 "key": "price",
                 "range": {"lte": structured.price_max}
             })
 
-        # 3️⃣ MILEAGE MAX
         if structured.mileage_max:
             qdrant_filter["must"].append({
                 "key": "mileage",
                 "range": {"lte": structured.mileage_max}
             })
 
-        # 4️⃣ YEAR MIN (не старше N лет)
         if structured.year_min:
             qdrant_filter["must"].append({
                 "key": "year",
                 "range": {"gte": structured.year_min}
             })
 
-        # если пусто → None
+        # 🔥 ADD FUEL FILTER
+        if structured.fuel:
+            qdrant_filter["must"].append({
+                "key": "fuel",
+                "match": {"value": structured.fuel}
+            })
+
         if not qdrant_filter["must"]:
             qdrant_filter = None
 
@@ -161,7 +163,6 @@ class SearchService:
             print(f"[SEARCH][DEMO][WARN] qdrant unavailable: {e}")
             return []
 
-        # fallback if empty: retry without filter (same vector)
         if not hits and qdrant_filter is not None:
             print("[API][DEBUG] fallback: retry without filter", flush=True)
             try:
@@ -180,16 +181,12 @@ class SearchService:
             print("[SEARCH][DEMO] hits=0")
             return []
 
-        # =========================
-        # PRODUCTION RANKING
-        # =========================
         scored_results = []
 
         for hit in hits:
             base_score = hit.score
             payload = hit.payload or {}
 
-            # 🔥 Recency score
             now_ts = int(datetime.now(tz=timezone.utc).timestamp())
             created_ts = payload.get("created_at_ts")
 
@@ -239,15 +236,12 @@ class SearchService:
                 if price is not None and price > structured.price_max:
                     continue
 
-            # MILEAGE (STRICT)
+            # 🔥 MILEAGE FILTER (soft)
             if structured.mileage_max:
                 mileage = payload.get("mileage")
-                if mileage is None:
-                    continue  # теперь неизвестный пробег не проходит
-                if mileage > structured.mileage_max:
+                if mileage is not None and mileage > structured.mileage_max:
                     continue
 
-            # YEAR CHECK
             if structured.year_min and payload.get("year"):
                 if payload["year"] < structured.year_min:
                     continue
@@ -290,6 +284,7 @@ class SearchService:
                     "currency": payload.get("currency", "RUB"),
                     "fuel": payload.get("fuel"),
                     "region": payload.get("region"),
+                    "city": payload.get("city"),  # 🔥 added
                     "paint_condition": payload.get("paint_condition"),
                     "score": round(final_score, 6),
                     "why_match": " + ".join(reasons),
@@ -354,7 +349,7 @@ class SearchService:
         return " ".join(parts).strip()
 
     # =====================================================
-    # SCORING (legacy, not used in production ranking above)
+    # SCORING (legacy)
     # =====================================================
 
     def _score_hit(

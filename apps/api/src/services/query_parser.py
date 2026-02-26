@@ -37,9 +37,6 @@ def load_brands() -> Dict[str, Dict[str, List[str]]]:
     }
     """
     try:
-        # ⚠️ ВАЖНО:
-        # Этот путь должен указывать на apps/api/src/config/brands.yaml
-        # Если у тебя brands.yaml лежит в другом месте — поменяй base_dir уровни.
         base_dir = Path(__file__).resolve().parent.parent  # .../src
         brands_path = base_dir / "config" / "brands.yaml"
 
@@ -59,10 +56,8 @@ BRANDS_CONFIG = load_brands()
 # SCHEMA
 # =========================
 class StructuredQuery(BaseModel):
-    # 🔑 RAW QUERY (для retention / analytics)
     raw_query: Optional[str] = None
 
-    # Основные поля
     brand: Optional[str] = None
     brand_confidence: float = 0.0
     model: Optional[str] = None
@@ -76,7 +71,6 @@ class StructuredQuery(BaseModel):
     city: Optional[str] = None
     region: Optional[str] = None
 
-    # Дополнительно
     keywords: List[str] = Field(default_factory=list)
     exclusions: List[str] = Field(default_factory=list)
 
@@ -126,67 +120,62 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
         result.brand_confidence = float(confidence)
 
     # -------------------------
-    # PRICE (max)
+    # MILEAGE (max) — FIXED
     # -------------------------
 
-    price_match = re.search(
-        r"(?:до|<=|<)?\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион|m)\b",
+    # 1️⃣ пробег до 50 000 км
+    m = re.search(
+        r"(?:пробег)\s*(?:до|<=|<)?\s*([\d\s\xa0.,]+)\s*(тыс\s*км|км|km)?",
         text
     )
 
-    if price_match:
-        value = float(price_match.group(1).replace(",", "."))
-        result.price_max = int(value * 1_000_000)
+    if m:
+        raw = m.group(1)
+        unit = (m.group(2) or "").replace(" ", "")
 
+        digits = re.sub(r"[^\d]", "", raw)
+        if digits:
+            val = int(digits)
+
+            if "тыс" in unit:
+                val *= 1000
+
+            if val > 0:
+                result.mileage_max = val
+
+                # удаляем этот кусок из текста чтобы price не схватил
+                text = text[:m.start()] + text[m.end():]
+
+    # -------------------------
+    # PRICE (max) — FIXED
+    # -------------------------
+
+    # 2.5 млн
+    m = re.search(r"(?:до|<=|<)?\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион|m)\b", text)
+    if m:
+        value = float(m.group(1).replace(",", "."))
+        result.price_max = int(value * 1_000_000)
     else:
-        price_match = re.search(
-            r"(?:до|<=|<)?\s*(\d+[\d\s\xa0])\s(₽|руб|р\.?)\b",
+        # только если есть руб / ₽
+        m = re.search(
+            r"(?:до|<=|<)?\s*([\d\s\xa0.,]+)\s*(₽|руб|р\b)",
             text
         )
-
-        if price_match:
-            num = _digits_only(price_match.group(1))
-            if num:
-                result.price_max = int(num)
-
-    # -------------------------
-    # MILEAGE (max)
-    # -------------------------
-    mileage_spans = []
-
-    # захватываем ВСЮ числовую часть с пробелами
-    m = re.search(
-        r"(пробег)\s*(до|<=|<)?\s*([\d\s\xa0.,]+?)\s*(тыс\s*км|км|km)?\b",
-        text,
-    )
-    if m:
-        raw_number = m.group(3)
-        unit = (m.group(4) or "").replace(" ", "")
-
-        # ВАЖНО: удаляем все пробелы ПЕРЕД обработкой
-        raw_number = raw_number.replace(" ", "").replace("\xa0", "")
-
-        val = int(re.sub(r"[^\d]", "", raw_number)) if raw_number else 0
-
-        if "тыс" in unit:
-            val *= 1000
-
-        if val > 0:
-            result.mileage_max = val
-            mileage_spans.append(m.span())
+        if m:
+            digits = re.sub(r"[^\d]", "", m.group(1))
+            if digits:
+                result.price_max = int(digits)
 
     # -------------------------
     # YEAR
     # -------------------------
     current_year = datetime.datetime.now().year
 
-    # вариант 1: "не старше 10 лет"
     m = re.search(r"не\s*старше\s*(\d+)\s*лет", text)
     if m:
         years = int(m.group(1))
         result.year_min = current_year - years
 
-    # вариант 2: "не старше 2020 года"
     m = re.search(r"не\s*старше\s*(20\d{2}|19\d{2})\b", text)
     if m:
         result.year_min = int(m.group(1))
@@ -222,6 +211,21 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
         result.city = m.group(1)
 
     # -------------------------
+    # REGION (простая эвристика)
+    # -------------------------
+    regions = [
+        "московская область",
+        "ленинградская область",
+        "краснодарский край",
+        "татарстан",
+    ]
+
+    for r in regions:
+        if r in text:
+            result.region = r
+            break
+
+    # -------------------------
     # RECENCY INTENT
     # -------------------------
     if any(w in text for w in ["свеж", "нов", "последн"]):
@@ -241,7 +245,6 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     }
 
     for t in tokens:
-        # ✅ "небит" -> exclusion "бит"
         if t.startswith("не") and len(t) > 2 and t not in {"не"}:
             result.exclusions.append(t[2:])
             continue
@@ -259,11 +262,6 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
 # BRAND EXTRACTION LOGIC
 # =========================
 def _extract_brand(text: str) -> Tuple[Optional[str], float]:
-    """
-    1. точное слово (границы) => 1.0
-    2. alias => 0.8
-    3. подстрока => 0.6
-    """
     if not BRANDS_CONFIG:
         return None, 0.0
 

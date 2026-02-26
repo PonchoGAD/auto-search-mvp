@@ -22,10 +22,7 @@ def safe_int(value: str | None):
     if isinstance(value, int):
         return value
 
-    # убираем NBSP и обычные пробелы
     cleaned = str(value).replace("\xa0", "").replace(" ", "")
-
-    # оставляем только цифры
     cleaned = re.sub(r"[^\d]", "", cleaned)
 
     if not cleaned:
@@ -61,7 +58,6 @@ def detect_brand(source_url, title, content):
     t = (title or "").lower()
     c = (content or "").lower()
 
-    # 🔥 DOMAIN RULES
     if "benzclub.ru" in url:
         return "mercedes"
 
@@ -71,7 +67,6 @@ def detect_brand(source_url, title, content):
     if "toyotaclub" in url:
         return "toyota"
 
-    # 🔥 WHITELIST SCAN
     for brand in WHITELIST_SET:
         if not brand:
             continue
@@ -116,14 +111,51 @@ def extract_year(text: str):
 def extract_mileage(text: str):
     t = (text or "").lower().replace("\xa0", " ")
 
-    # строго с словом "пробег"
-    m = re.search(r"пробег[:\s]([\d\s.,]+)\s(км|km)?\b", t)
+    m = re.search(
+        r"(?:пробег[:\s])?([\d\s\xa0.,]{2,})\s(км|km)\b",
+        t
+    )
     if m:
-        raw = m.group(1).replace(" ", "")
-        v = safe_int(raw)
-        if v and 1000 <= v <= 2_000_000:
-            return v
+        digits = re.sub(r"[^\d]", "", m.group(1))
+        if digits:
+            val = int(digits)
+            if 1000 <= val <= 2_000_000:
+                return val
+    return None
 
+
+def extract_fuel(text: str):
+    t = (text or "").lower()
+
+    if "гибрид" in t:
+        return "hybrid"
+    if "дизель" in t or "диз" in t:
+        return "diesel"
+    if "электро" in t or "электр" in t:
+        return "electric"
+    if "газ/бензин" in t or "гбо" in t:
+        return "gas_petrol"
+    if "бенз" in t:
+        return "petrol"
+    return None
+
+
+def extract_paint_condition(text: str):
+    t = (text or "").lower()
+
+    if "без окрас" in t or "родная краска" in t:
+        return "original"
+    if "крашен" in t or "бит" in t:
+        return "repainted"
+    return None
+
+
+def extract_city(text: str):
+    cities = ["москва", "спб", "питер", "екатеринбург", "казань"]
+    t = (text or "").lower()
+    for c in cities:
+        if c in t:
+            return c
     return None
 
 
@@ -145,12 +177,6 @@ def is_catalog_url(url: str):
 class QdrantStore:
     """
     Qdrant vector storage.
-
-    ГАРАНТИИ:
-    - created_at ВСЕГДА присутствует в payload
-    - created_at_ts (unix) ВСЕГДА присутствует
-    - created_at_source фиксируется
-    - recency не ломается из-за ingest / источников
     """
 
     def __init__(self, host: str = "qdrant", port: int = 6333):
@@ -198,7 +224,7 @@ class QdrantStore:
             print(f"[QDRANT] collection created: {COLLECTION_NAME}")
 
     # =====================================================
-    # PAYLOAD NORMALIZATION (RECENCY HARDENING)
+    # PAYLOAD NORMALIZATION
     # =====================================================
 
     def _normalize_created_at(self, payload: dict) -> dict:
@@ -247,7 +273,6 @@ class QdrantStore:
 
         for p in points:
             payload = p.payload or {}
-
             payload = self._normalize_created_at(payload)
 
             normalized_points.append(
@@ -300,14 +325,8 @@ class QdrantStore:
         if not chunk_text or len(chunk_text) < 30:
             return None
 
-        # 1️⃣ SKIP CATALOGS (temporarily disabled)
-        # if is_catalog_url(document.source_url):
-        #     return None
-
-        # 2️⃣ FULL TEXT BLOB
         text_blob = f"{document.title or ''}\n{document.content or ''}"
 
-        # 3️⃣ BRAND DETECTION (MUST NOT DEPEND ON document.brand)
         brand = detect_brand(
             document.source_url,
             document.title,
@@ -316,12 +335,14 @@ class QdrantStore:
         if brand:
             brand = brand.lower().strip()
 
-        # 4️⃣ META EXTRACTION
+        # 🔥 META EXTRACTION (UPDATED)
         price = extract_price(text_blob)
         year = extract_year(text_blob)
         mileage = extract_mileage(text_blob)
+        fuel = extract_fuel(text_blob)
+        paint_condition = extract_paint_condition(text_blob)
+        city = extract_city(text_blob)
 
-        # sanity limits
         if price and price > 100_000_000:
             price = None
 
@@ -333,21 +354,16 @@ class QdrantStore:
             "source_url": document.source_url,
             "title": document.title,
             "content": document.content,
-
             "brand": brand if brand else None,
             "price": price,
             "year": year,
             "mileage": mileage,
-
+            "fuel": fuel,
+            "paint_condition": paint_condition,
+            "city": city,
+            "region": None,
             "sale_intent": 1,
         }
-
-        # optional fields
-        if hasattr(document, "fuel"):
-            payload["fuel"] = getattr(document, "fuel", None)
-
-        if hasattr(document, "region"):
-            payload["region"] = getattr(document, "region", None)
 
         if hasattr(document, "created_at"):
             payload["created_at"] = getattr(document, "created_at", None)
@@ -356,7 +372,7 @@ class QdrantStore:
             payload["created_at_ts"] = getattr(document, "created_at_ts", None)
 
         print(
-            f"[INDEX][META] brand={brand} price={price} mileage={mileage}",
+            f"[INDEX][META] brand={brand} price={price} mileage={mileage} fuel={fuel} city={city}",
             flush=True
         )
 

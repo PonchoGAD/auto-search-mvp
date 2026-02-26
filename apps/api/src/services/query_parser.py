@@ -152,28 +152,28 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     # -------------------------
     # MILEAGE (max)
     # -------------------------
+    mileage_spans = []
 
-    mileage_match = re.search(
-        r"пробег\s*(?:до)?\s*(\d+[\d\s\xa0])\s(тыс|км)?",
-        text
+    # захватываем ВСЮ числовую часть с пробелами
+    m = re.search(
+        r"(пробег)\s*(до|<=|<)?\s*([\d\s\xa0.,]+?)\s*(тыс\s*км|км|km)?\b",
+        text,
     )
+    if m:
+        raw_number = m.group(3)
+        unit = (m.group(4) or "").replace(" ", "")
 
-    if not mileage_match:
-        mileage_match = re.search(
-            r"до\s*(\d+[\d\s\xa0])\s(тыс)\s*(?:км)?",
-            text
-        )
+        # ВАЖНО: удаляем все пробелы ПЕРЕД обработкой
+        raw_number = raw_number.replace(" ", "").replace("\xa0", "")
 
-    if mileage_match:
-        num = _digits_only(mileage_match.group(1))
-        if num:
-            mileage = int(num)
-            unit = mileage_match.group(2) or ""
+        val = int(re.sub(r"[^\d]", "", raw_number)) if raw_number else 0
 
-            if "тыс" in unit:
-                mileage *= 1000
+        if "тыс" in unit:
+            val *= 1000
 
-            result.mileage_max = mileage
+        if val > 0:
+            result.mileage_max = val
+            mileage_spans.append(m.span())
 
     # -------------------------
     # YEAR

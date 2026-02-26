@@ -116,11 +116,21 @@ class SearchService:
         # =========================
         qdrant_filter = {"must": []}
 
-        if structured.brand and (getattr(structured, "brand_confidence", 0) or 0) >= 0.8:
+        brand_is_strict = False
+        if structured.brand and (getattr(structured, "brand_confidence", 0) or 0) >= 0.6:
             qdrant_filter["must"].append({
                 "key": "brand",
                 "match": {"value": structured.brand.lower().strip()}
             })
+            brand_is_strict = True
+
+        fuel_is_strict = False
+        if structured.fuel:
+            qdrant_filter["must"].append({
+                "key": "fuel",
+                "match": {"value": structured.fuel}
+            })
+            fuel_is_strict = True
 
         if structured.price_max:
             qdrant_filter["must"].append({
@@ -140,13 +150,6 @@ class SearchService:
                 "range": {"gte": structured.year_min}
             })
 
-        # 🔥 ADD FUEL FILTER
-        if structured.fuel:
-            qdrant_filter["must"].append({
-                "key": "fuel",
-                "match": {"value": structured.fuel}
-            })
-
         if not qdrant_filter["must"]:
             qdrant_filter = None
 
@@ -164,16 +167,13 @@ class SearchService:
             return []
 
         if not hits and qdrant_filter is not None:
-            print("[API][DEBUG] fallback: retry without filter", flush=True)
-            try:
-                hits = self.store.search(
-                    vector=query_vector,
-                    limit=top_k,
-                    query_filter=None,
-                )
-            except Exception as e:
-                print(f"[SEARCH][DEMO][WARN] fallback search failed: {e}", flush=True)
+            # ❌ НЕЛЬЗЯ убирать фильтр, если пользователь явно потребовал марку/топливо/лимиты
+            if brand_is_strict or fuel_is_strict or structured.mileage_max or structured.price_max:
+                print("[API][DEBUG] strict filter -> no fallback without filter", flush=True)
                 return []
+            # ✅ fallback только для “общих” запросов
+            print("[API][DEBUG] fallback: retry without filter", flush=True)
+            hits = self.store.search(vector=query_vector, limit=top_k, query_filter=None)
 
         print(f"[API][DEBUG] qdrant_hits={len(hits)}")
 
@@ -201,21 +201,28 @@ class SearchService:
             if structured.brand and payload.get("brand"):
                 if payload["brand"].lower() == structured.brand.lower():
                     brand_match = 1
+                else:
+                    brand_match = -1  # штраф за чужой бренд
 
-            sale_intent = payload.get("sale_intent", 1)
+            fuel_match = 0
+            if structured.fuel and payload.get("fuel"):
+                if payload["fuel"] == structured.fuel:
+                    fuel_match = 1
+                else:
+                    fuel_match = -1
 
             final_score = (
-                semantic * 0.5
-                + recency_score * 0.2
-                + brand_match * 0.15
-                + sale_intent * 0.15
+                semantic * 0.55
+                + recency_score * 0.10
+                + brand_match * 0.25
+                + fuel_match * 0.10
             )
 
             reasons = [
                 f"semantic={round(semantic, 4)}",
                 f"recency={round(recency_score, 4)}",
                 f"brand={brand_match}",
-                f"sale={sale_intent}",
+                f"fuel={fuel_match}",
                 f"final={round(final_score, 4)}",
             ]
 
@@ -284,7 +291,7 @@ class SearchService:
                     "currency": payload.get("currency", "RUB"),
                     "fuel": payload.get("fuel"),
                     "region": payload.get("region"),
-                    "city": payload.get("city"),  # 🔥 added
+                    "city": payload.get("city"),
                     "paint_condition": payload.get("paint_condition"),
                     "score": round(final_score, 6),
                     "why_match": " + ".join(reasons),

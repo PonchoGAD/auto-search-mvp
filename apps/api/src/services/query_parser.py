@@ -191,6 +191,8 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
         result.fuel = "hybrid"
     elif "электро" in text or "электр" in text:
         result.fuel = "electric"
+    elif "газ" in text or "гбо" in text:
+        result.fuel = "gas_petrol"
 
     # -------------------------
     # PAINT CONDITION

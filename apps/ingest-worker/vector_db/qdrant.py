@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct
+from qdrant_client.models import PayloadSchemaType
 
 from pathlib import Path
 import yaml
@@ -200,6 +201,31 @@ class QdrantStore:
 
         print(f"[QDRANT] client init host={host} port={port} collection={COLLECTION_NAME}")
 
+    def _ensure_payload_indexes(self):
+        # keyword fields
+        for key in ["brand", "fuel", "source"]:
+            try:
+                self.client.create_payload_index(
+                    collection_name=COLLECTION_NAME,
+                    field_name=key,
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+                print(f"[QDRANT] payload index created: {key}=KEYWORD")
+            except Exception as e:
+                print(f"[QDRANT] payload index skip: {key} ({e})")
+
+        # integer fields
+        for key in ["price", "mileage", "year", "created_at_ts"]:
+            try:
+                self.client.create_payload_index(
+                    collection_name=COLLECTION_NAME,
+                    field_name=key,
+                    field_schema=PayloadSchemaType.INTEGER,
+                )
+                print(f"[QDRANT] payload index created: {key}=INTEGER")
+            except Exception as e:
+                print(f"[QDRANT] payload index skip: {key} ({e})")
+
     # =====================================================
     # COLLECTION
     # =====================================================
@@ -218,6 +244,8 @@ class QdrantStore:
                 ),
             )
             print(f"[QDRANT] collection created: {COLLECTION_NAME}")
+
+        self._ensure_payload_indexes()
 
     # =====================================================
     # PAYLOAD NORMALIZATION

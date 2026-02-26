@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict
 import random
+import time
 
 DROM_BASE_URL = "https://auto.drom.ru/"
 
@@ -18,6 +19,36 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
     "Mozilla/5.0 (X11; Linux x86_64)",
 ]
+
+
+def fetch_detail_page(url: str) -> str | None:
+    try:
+        headers = {
+            "User-Agent": random.choice(USER_AGENTS)
+        }
+
+        resp = requests.get(url, headers=headers, timeout=15)
+
+        if resp.status_code != 200:
+            print(f"[DROM][DETAIL FAIL] {url} status={resp.status_code}")
+            return None
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # УБИРАЕМ скрипты и стили
+        for tag in soup(["script", "style"]):
+            tag.decompose()
+
+        text = soup.get_text(separator=" ", strip=True)
+
+        if not text or len(text) < 500:
+            return None
+
+        return text
+
+    except Exception as e:
+        print(f"[DROM][DETAIL ERROR] {url} {e}")
+        return None
 
 
 def fetch_drom_ru(limit: int = 50) -> List[Dict]:
@@ -121,14 +152,30 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
                 filtered += 1
                 continue
 
+            # 🔥 ГРУЗИМ DETAIL СТРАНИЦУ
+            detail_text = fetch_detail_page(ad_url)
+
+            if not detail_text:
+                continue
+
+            # 🔥 САНИТИ: должна быть цена и км
+            if "км" not in detail_text:
+                continue
+
+            if "₽" not in detail_text and "руб" not in detail_text:
+                continue
+
             items.append(
                 {
                     "source": "drom.ru",
                     "source_url": ad_url,
                     "title": title or ad_url.split("/")[-1],
-                    "content": title or ad_url,
+                    "content": detail_text,
                 }
             )
+
+            # маленькая пауза чтобы не ловить 429
+            time.sleep(1.2)
 
     print(f"[DROM] fetched={len(items)} filtered={filtered}")
     return items

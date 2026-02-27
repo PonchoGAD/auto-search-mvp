@@ -1,8 +1,11 @@
+import os
 import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict
 import random
 import time
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 DROM_BASE_URL = "https://auto.drom.ru/"
 
@@ -21,13 +24,51 @@ USER_AGENTS = [
 ]
 
 
-def fetch_detail_page(url: str) -> str | None:
+PROXY = os.getenv("DROM_PROXY")
+
+
+def create_session() -> requests.Session:
+    s = requests.Session()
+
+    retry = Retry(
+        total=4,
+        backoff_factor=2.0,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+        raise_on_status=False,
+        respect_retry_after_header=True,
+    )
+
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
+    s.mount("http://", adapter)
+    s.mount("https://", adapter)
+
+    if PROXY:
+        s.proxies.update({"http": PROXY, "https": PROXY})
+        print("[DROM] proxy enabled")
+
+    return s
+
+
+def polite_sleep(min_s: float = 2.5, max_s: float = 5.5):
+    time.sleep(random.uniform(min_s, max_s))
+
+
+def fetch_detail_page(session: requests.Session, url: str) -> str | None:
     try:
         headers = {
-            "User-Agent": random.choice(USER_AGENTS)
+            "User-Agent": random.choice(USER_AGENTS),
+            "Accept-Language": "ru-RU,ru;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,/;q=0.8",
+            "Connection": "keep-alive",
         }
 
-        resp = requests.get(url, headers=headers, timeout=15)
+        resp = session.get(url, headers=headers, timeout=25)
+
+        if resp.status_code == 429:
+            print(f"[DROM][DETAIL 429] {url} -> cooling down")
+            time.sleep(60)  # жёсткое охлаждение
+            return None
 
         if resp.status_code != 200:
             print(f"[DROM][DETAIL FAIL] {url} status={resp.status_code}")
@@ -35,13 +76,12 @@ def fetch_detail_page(url: str) -> str | None:
 
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # УБИРАЕМ скрипты и стили
-        for tag in soup(["script", "style"]):
+        for tag in soup(["script", "style", "noscript"]):
             tag.decompose()
 
         text = soup.get_text(separator=" ", strip=True)
 
-        if not text or len(text) < 500:
+        if not text or len(text) < 600:
             return None
 
         return text
@@ -62,12 +102,14 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
     ]
     """
 
+    session = create_session()
+
     items: List[Dict] = []
     seen = set()
     filtered = 0
 
     # 🔥 PAGINATION: pages 1..5
-    for page in range(1, 6):
+    for page in range(1, 4):
         if len(items) >= limit:
             break
 
@@ -77,7 +119,13 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
             "User-Agent": random.choice(USER_AGENTS)
         }
 
-        resp = requests.get(url, headers=headers, timeout=15)
+        resp = session.get(url, headers=headers, timeout=15)
+
+        if resp.status_code == 429:
+            print("[DROM][LIST 429] cooling down and stop cycle")
+            time.sleep(120)
+            break
+
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, "html.parser")
@@ -120,10 +168,7 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
                 continue
 
             # ---- ALLOWLIST ----
-            is_ad = (
-                ad_url.endswith(".html") or
-                ad_url.rstrip("/").split("/")[-1].isdigit()
-            )
+            is_ad = ad_url.endswith(".html")
 
             if not is_ad:
                 filtered += 1
@@ -153,7 +198,7 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
                 continue
 
             # 🔥 ГРУЗИМ DETAIL СТРАНИЦУ
-            detail_text = fetch_detail_page(ad_url)
+            detail_text = fetch_detail_page(session, ad_url)
 
             if not detail_text:
                 continue
@@ -175,7 +220,7 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
             )
 
             # маленькая пауза чтобы не ловить 429
-            time.sleep(1.2)
+            polite_sleep(2.5, 5.5)
 
     print(f"[DROM] fetched={len(items)} filtered={filtered}")
     return items

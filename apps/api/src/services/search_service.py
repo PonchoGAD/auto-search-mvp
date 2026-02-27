@@ -198,18 +198,24 @@ class SearchService:
             semantic = base_score
 
             brand_match = 0
-            if structured.brand and payload.get("brand"):
-                if payload["brand"].lower() == structured.brand.lower():
-                    brand_match = 1
-                else:
-                    brand_match = -1  # штраф за чужой бренд
+
+            if structured.brand:
+                payload_brand = payload.get("brand")
+                if not payload_brand:
+                    continue
+                if payload_brand.lower() != structured.brand.lower():
+                    continue
+                brand_match = 1
 
             fuel_match = 0
-            if structured.fuel and payload.get("fuel"):
-                if payload["fuel"] == structured.fuel:
-                    fuel_match = 1
-                else:
-                    fuel_match = -1
+
+            if structured.fuel:
+                payload_fuel = payload.get("fuel")
+                if not payload_fuel:
+                    continue
+                if payload_fuel != structured.fuel:
+                    continue
+                fuel_match = 1
 
             final_score = (
                 semantic * 0.55

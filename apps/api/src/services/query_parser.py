@@ -1,3 +1,5 @@
+🔴 ЧАСТЬ 1 — QUERY PARSER (делаем его железным)
+
 from typing import List, Optional, Dict, Tuple
 from pydantic import BaseModel, Field
 import re
@@ -123,9 +125,9 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     # MILEAGE (max) — FIXED
     # -------------------------
 
-    # 1️⃣ пробег до 50 000 км
+    # 1️⃣ строгий пробег: 100 000 км / до 100 000 км / 100 тыс км
     m = re.search(
-        r"(?:пробег)\s*(?:до|<=|<)?\s*([\d\s\xa0.,]+)\s*(тыс\s*км|км|km)?",
+        r"(?:пробег\s*)?(?:до|<=|<)?\s*([\d\s\xa0.,]+)\s*(тыс\s*км|км|km)\b",
         text
     )
 
@@ -247,6 +249,15 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     }
 
     for t in tokens:
+
+        # если это уже распарсенный бренд  не добавляем
+        if result.brand and t == result.brand:
+            continue
+
+        # если это топливо  не добавляем
+        if result.fuel and t in {"бенз", "бензин", "диз", "дизель", "гибрид", "электро", "газ"}:
+            continue
+
         if t.startswith("не") and len(t) > 2 and t not in {"не"}:
             result.exclusions.append(t[2:])
             continue

@@ -55,33 +55,19 @@ WHITELIST_SET = set(BRANDS_CONFIG.keys())
 
 
 def detect_brand(source_url, title, content):
-    url = (source_url or "").lower()
-    t = (title or "").lower()
-    c = (content or "").lower()
+    text = f"{source_url or ''} {title or ''} {content or ''}".lower()
 
-    if "benzclub.ru" in url:
-        return "mercedes"
+    for brand, cfg in BRANDS_CONFIG.items():
+        words = (cfg.get("en", []) or []) + (cfg.get("ru", []) or [])
+        aliases = cfg.get("aliases", []) or []
 
-    if "bmwclub" in url:
-        return "bmw"
+        for w in words + aliases:
+            w = (w or "").lower().strip()
+            if not w:
+                continue
 
-    if "toyotaclub" in url:
-        return "toyota"
-
-    for brand in WHITELIST_SET:
-        if not brand:
-            continue
-
-        b = brand.lower()
-
-        if b in url:
-            return brand
-
-        if b in t:
-            return brand
-
-        if b in c:
-            return brand
+            if re.search(rf"\b{re.escape(w)}\b", text):
+                return brand
 
     return None
 

@@ -1,5 +1,3 @@
-🔴 ЧАСТЬ 1 — QUERY PARSER (делаем его железным)
-
 from typing import List, Optional, Dict, Tuple
 from pydantic import BaseModel, Field
 import re

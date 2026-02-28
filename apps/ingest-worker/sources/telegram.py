@@ -67,6 +67,11 @@ async def _fetch_from_channel(
 
         text = msg.text.strip()
 
+        # 🔒 защита от коротких мусорных постов
+        if len(text) < 50:
+            skipped_invalid += 1
+            continue
+
         # 🔒 HARD ANTI-NOISE FILTER
         ok, reason = is_valid_telegram_post(text)
 

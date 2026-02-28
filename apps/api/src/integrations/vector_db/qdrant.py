@@ -7,7 +7,7 @@ from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
 from config import settings
 
 
-COLLECTION_NAME = settings.QDRANT_COLLECTION
+COLLECTION_NAME = "auto_search_chunks"
 
 
 class QdrantStore:
@@ -136,7 +136,7 @@ class QdrantStore:
         query_filter: Filter | None = None,
     ):
         return self.client.search(
-            collection_name=COLLECTION_NAME,
+            collection_name="auto_search_chunks",
             query_vector=vector,
             limit=limit,
             query_filter=query_filter,

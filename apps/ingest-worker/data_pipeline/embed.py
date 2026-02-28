@@ -40,6 +40,6 @@ def embed_text(text: str) -> List[float]:
     vector = model.encode(
         f"passage: {text}",
         normalize_embeddings=True,
-    )
+    ).tolist()
 
     return vector.tolist()

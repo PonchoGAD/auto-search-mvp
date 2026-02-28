@@ -78,6 +78,7 @@ ensure_schema()
 def save_items(items):
     session = SessionLocal()
     saved = 0
+    reactivated = 0
     skipped = 0
 
     try:
@@ -86,13 +87,16 @@ def save_items(items):
                 skipped += 1
                 continue
 
-            exists = (
+            existing = (
                 session.query(RawDocument)
                 .filter_by(source_url=item["source_url"])
                 .first()
             )
-            if exists:
-                skipped += 1
+
+            # 🔥 ЕСЛИ УЖЕ ЕСТЬ  ПЕРЕАКТИВИРУЕМ ДЛЯ ПЕРЕИНДЕКСА
+            if existing:
+                existing.indexed = False
+                reactivated += 1
                 continue
 
             session.add(
@@ -101,12 +105,14 @@ def save_items(items):
                     source_url=item["source_url"],
                     title=item.get("title"),
                     content=item.get("content"),
+                    indexed=False,
                 )
             )
             saved += 1
 
         session.commit()
-        print(f"[DB] saved={saved} skipped={skipped}", flush=True)
+        print(f"[DB] saved={saved} reactivated={reactivated} skipped={skipped}", flush=True)
+
     finally:
         session.close()
 

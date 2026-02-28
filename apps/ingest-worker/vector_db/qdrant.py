@@ -55,9 +55,29 @@ WHITELIST_SET = set(BRANDS_CONFIG.keys())
 
 
 def detect_brand(source_url, title, content):
-    text = f"{source_url or ''} {title or ''} {content or ''}".lower()
+    """
+    Production brand detection.
+
+    Приоритет:
+    1️⃣ URL (самый сильный сигнал)
+    2️⃣ Title
+    3️⃣ Content
+
+    Без regex word-boundary.
+    С fallback confidence.
+    """
+
+    url_text = (source_url or "").lower()
+    title_text = (title or "").lower()
+    content_text = (content or "").lower()
+
+    combined = f"{url_text} {title_text} {content_text}"
+
+    best_match = None
+    best_score = 0
 
     for brand, cfg in BRANDS_CONFIG.items():
+
         words = (cfg.get("en", []) or []) + (cfg.get("ru", []) or [])
         aliases = cfg.get("aliases", []) or []
 
@@ -66,10 +86,22 @@ def detect_brand(source_url, title, content):
             if not w:
                 continue
 
-            if re.search(rf"\b{re.escape(w)}\b", text):
+            # 🔥 1️⃣ STRONG MATCH — URL
+            if w in url_text:
                 return brand
 
-    return None
+            # 🔥 2️⃣ MEDIUM MATCH — TITLE
+            if w in title_text:
+                best_match = brand
+                best_score = max(best_score, 2)
+
+            # 🔥 3️⃣ WEAK MATCH — CONTENT
+            if w in content_text:
+                if best_score < 1:
+                    best_match = brand
+                    best_score = 1
+
+    return best_match
 
 
 # 🔥 УСИЛЕННЫЙ EXTRACT PRICE
@@ -204,7 +236,6 @@ class QdrantStore:
             except Exception as e:
                 print(f"[QDRANT] payload index skip: {key} ({e})")
 
-        # ОСТАВЛЕНО INTEGER
         for key in ["price", "mileage", "year", "created_at_ts"]:
             try:
                 self.client.create_payload_index(
@@ -215,10 +246,6 @@ class QdrantStore:
                 print(f"[QDRANT] payload index created: {key}=INTEGER")
             except Exception as e:
                 print(f"[QDRANT] payload index skip: {key} ({e})")
-
-    # =====================================================
-    # COLLECTION
-    # =====================================================
 
     def create_collection(self, vector_size: int):
         collections = [
@@ -236,10 +263,6 @@ class QdrantStore:
             print(f"[QDRANT] collection created: {COLLECTION_NAME}")
 
         self._ensure_payload_indexes()
-
-    # =====================================================
-    # PAYLOAD NORMALIZATION
-    # =====================================================
 
     def _normalize_created_at(self, payload: dict) -> dict:
         raw = payload.get("created_at")
@@ -274,10 +297,6 @@ class QdrantStore:
 
         return payload
 
-    # =====================================================
-    # UPSERT
-    # =====================================================
-
     def upsert(self, points: List[PointStruct]):
         if not points:
             print("[QDRANT] no points to upsert")
@@ -304,10 +323,6 @@ class QdrantStore:
 
         print(f"[QDRANT] upserted points: {len(normalized_points)}")
 
-    # =====================================================
-    # SEARCH
-    # =====================================================
-
     def search(
         self,
         vector: List[float],
@@ -330,10 +345,6 @@ class QdrantStore:
 
         return response.points
 
-    # =====================================================
-    # BUILD POINT
-    # =====================================================
-
     def build_point(self, document, chunk_text: str, vector):
 
         if not chunk_text or len(chunk_text) < 30:
@@ -346,6 +357,9 @@ class QdrantStore:
             document.title,
             document.content,
         )
+
+        print(f"[INDEX][BRAND_DETECT] detected={brand} url={document.source_url}", flush=True)
+
         if brand:
             brand = brand.lower().strip()
 
@@ -356,7 +370,6 @@ class QdrantStore:
         paint_condition = extract_paint_condition(text_blob)
         city = extract_city(text_blob)
 
-        # 🔥 ЖЕСТКАЯ ТИПИЗАЦИЯ ПЕРЕД PAYLOAD
         price = int(price) if price else None
         mileage = int(mileage) if mileage else None
         year = int(year) if year else None

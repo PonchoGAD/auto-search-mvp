@@ -3,9 +3,11 @@ from typing import List, Optional
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct
+from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
+from config import settings
 
 
-COLLECTION_NAME = "auto_search_chunks"
+COLLECTION_NAME = settings.QDRANT_COLLECTION
 
 
 class QdrantStore:
@@ -131,23 +133,15 @@ class QdrantStore:
         self,
         vector: List[float],
         limit: int = 20,
-        query_filter: dict | None = None,
+        query_filter: Filter | None = None,
     ):
-        if query_filter:
-            response = self.client.query_points(
-                collection_name=COLLECTION_NAME,
-                query=vector,
-                limit=limit,
-                query_filter=query_filter,
-            )
-        else:
-            response = self.client.query_points(
-                collection_name=COLLECTION_NAME,
-                query=vector,
-                limit=limit,
-            )
-
-        return response.points
+        return self.client.search(
+            collection_name=COLLECTION_NAME,
+            query_vector=vector,
+            limit=limit,
+            query_filter=query_filter,
+            with_payload=True
+        )
 
 
 # =====================================================

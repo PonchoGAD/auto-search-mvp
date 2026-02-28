@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 import os
 
 from sentence_transformers import SentenceTransformer
+from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
 
 _model = None
 
@@ -80,12 +81,6 @@ DOMAIN_PENALTY_K: float = 0.4
 RECENCY_MAX_DAYS = 180
 RECENCY_WEIGHT = 1.0
 
-# =========================
-# DEMO MODE
-# =========================
-DEMO_SEARCH_MODE = os.getenv("DEMO_SEARCH_MODE", "true").lower() == "true"
-MIN_DEMO_SCORE = float(os.getenv("DEMO_MIN_SCORE", "0.0001"))
-
 
 class SearchService:
     def __init__(self):
@@ -112,46 +107,52 @@ class SearchService:
         query_vector = embed_query(query_text)
 
         # =========================
-        # QDRANT FILTER
+        # QDRANT FILTER (STRICT)
         # =========================
-        qdrant_filter = {"must": []}
 
-        brand_is_strict = False
-        if structured.brand and (getattr(structured, "brand_confidence", 0) or 0) >= 0.6:
-            qdrant_filter["must"].append({
-                "key": "brand",
-                "match": {"value": structured.brand.lower().strip()}
-            })
-            brand_is_strict = True
+        filter_conditions = []
 
-        fuel_is_strict = False
+        if structured.brand:
+            filter_conditions.append(
+                FieldCondition(
+                    key="brand",
+                    match=MatchValue(value=structured.brand.lower())
+                )
+            )
+
         if structured.fuel:
-            qdrant_filter["must"].append({
-                "key": "fuel",
-                "match": {"value": structured.fuel}
-            })
-            fuel_is_strict = True
+            filter_conditions.append(
+                FieldCondition(
+                    key="fuel",
+                    match=MatchValue(value=structured.fuel)
+                )
+            )
 
         if structured.price_max:
-            qdrant_filter["must"].append({
-                "key": "price",
-                "range": {"lte": structured.price_max}
-            })
+            filter_conditions.append(
+                FieldCondition(
+                    key="price",
+                    range=Range(lte=structured.price_max)
+                )
+            )
 
         if structured.mileage_max:
-            qdrant_filter["must"].append({
-                "key": "mileage",
-                "range": {"lte": structured.mileage_max}
-            })
+            filter_conditions.append(
+                FieldCondition(
+                    key="mileage",
+                    range=Range(lte=structured.mileage_max)
+                )
+            )
 
         if structured.year_min:
-            qdrant_filter["must"].append({
-                "key": "year",
-                "range": {"gte": structured.year_min}
-            })
+            filter_conditions.append(
+                FieldCondition(
+                    key="year",
+                    range=Range(gte=structured.year_min)
+                )
+            )
 
-        if not qdrant_filter["must"]:
-            qdrant_filter = None
+        qdrant_filter = Filter(must=filter_conditions) if filter_conditions else None
 
         print("[API][DEBUG] collection=auto_search_chunks")
         print(f"[API][DEBUG] filter={qdrant_filter}")
@@ -163,22 +164,13 @@ class SearchService:
                 query_filter=qdrant_filter,
             )
         except Exception as e:
-            print(f"[SEARCH][DEMO][WARN] qdrant unavailable: {e}")
+            print(f"[SEARCH][WARN] qdrant unavailable: {e}")
             return []
-
-        if not hits and qdrant_filter is not None:
-            # ❌ НЕЛЬЗЯ убирать фильтр, если пользователь явно потребовал марку/топливо/лимиты
-            if brand_is_strict or fuel_is_strict or structured.mileage_max or structured.price_max:
-                print("[API][DEBUG] strict filter -> no fallback without filter", flush=True)
-                return []
-            # ✅ fallback только для “общих” запросов
-            print("[API][DEBUG] fallback: retry without filter", flush=True)
-            hits = self.store.search(vector=query_vector, limit=top_k, query_filter=None)
 
         print(f"[API][DEBUG] qdrant_hits={len(hits)}")
 
         if not hits:
-            print("[SEARCH][DEMO] hits=0")
+            print("[SEARCH] hits=0")
             return []
 
         scored_results = []
@@ -200,10 +192,7 @@ class SearchService:
             brand_match = 0
 
             if structured.brand:
-                payload_brand = payload.get("brand")
-                if not payload_brand:
-                    continue
-                if payload_brand.lower() != structured.brand.lower():
+                if payload.get("brand") != structured.brand.lower():
                     continue
                 brand_match = 1
 
@@ -243,22 +232,6 @@ class SearchService:
 
         for final_score, payload, reasons in scored_results:
 
-            # PRICE FILTER (soft)
-            if structured.price_max:
-                price = payload.get("price")
-                if price is not None and price > structured.price_max:
-                    continue
-
-            # 🔥 MILEAGE FILTER (soft)
-            if structured.mileage_max:
-                mileage = payload.get("mileage")
-                if mileage is not None and mileage > structured.mileage_max:
-                    continue
-
-            if structured.year_min and payload.get("year"):
-                if payload["year"] < structured.year_min:
-                    continue
-
             source_url = payload.get("source_url")
 
             if not source_url or source_url in seen_urls:
@@ -280,11 +253,7 @@ class SearchService:
 
             domain_counter.setdefault(domain, 0)
 
-            if DEMO_SEARCH_MODE and final_score <= 0:
-                final_score = MIN_DEMO_SCORE
-                reasons.append("demo_fallback")
-
-            if not DEMO_SEARCH_MODE and final_score <= 0:
+            if final_score <= 0:
                 continue
 
             results.append(

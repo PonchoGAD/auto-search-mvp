@@ -192,7 +192,7 @@ def is_valid_telegram_post(text: str) -> Tuple[bool, Optional[str]]:
         return False, "no_price"
 
     # 5️⃣ временно отключено для диагностики
-    # if not contains_car_entity(t):
-    #     return False, "no_car_entity"
+    if not contains_car_entity(t):
+        return False, "no_car_entity"
 
     return True, "ok"

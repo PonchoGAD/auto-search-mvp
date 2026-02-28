@@ -72,19 +72,24 @@ def detect_brand(source_url, title, content):
     return None
 
 
+# 🔥 УСИЛЕННЫЙ EXTRACT PRICE
 def extract_price(text: str):
     t = (text or "").lower().replace("\xa0", " ")
 
-    # 1 750 000 ₽
-    m = re.search(r"(\d[\d\s]{4,})\s*(₽|руб|р)", t)
+    m = re.search(r"(\d[\d\s]{4,})\s*(₽|руб|р\b)", t)
     if m:
         return safe_int(m.group(1))
 
-    # 2.5 млн
-    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(млн|миллион)", t)
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(млн|миллион|m)\b", t)
     if m:
         val = float(m.group(1).replace(",", "."))
         return int(val * 1_000_000)
+
+    m = re.search(r"\b(\d{6,8})\b", t)
+    if m:
+        val = int(m.group(1))
+        if 200000 <= val <= 50000000:
+            return val
 
     return None
 
@@ -188,7 +193,6 @@ class QdrantStore:
         print(f"[QDRANT] client init host={host} port={port} collection={COLLECTION_NAME}")
 
     def _ensure_payload_indexes(self):
-        # keyword fields
         for key in ["brand", "fuel", "source"]:
             try:
                 self.client.create_payload_index(
@@ -200,7 +204,7 @@ class QdrantStore:
             except Exception as e:
                 print(f"[QDRANT] payload index skip: {key} ({e})")
 
-        # integer fields
+        # ОСТАВЛЕНО INTEGER
         for key in ["price", "mileage", "year", "created_at_ts"]:
             try:
                 self.client.create_payload_index(
@@ -345,13 +349,17 @@ class QdrantStore:
         if brand:
             brand = brand.lower().strip()
 
-        # 🔥 META EXTRACTION (UPDATED)
         price = extract_price(text_blob)
         year = extract_year(text_blob)
         mileage = extract_mileage(text_blob)
         fuel = extract_fuel(text_blob)
         paint_condition = extract_paint_condition(text_blob)
         city = extract_city(text_blob)
+
+        # 🔥 ЖЕСТКАЯ ТИПИЗАЦИЯ ПЕРЕД PAYLOAD
+        price = int(price) if price else None
+        mileage = int(mileage) if mileage else None
+        year = int(year) if year else None
 
         if price and price > 100_000_000:
             price = None

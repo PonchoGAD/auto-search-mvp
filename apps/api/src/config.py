@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # QDRANT
     # =========================
     QDRANT_URL: str = Field(default="http://qdrant:6333", env="QDRANT_URL")
-    QDRANT_COLLECTION: str = Field(default="auto_docs", env="QDRANT_COLLECTION")
+    QDRANT_COLLECTION: str = Field(default="auto_search_chunks", env="QDRANT_COLLECTION")
 
     # =========================
     # INGEST LIMITS (VPS SAFE)

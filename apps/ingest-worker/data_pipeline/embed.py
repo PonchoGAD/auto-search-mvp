@@ -38,7 +38,7 @@ def embed_text(text: str) -> List[float]:
     model = get_model()
 
     vector = model.encode(
-        text,
+        f"passage: {text}",
         normalize_embeddings=True,
     )
 

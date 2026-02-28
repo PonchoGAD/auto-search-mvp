@@ -97,6 +97,11 @@ class SearchService:
         top_k: int = None,
     ) -> List[Dict[str, Any]]:
 
+        # 🔥 STRICT BRAND MODE
+        if structured.raw_query and structured.brand is None:
+            if len(structured.keywords) == 1:
+                return []
+
         if limit is None:
             limit = int(os.getenv("SEARCH_LIMIT", "50"))
 
@@ -125,6 +130,14 @@ class SearchService:
                 FieldCondition(
                     key="fuel",
                     match=MatchValue(value=structured.fuel)
+                )
+            )
+
+        if structured.city:
+            filter_conditions.append(
+                FieldCondition(
+                    key="city",
+                    match=MatchValue(value=structured.city)
                 )
             )
 
@@ -192,7 +205,7 @@ class SearchService:
             brand_match = 0
 
             if structured.brand:
-                if payload.get("brand") != structured.brand.lower():
+                if payload.get("brand") != structured.brand:
                     continue
                 brand_match = 1
 

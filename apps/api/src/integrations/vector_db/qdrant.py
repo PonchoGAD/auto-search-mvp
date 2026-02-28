@@ -154,6 +154,7 @@ QDRANT_HOST = os.getenv("QDRANT_HOST", "qdrant")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 
 qdrant_client = QdrantClient(
+    check_compatibility=False,
     host=QDRANT_HOST,
     port=QDRANT_PORT,
 )

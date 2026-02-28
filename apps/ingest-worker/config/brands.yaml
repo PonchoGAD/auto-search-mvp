@@ -265,3 +265,34 @@ brands:
   lynk_co:
     en: ["lynk & co", "lynk co"]
     ru: ["линк энд ко"]
+
+
+  # =========================
+  # SOUTH KOREA
+  # =========================
+
+  hyundai:
+    en: ["hyundai"]
+    ru: ["хендай", "хёндэ"]
+    aliases: ["hyunday"]
+
+  kia:
+    en: ["kia"]
+    ru: ["киа"]
+    aliases: []
+
+  genesis:
+    en: ["genesis"]
+    ru: ["генезис"]
+
+  ssangyong:
+    en: ["ssangyong"]
+    ru: ["ссангйонг", "санг йонг"]
+
+  daewoo:
+    en: ["daewoo"]
+    ru: ["дэу"]
+
+  samsung:
+    en: ["samsung"]
+    ru: ["самсунг"]

@@ -1,5 +1,3 @@
-#  apps\ingest-worker\utils\telegram_filters.py
-
 import re
 import yaml
 from typing import Dict, Tuple, Optional
@@ -86,7 +84,12 @@ SALE_NEGATIVE_WORDS = [
     "repair",
 ]
 
-RE_PRICE = re.compile(r"(\d[\d\s]{1,10})\s*(₽|руб|р\.|тыс|к|k|\$|€)")
+# 🔥 УСИЛЕННАЯ ЦЕНА
+RE_PRICE = re.compile(
+    r"(\d[\d\s]{1,10})\s*(₽|руб|р\.|тыс|к|k|\$|€|млн|миллион)",
+    re.IGNORECASE
+)
+
 RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
 RE_MILEAGE = re.compile(r"\d[\d\s]{1,8}\s*км")
 
@@ -194,5 +197,13 @@ def is_valid_telegram_post(text: str) -> Tuple[bool, Optional[str]]:
     # 5️⃣ временно отключено для диагностики
     if not contains_car_entity(t):
         return False, "no_car_entity"
+
+    # 6️⃣ обязателен бренд
+    if not contains_car_entity(t):
+        return False, "no_brand"
+
+    # 7️⃣ обязателен пробег
+    if not RE_MILEAGE.search(t):
+        return False, "no_mileage"
 
     return True, "ok"

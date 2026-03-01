@@ -19,10 +19,15 @@ def get_model():
         print("[API][EMBED] model loaded")
     return _model
 
+def _to_list(vec):
+    if hasattr(vec, "tolist"):
+        return vec.tolist()
+    return list(vec)
 
 def embed_query(text: str):
     model = get_model()
-    vec = model.encode(text).tolist()
+    vec = model.encode(text)
+    vec = _to_list(vec)
     print(f"[API][DEBUG] vector_length={len(vec)}")
     return vec
 

@@ -20,5 +20,9 @@ def _to_list(vec):
 
 def embed_text(text: str):
     model = get_model()
+    text = f"passage: {text}"
     vec = model.encode(text)
-    return _to_list(vec)
+
+    if hasattr(vec, "tolist"):
+        return vec.tolist()
+    return list(vec)

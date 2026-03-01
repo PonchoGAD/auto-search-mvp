@@ -26,9 +26,14 @@ def _to_list(vec):
 
 def embed_query(text: str):
     model = get_model()
+    text = f"query: {text}"
     vec = model.encode(text)
-    vec = _to_list(vec)
-    print(f"[API][DEBUG] vector_length={len(vec)}")
+
+    if hasattr(vec, "tolist"):
+        vec = vec.tolist()
+    else:
+        vec = list(vec)
+
     return vec
 
 

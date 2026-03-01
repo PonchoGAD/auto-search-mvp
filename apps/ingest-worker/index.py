@@ -39,25 +39,38 @@ def run_index(limit: int = 200):
         total_chunks = 0
 
         for doc in docs:
-            chunks = chunk_text(doc.content or "")
+            try:
+                chunks = chunk_text(doc.content or "")
+                points = []
 
-            for chunk in chunks:
-                vector = embed_text(chunk)
+                for chunk in chunks:
+                    vector = embed_text(chunk)
 
-                point = store.build_point(
-                    document=doc,
-                    chunk_text=chunk,
-                    vector=vector,
+                    point = store.build_point(
+                        document=doc,
+                        chunk_text=chunk,
+                        vector=vector,
+                    )
+
+                    if point:
+                        points.append(point)
+
+                if points:
+                    store.upsert(points)
+                    total_chunks += len(points)
+
+                doc.indexed = True
+                session.commit()
+
+                print(f"[INDEX] doc indexed ok url={doc.source_url}", flush=True)
+
+            except Exception as e:
+                session.rollback()
+                print(
+                    f"[INDEX][ERROR] doc failed url={doc.source_url} err={e}",
+                    flush=True
                 )
-
-                if point:
-                    store.upsert([point])
-                    total_chunks += 1
-                    print(f"[INDEX] chunks_created={total_chunks}")
-
-            doc.indexed = True
-
-        session.commit()
+                continue
 
         print(f"[INDEX] done, chunks={total_chunks}")
 

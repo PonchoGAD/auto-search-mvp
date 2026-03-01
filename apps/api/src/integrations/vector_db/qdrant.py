@@ -22,10 +22,17 @@ class QdrantStore:
     """
 
     def __init__(self, host: str = "qdrant", port: int = 6333):
-        self.client = QdrantClient(
-            host=host,
-            port=port,
-        )
+        try:
+            self.client = QdrantClient(
+                host=host,
+                port=port,
+                check_compatibility=False,
+            )
+        except TypeError:
+            self.client = QdrantClient(
+                host=host,
+                port=port,
+            )
 
     # =====================================================
     # COLLECTION

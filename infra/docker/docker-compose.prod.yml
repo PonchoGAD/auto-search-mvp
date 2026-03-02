@@ -95,7 +95,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ../../infra/nginx/nginx.conf:/etc/nginx/nginx.conf
     depends_on:
       - api
     networks:

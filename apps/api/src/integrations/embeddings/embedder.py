@@ -4,6 +4,7 @@ from sentence_transformers import SentenceTransformer
 
 _model = None
 
+
 def get_model():
     global _model
     if _model is None:
@@ -12,13 +13,20 @@ def get_model():
         print("[API][EMBED] model loaded", flush=True)
     return _model
 
+
 def embed_query(text: str) -> List[float]:
     model = get_model()
-    vec = model.encode(f"query: {text}")
+    vec = model.encode(
+        f"query: {text}",
+        normalize_embeddings=True,
+    )
     return vec.tolist() if hasattr(vec, "tolist") else list(vec)
+
 
 def embed_passage(text: str) -> List[float]:
     model = get_model()
-    vec = model.encode(f"passage: {text}")
+    vec = model.encode(
+        f"passage: {text}",
+        normalize_embeddings=True,
+    )
     return vec.tolist() if hasattr(vec, "tolist") else list(vec)
-

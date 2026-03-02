@@ -5,36 +5,9 @@ import yaml
 from urllib.parse import urlparse
 import os
 
-from sentence_transformers import SentenceTransformer
 from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
 
-_model = None
-
-
-def get_model():
-    global _model
-    if _model is None:
-        print("[API][EMBED] loading model: intfloat/multilingual-e5-base")
-        _model = SentenceTransformer("intfloat/multilingual-e5-base")
-        print("[API][EMBED] model loaded")
-    return _model
-
-def _to_list(vec):
-    if hasattr(vec, "tolist"):
-        return vec.tolist()
-    return list(vec)
-
-def embed_query(text: str):
-    model = get_model()
-    text = f"query: {text}"
-    vec = model.encode(text)
-
-    if hasattr(vec, "tolist"):
-        vec = vec.tolist()
-    else:
-        vec = list(vec)
-
-    return vec
+from integrations.embeddings.embedder import embed_query
 
 
 from integrations.vector_db.qdrant import QdrantStore
@@ -107,11 +80,6 @@ class SearchService:
         top_k: int = None,
     ) -> List[Dict[str, Any]]:
 
-        # 🔥 STRICT BRAND MODE
-        if structured.raw_query and structured.brand is None:
-            if len(structured.keywords) == 1:
-                return []
-
         if limit is None:
             limit = int(os.getenv("SEARCH_LIMIT", "50"))
 
@@ -122,7 +90,7 @@ class SearchService:
         query_vector = embed_query(query_text)
 
         # =========================
-        # QDRANT FILTER (STRICT)
+        # QDRANT FILTER (BRAND ONLY)
         # =========================
 
         filter_conditions = []
@@ -135,65 +103,23 @@ class SearchService:
                 )
             )
 
-        if structured.fuel:
-            filter_conditions.append(
-                FieldCondition(
-                    key="fuel",
-                    match=MatchValue(value=structured.fuel)
-                )
-            )
-
-        if structured.city:
-            filter_conditions.append(
-                FieldCondition(
-                    key="city",
-                    match=MatchValue(value=structured.city)
-                )
-            )
-
-        if structured.price_max:
-            filter_conditions.append(
-                FieldCondition(
-                    key="price",
-                    range=Range(lte=structured.price_max)
-                )
-            )
-
-        if structured.mileage_max:
-            filter_conditions.append(
-                FieldCondition(
-                    key="mileage",
-                    range=Range(lte=structured.mileage_max)
-                )
-            )
-
-        if structured.year_min:
-            filter_conditions.append(
-                FieldCondition(
-                    key="year",
-                    range=Range(gte=structured.year_min)
-                )
-            )
-
         qdrant_filter = Filter(must=filter_conditions) if filter_conditions else None
 
-        print("[API][DEBUG] collection=auto_search_chunks")
-        print(f"[API][DEBUG] filter={qdrant_filter}")
+        hits = self.store.search(
+            vector=query_vector,
+            limit=top_k,
+            query_filter=qdrant_filter,
+        )
 
-        try:
+        # Fallback без фильтра
+        if structured.brand and not hits:
             hits = self.store.search(
                 vector=query_vector,
                 limit=top_k,
-                query_filter=qdrant_filter,
+                query_filter=None,
             )
-        except Exception as e:
-            print(f"[SEARCH][WARN] qdrant unavailable: {e}")
-            return []
-
-        print(f"[API][DEBUG] qdrant_hits={len(hits)}")
 
         if not hits:
-            print("[SEARCH] hits=0")
             return []
 
         scored_results = []
@@ -212,28 +138,54 @@ class SearchService:
 
             semantic = base_score
 
-            brand_match = 0
-
+            # ------------------------
+            # SOFT BRAND
+            # ------------------------
+            brand_match = 0.0
             if structured.brand:
-                if payload.get("brand") != structured.brand:
-                    continue
-                brand_match = 1
+                if payload.get("brand") == structured.brand:
+                    brand_match = 1.0
+                elif payload.get("brand") is None:
+                    brand_match = 0.2
+                else:
+                    brand_match = 0.0
 
-            fuel_match = 0
-
+            # ------------------------
+            # SOFT FUEL
+            # ------------------------
+            fuel_match = 0.0
             if structured.fuel:
                 payload_fuel = payload.get("fuel")
-                if not payload_fuel:
-                    continue
-                if payload_fuel != structured.fuel:
-                    continue
-                fuel_match = 1
+                if payload_fuel == structured.fuel:
+                    fuel_match = 1.0
+                elif payload_fuel is None:
+                    fuel_match = 0.15
+                else:
+                    fuel_match = 0.0
 
+            # ------------------------
+            # SOFT NUMERIC FILTERS
+            # ------------------------
+            if structured.price_max and payload.get("price"):
+                if payload["price"] > structured.price_max:
+                    continue
+
+            if structured.mileage_max and payload.get("mileage"):
+                if payload["mileage"] > structured.mileage_max:
+                    continue
+
+            if structured.year_min and payload.get("year"):
+                if payload["year"] < structured.year_min:
+                    continue
+
+            # ------------------------
+            # FINAL SCORE
+            # ------------------------
             final_score = (
-                semantic * 0.55
+                semantic * 0.70
                 + recency_score * 0.10
-                + brand_match * 0.25
-                + fuel_match * 0.10
+                + brand_match * 0.12
+                + fuel_match * 0.08
             )
 
             reasons = [
@@ -318,8 +270,8 @@ class SearchService:
             )
             session.add(history)
             session.commit()
-        except Exception as e:
-            print(f"[SEARCH][WARN] history save failed: {e}")
+        except Exception:
+            pass
         finally:
             try:
                 session.close()

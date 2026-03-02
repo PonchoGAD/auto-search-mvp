@@ -1,18 +1,24 @@
+# apps/api/src/integrations/embeddings/embedder.py
 from typing import List
-import hashlib
-import random
+from sentence_transformers import SentenceTransformer
 
-class Embedder:
-    VECTOR_SIZE = 384  # фиксируем размер
+_model = None
 
-    def embed(self, texts: List[str]) -> List[List[float]]:
-        """
-        MVP-заглушка:
-        превращаем текст в стабильный псевдо-вектор
-        """
-        vectors = []
-        for text in texts:
-            seed = int(hashlib.md5(text.encode()).hexdigest(), 16)
-            random.seed(seed)
-            vectors.append([random.random() for _ in range(self.VECTOR_SIZE)])
-        return vectors
+def get_model():
+    global _model
+    if _model is None:
+        print("[API][EMBED] loading model: intfloat/multilingual-e5-base", flush=True)
+        _model = SentenceTransformer("intfloat/multilingual-e5-base")
+        print("[API][EMBED] model loaded", flush=True)
+    return _model
+
+def embed_query(text: str) -> List[float]:
+    model = get_model()
+    vec = model.encode(f"query: {text}")
+    return vec.tolist() if hasattr(vec, "tolist") else list(vec)
+
+def embed_passage(text: str) -> List[float]:
+    model = get_model()
+    vec = model.encode(f"passage: {text}")
+    return vec.tolist() if hasattr(vec, "tolist") else list(vec)
+

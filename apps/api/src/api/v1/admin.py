@@ -95,6 +95,7 @@ def index_stats() -> Dict[str, Any]:
     client = QdrantClient(
         host=settings.qdrant_host,
         port=settings.qdrant_port,
+        check_compatibility=False,
     )
 
     collections = client.get_collections().collections

@@ -1,9 +1,12 @@
 from fastapi import APIRouter
 from db.session import SessionLocal
 from db.models import RawDocument, NormalizedDocument
-from integrations.vector_db.qdrant import qdrant_client
+from integrations.vector_db.qdrant import QdrantStore
+from core.settings import settings
 
 router = APIRouter()
+store = QdrantStore()
+client = store.client
 
 @router.get("/metrics")
 def get_metrics():

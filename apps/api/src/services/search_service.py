@@ -9,7 +9,6 @@ from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
 
 from integrations.embeddings.embedder import embed_query
 
-
 from integrations.vector_db.qdrant import QdrantStore
 from services.query_parser import StructuredQuery
 
@@ -90,7 +89,7 @@ class SearchService:
         query_vector = embed_query(query_text)
 
         # =========================
-        # QDRANT FILTER (BRAND ONLY)
+        # QDRANT FILTER (BRAND + FUEL)
         # =========================
 
         filter_conditions = []
@@ -103,16 +102,38 @@ class SearchService:
                 )
             )
 
+        if structured.fuel:
+            filter_conditions.append(
+                FieldCondition(
+                    key="fuel",
+                    match=MatchValue(value=structured.fuel.lower())
+                )
+            )
+
         qdrant_filter = Filter(must=filter_conditions) if filter_conditions else None
 
+        # 1️⃣ strict brand + fuel
         hits = self.store.search(
             vector=query_vector,
             limit=top_k,
             query_filter=qdrant_filter,
         )
 
-        # Fallback без фильтра
-        if structured.brand and not hits:
+        # 2️⃣ если пусто — только brand
+        if not hits and structured.brand:
+            hits = self.store.search(
+                vector=query_vector,
+                limit=top_k,
+                query_filter=Filter(must=[
+                    FieldCondition(
+                        key="brand",
+                        match=MatchValue(value=structured.brand.lower())
+                    )
+                ])
+            )
+
+        # 3️⃣ если всё равно пусто — без фильтра
+        if not hits:
             hits = self.store.search(
                 vector=query_vector,
                 limit=top_k,
@@ -228,7 +249,7 @@ class SearchService:
 
             domain_counter.setdefault(domain, 0)
 
-            if final_score <= 0:
+            if final_score < 0:
                 continue
 
             results.append(
@@ -293,6 +314,12 @@ class SearchService:
             parts.append(structured.model)
         if structured.fuel:
             parts.append(structured.fuel)
+
+            if structured.fuel == "diesel":
+                parts.append("дизель")
+            elif structured.fuel == "petrol":
+                parts.append("бензин")
+
         if structured.paint_condition:
             parts.append(structured.paint_condition)
 

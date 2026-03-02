@@ -127,6 +127,20 @@ class QdrantStore:
 
         for p in points:
             payload = p.payload or {}
+
+            # HARD NORMALIZATION
+            if payload.get("brand"):
+                payload["brand"] = str(payload["brand"]).strip().lower()
+
+            if payload.get("fuel"):
+                payload["fuel"] = str(payload["fuel"]).strip().lower()
+
+            if payload.get("city"):
+                payload["city"] = str(payload["city"]).strip().lower()
+
+            if payload.get("region"):
+                payload["region"] = str(payload["region"]).strip().lower()
+
             payload = self._normalize_created_at(payload)
 
             normalized_points.append(

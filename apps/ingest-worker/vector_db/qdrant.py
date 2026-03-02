@@ -148,13 +148,16 @@ def extract_mileage(text: str):
 def extract_fuel(text: str):
     t = (text or "").lower()
 
-    if "гибрид" in t:
+    if any(x in t for x in ["гибрид", "hybrid"]):
         return "hybrid"
-    if "дизель" in t:
+
+    if any(x in t for x in ["диз", "tdi", "cdti", "dci", "diesel"]):
         return "diesel"
-    if "бензин" in t:
+
+    if any(x in t for x in ["бенз", "mpi", "fsi", "tsi", "petrol"]):
         return "petrol"
-    if "электро" in t:
+
+    if any(x in t for x in ["электро", "electric", "ev"]):
         return "electric"
 
     return None

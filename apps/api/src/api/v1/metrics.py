@@ -8,6 +8,7 @@ router = APIRouter()
 store = QdrantStore()
 client = store.client
 
+
 @router.get("/metrics")
 def get_metrics():
     db = SessionLocal()
@@ -16,10 +17,14 @@ def get_metrics():
     total_normalized = db.query(NormalizedDocument).count()
 
     try:
-        collection_info = qdrant_client.get_collection("auto_search_chunks")
+        collection_info = client.get_collection(
+            collection_name=settings.qdrant_collection
+        )
         total_chunks = collection_info.points_count
     except Exception:
         total_chunks = 0
+
+    db.close()
 
     return {
         "total_raw_documents": total_raw,

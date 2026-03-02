@@ -5,7 +5,7 @@ from qdrant_client import QdrantClient
 
 from db.session import SessionLocal
 from db.models import RawDocument
-from integrations.vector_db.qdrant import QdrantStore, COLLECTION_NAME
+from integrations.vector_db.qdrant import QdrantStore
 
 from core.settings import settings
 
@@ -34,7 +34,7 @@ def get_index_stats() -> Dict[str, Any]:
 
     try:
         collection_info = qdrant_store.client.get_collection(
-            collection_name=COLLECTION_NAME
+            collection_name=settings.qdrant_collection
         )
         qdrant_points = collection_info.points_count or 0
         qdrant_vectors = collection_info.vectors_count or 0

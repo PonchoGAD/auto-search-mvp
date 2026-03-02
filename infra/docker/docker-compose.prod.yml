@@ -87,6 +87,19 @@ services:
       - "6333:6333"
     networks:
       - internal
+
+  nginx:
+    image: nginx:alpine
+    container_name: auto-search-nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - api
+    networks:
+      - internal
   
 volumes:
   postgres_data:

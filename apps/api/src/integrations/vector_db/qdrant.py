@@ -1,13 +1,10 @@
 from datetime import datetime, timezone
-from typing import List, Optional
-
+from typing import List
 from qdrant_client import QdrantClient
-from qdrant_client.models import VectorParams, Distance, PointStruct
-from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
-from config import settings
-
-
-COLLECTION_NAME = "auto_search_chunks"
+from qdrant_client.models import VectorParams, Distance, PointStruct, Filter
+from core.settings import settings
+from urllib.parse import urlparse
+import os
 
 
 class QdrantStore:
@@ -21,7 +18,19 @@ class QdrantStore:
     - recency не ломается из-за ingest / источников
     """
 
-    def __init__(self, host: str = "qdrant", port: int = 6333):
+    def __init__(self):
+        # settings.qdrant_url = "http://qdrant:6333"
+        u = settings.qdrant_url
+        parsed = urlparse(u)
+
+        host = parsed.hostname or os.getenv("QDRANT_HOST", "qdrant")
+        port = parsed.port or int(os.getenv("QDRANT_PORT", "6333"))
+
+        self.collection = (
+            settings.qdrant_collection
+            or os.getenv("QDRANT_COLLECTION", "auto_search_chunks")
+        )
+
         try:
             self.client = QdrantClient(
                 host=host,
@@ -34,24 +43,30 @@ class QdrantStore:
                 port=port,
             )
 
+        print(
+            f"[QDRANT] api client host={host} port={port} collection={self.collection}",
+            flush=True,
+        )
+
     # =====================================================
     # COLLECTION
     # =====================================================
 
     def create_collection(self, vector_size: int):
-        collections = [
-            c.name for c in self.client.get_collections().collections
-        ]
+        collections = [c.name for c in self.client.get_collections().collections]
 
-        if COLLECTION_NAME not in collections:
+        if self.collection not in collections:
             self.client.create_collection(
-                collection_name=COLLECTION_NAME,
+                collection_name=self.collection,
                 vectors_config=VectorParams(
                     size=vector_size,
                     distance=Distance.COSINE,
                 ),
             )
-            print(f"[QDRANT] collection created: {COLLECTION_NAME}")
+            print(
+                f"[QDRANT] collection created: {self.collection}",
+                flush=True,
+            )
 
     # =====================================================
     # PAYLOAD NORMALIZATION (RECENCY HARDENING)
@@ -106,15 +121,12 @@ class QdrantStore:
 
     def upsert(self, points: List[PointStruct]):
         if not points:
-            print("[QDRANT] no points to upsert")
             return
 
         normalized_points: List[PointStruct] = []
 
         for p in points:
             payload = p.payload or {}
-
-            # 🔑 RECENCY HARDENING
             payload = self._normalize_created_at(payload)
 
             normalized_points.append(
@@ -126,11 +138,14 @@ class QdrantStore:
             )
 
         self.client.upsert(
-            collection_name=COLLECTION_NAME,
+            collection_name=self.collection,
             points=normalized_points,
         )
 
-        print(f"[QDRANT] upserted points: {len(normalized_points)}")
+        print(
+            f"[QDRANT] upserted points: {len(normalized_points)}",
+            flush=True,
+        )
 
     # =====================================================
     # SEARCH
@@ -143,25 +158,9 @@ class QdrantStore:
         query_filter: Filter | None = None,
     ):
         return self.client.search(
-            collection_name="auto_search_chunks",
+            collection_name=self.collection,
             query_vector=vector,
             limit=limit,
             query_filter=query_filter,
-            with_payload=True
+            with_payload=True,
         )
-
-
-# =====================================================
-# ✅ SINGLETON CLIENT (для metrics и прямого доступа)
-# =====================================================
-
-import os
-
-QDRANT_HOST = os.getenv("QDRANT_HOST", "qdrant")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
-
-qdrant_client = QdrantClient(
-    check_compatibility=False,
-    host=QDRANT_HOST,
-    port=QDRANT_PORT,
-)

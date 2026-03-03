@@ -1,4 +1,7 @@
+import os
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 from typing import List, Dict
 import random
@@ -18,6 +21,28 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
     "Mozilla/5.0 (X11; Linux x86_64)",
 ]
+
+# 🔐 PROXY SUPPORT
+DROM_PROXY = os.getenv("DROM_PROXY")
+
+PROXIES = None
+if DROM_PROXY:
+    PROXIES = {
+        "http": DROM_PROXY,
+        "https": DROM_PROXY,
+    }
+
+# 🔁 RETRY SESSION (PRODUCTION SAFE)
+session = requests.Session()
+
+retries = Retry(
+    total=3,
+    backoff_factor=1,
+    status_forcelist=[429, 500, 502, 503, 504],
+)
+
+session.mount("http://", HTTPAdapter(max_retries=retries))
+session.mount("https://", HTTPAdapter(max_retries=retries))
 
 
 def fetch_drom_ru(limit: int = 50) -> List[Dict]:
@@ -46,7 +71,12 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
             "User-Agent": random.choice(USER_AGENTS)
         }
 
-        resp = requests.get(url, headers=headers, timeout=15)
+        resp = session.get(
+            url,
+            headers=headers,
+            timeout=20,
+            proxies=PROXIES,
+        )
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, "html.parser")

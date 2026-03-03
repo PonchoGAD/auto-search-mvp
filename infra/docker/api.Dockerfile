@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-ENV PYTHONPATH=/app/src
+ENV PYTHONPATH=/app/src:/app/apps
 
 RUN pip install --no-cache-dir poetry
 
@@ -13,5 +13,7 @@ RUN poetry config virtualenvs.create false \
  
 
 COPY apps/api/src /app/src
+
+COPY apps/shared /app/apps/shared
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

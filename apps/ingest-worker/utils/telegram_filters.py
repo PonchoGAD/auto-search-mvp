@@ -9,6 +9,7 @@ from typing import Dict, Tuple, Optional
 # =========================
 
 MIN_TEXT_LEN = 20  # 🔥 Ослаблено для диагностики
+MIN_BRAND_ONLY_LEN = 80  # 🔥 если есть бренд, но нет цены — принимаем только если текст достаточно длинный
 
 # =========================
 # LOAD BRANDS WHITELIST
@@ -170,29 +171,53 @@ def is_valid_telegram_post(text: str) -> Tuple[bool, Optional[str]]:
     """
 
     if not text:
+        print("[TG_FILTER] skip reason=spam", flush=True)
         return False, "spam"
 
     t = text.lower().strip()
 
+    stats = {
+        "accepted": 0,
+        "skipped_by_len": 0,
+        "skipped_by_stop_word": 0,
+        "skipped_by_no_brand": 0,
+        "skipped_by_no_price_and_short": 0,
+    }
+
     # 1️⃣ минимальная длина
     if len(t) < MIN_TEXT_LEN:
+        stats["skipped_by_len"] += 1
+        print(f"[TG_FILTER] skip reason=spam stats={stats}", flush=True)
         return False, "spam"
 
     # 2️⃣ стоп-слова → обсуждения / сервисы
     for w in STOP_WORDS:
         if w in t:
+            stats["skipped_by_stop_word"] += 1
+            print(f"[TG_FILTER] skip reason=discussion stats={stats}", flush=True)
             return False, "discussion"
 
-    # 3️⃣ intent продажи
-    if not is_sale_intent(t):
-        return False, "discussion"
+    # ✅ НОВАЯ ЛОГИКА ПРИНЯТИЯ (relax):
+    # Документ сохраняется если есть хотя бы:
+    # (brand AND price) ИЛИ (brand AND content_length>=N)
+    brand_ok = contains_car_entity(t)
+    price_ok = has_price(t)
 
-    # 4️⃣ обязательна цена
-    if not has_price(t):
-        return False, "no_price"
+    if not brand_ok:
+        stats["skipped_by_no_brand"] += 1
+        print(f"[TG_FILTER] skip reason=no_brand stats={stats}", flush=True)
+        return False, "no_brand"
 
-    # 5️⃣ временно отключено для диагностики
-    # if not contains_car_entity(t):
-    #     return False, "no_car_entity"
+    if price_ok:
+        stats["accepted"] += 1
+        print(f"[TG_FILTER] accept reason=brand_and_price stats={stats}", flush=True)
+        return True, "ok"
 
-    return True, "ok"
+    if len(t) >= MIN_BRAND_ONLY_LEN:
+        stats["accepted"] += 1
+        print(f"[TG_FILTER] accept reason=brand_and_long_text stats={stats}", flush=True)
+        return True, "ok"
+
+    stats["skipped_by_no_price_and_short"] += 1
+    print(f"[TG_FILTER] skip reason=no_price stats={stats}", flush=True)
+    return False, "no_price"

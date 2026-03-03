@@ -148,6 +148,16 @@ class QdrantStore:
                 limit=limit,
             )
 
+        # 🔒 READ-SIDE NORMALIZATION (legacy protection)
+        for p in response.points:
+            payload = p.payload or {}
+
+            if "brand" in payload and isinstance(payload["brand"], str):
+                payload["brand"] = payload["brand"].lower()
+
+            if "fuel" in payload and isinstance(payload["fuel"], str):
+                payload["fuel"] = payload["fuel"].lower()
+
         return response.points
 
 

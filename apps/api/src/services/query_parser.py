@@ -153,7 +153,7 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
         result.mileage_max = mileage
 
     # -------------------------
-    # FUEL
+    # FUEL (strict lowercase normalization)
     # -------------------------
     if "бенз" in text:
         result.fuel = "petrol"
@@ -163,6 +163,9 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
         result.fuel = "hybrid"
     elif "электро" in text or "электр" in text:
         result.fuel = "electric"
+
+    if result.fuel:
+        result.fuel = result.fuel.lower()
 
     # -------------------------
     # PAINT CONDITION

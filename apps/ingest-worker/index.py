@@ -39,7 +39,7 @@ def run_index(limit: int = 200):
         total_chunks = 0
 
         for doc in docs:
-            chunks = chunk_text(doc.content or "")
+            chunks = chunk_text(doc.content or "")[:5]
 
             for chunk in chunks:
                 vector = embed_text(chunk)

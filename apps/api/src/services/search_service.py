@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 import os
 
 from sentence_transformers import SentenceTransformer
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 _model = None
 
@@ -108,16 +109,39 @@ class SearchService:
         if top_k is None:
             top_k = int(os.getenv("SEARCH_TOP_K", "120"))
 
+        debug = {
+            "skipped_by_price": 0,
+            "skipped_by_price_null": 0,
+            "skipped_by_mileage": 0,
+            "skipped_by_mileage_null": 0,
+            "skipped_by_url_duplicate": 0,
+        }
+
         query_text = self._build_query_text(structured)
         query_vector = embed_query(query_text)
 
         # =========================
-        # QDRANT FILTER
+        # QDRANT MUST FILTER
         # =========================
-        qdrant_filter = None
+        must_conditions = []
 
-        print("[API][DEBUG] collection=auto_search_chunks")
-        print(f"[API][DEBUG] filter={qdrant_filter}")
+        if structured.brand:
+            must_conditions.append(
+                FieldCondition(
+                    key="brand",
+                    match=MatchValue(value=structured.brand.lower()),
+                )
+            )
+
+        if structured.fuel:
+            must_conditions.append(
+                FieldCondition(
+                    key="fuel",
+                    match=MatchValue(value=structured.fuel.lower()),
+                )
+            )
+
+        qdrant_filter = Filter(must=must_conditions) if must_conditions else None
 
         try:
             hits = self.store.search(
@@ -126,42 +150,55 @@ class SearchService:
                 query_filter=qdrant_filter,
             )
         except Exception as e:
-            print(f"[SEARCH][DEMO][WARN] qdrant unavailable: {e}")
+            print(f"[SEARCH][WARN] qdrant unavailable: {e}")
             return []
 
-        # fallback if empty
         if not hits:
-            try:
-                hits = self.store.search(
-                    query=structured.raw_query,
-                    filter=None,
-                )
-            except Exception as e:
-                print(f"[SEARCH][DEMO][WARN] fallback search failed: {e}")
-                return []
-
-        print(f"[API][DEBUG] qdrant_hits={len(hits)}")
-
-        if not hits:
-            print("[SEARCH][DEMO] hits=0")
             return []
 
         # =========================
-        # SOFT BRAND BOOST
+        # DOC-LEVEL AGGREGATION
+        # =========================
+        doc_scores = {}
+        doc_payloads = {}
+
+        for hit in hits:
+            payload = hit.payload or {}
+            url = payload.get("source_url")
+            if not url:
+                continue
+
+            if url not in doc_scores or hit.score > doc_scores[url]:
+                doc_scores[url] = hit.score
+                doc_payloads[url] = payload
+
+        # =========================
+        # FILTER + RANK
         # =========================
         scored_results = []
 
-        for hit in hits:
-            base_score = hit.score
-            payload = hit.payload or {}
+        for url, payload in doc_payloads.items():
+            semantic_score = doc_scores[url]
 
-            brand_boost = 0
+            # STRICT PRICE FILTER
+            if structured.price_max is not None:
+                if payload.get("price") is None:
+                    debug["skipped_by_price_null"] += 1
+                    continue
+                if payload["price"] > structured.price_max:
+                    debug["skipped_by_price"] += 1
+                    continue
 
-            if structured.brand:
-                if payload.get("brand") and payload["brand"].lower() == structured.brand.lower():
-                    brand_boost = 0.15  # мягкий буст
+            # STRICT MILEAGE
+            if structured.mileage_max is not None:
+                if payload.get("mileage") is None:
+                    debug["skipped_by_mileage_null"] += 1
+                    continue
+                if payload["mileage"] > structured.mileage_max:
+                    debug["skipped_by_mileage"] += 1
+                    continue
 
-            final_score = base_score + brand_boost
+            final_score = self._rank(semantic_score, payload)
 
             scored_results.append((final_score, payload))
 
@@ -169,47 +206,15 @@ class SearchService:
 
         results: List[Dict[str, Any]] = []
         seen_urls = set()
-        source_counter: Dict[str, int] = {}
-        domain_counter: Dict[str, int] = {}
 
         for final_score, payload in scored_results:
-
-            if structured.price_max and payload.get("price"):
-                if payload["price"] > structured.price_max:
-                    continue
-
-            if structured.mileage_max and payload.get("mileage"):
-                if payload["mileage"] > structured.mileage_max:
-                    continue
-
             source_url = payload.get("source_url")
 
-            if not source_url or source_url in seen_urls:
+            if not source_url:
                 continue
 
-            source_name = payload.get("source") or "unknown"
-            source_counter.setdefault(source_name, 0)
-
-            if source_counter[source_name] >= MAX_RESULTS_PER_SOURCE:
-                continue
-
-            domain = "unknown"
-            try:
-                parsed = urlparse(source_url)
-                if parsed.netloc:
-                    domain = parsed.netloc.lower()
-            except Exception:
-                pass
-
-            domain_counter.setdefault(domain, 0)
-
-            reasons = [f"semantic={round(final_score, 4)}"]
-
-            if DEMO_SEARCH_MODE and final_score <= 0:
-                final_score = MIN_DEMO_SCORE
-                reasons.append("demo_fallback")
-
-            if not DEMO_SEARCH_MODE and final_score <= 0:
+            if source_url in seen_urls:
+                debug["skipped_by_url_duplicate"] += 1
                 continue
 
             results.append(
@@ -224,20 +229,19 @@ class SearchService:
                     "region": payload.get("region"),
                     "paint_condition": payload.get("paint_condition"),
                     "score": round(final_score, 6),
-                    "why_match": " + ".join(reasons),
+                    "why_match": f"semantic={round(final_score,4)}",
                     "source_url": source_url,
-                    "source_name": source_name,
+                    "source_name": payload.get("source"),
                 }
             )
 
             seen_urls.add(source_url)
-            source_counter[source_name] += 1
-            domain_counter[domain] += 1
 
             if len(results) >= limit:
                 break
 
-        results.sort(key=lambda r: r["score"], reverse=True)
+        print(f"[DEBUG] filters={must_conditions}")
+        print(f"[DEBUG] stats={debug}")
 
         try:
             session = SessionLocal()
@@ -259,6 +263,42 @@ class SearchService:
                 pass
 
         return results
+
+    # =====================================================
+    # RANKING
+    # =====================================================
+
+    def _rank(self, semantic_score, payload):
+        recency = self._recency_score(payload)
+        mileage_score = self._mileage_score(payload)
+        price_score = self._price_score(payload)
+
+        return (
+            semantic_score * 0.6
+            + recency * 0.15
+            + mileage_score * 0.15
+            + price_score * 0.10
+        )
+
+    def _recency_score(self, payload):
+        ts = payload.get("created_at_ts")
+        if not ts:
+            return 0
+        now = int(datetime.now(tz=timezone.utc).timestamp())
+        age_days = (now - ts) / 86400
+        return max(0, 1 - age_days / 180)
+
+    def _mileage_score(self, payload):
+        mileage = payload.get("mileage")
+        if mileage is None:
+            return 0
+        return max(0, 1 - mileage / 300000)
+
+    def _price_score(self, payload):
+        price = payload.get("price")
+        if price is None:
+            return 0
+        return max(0, 1 - price / 5000000)
 
     # =====================================================
     # HELPERS
@@ -286,7 +326,7 @@ class SearchService:
         return " ".join(parts).strip()
 
     # =====================================================
-    # SCORING
+    # SCORING (legacy)
     # =====================================================
 
     def _score_hit(

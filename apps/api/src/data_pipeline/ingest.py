@@ -3,7 +3,7 @@
 import os
 import asyncio
 from typing import List, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from db.session import SessionLocal
 from db.models import RawDocument
@@ -13,7 +13,9 @@ from db.models import RawDocument
 # =========================
 
 from integrations.sources.telegram import fetch_telegram
-
+from integrations.sources.auto_ru import fetch_auto_ru_serp
+from integrations.sources.avito import fetch_avito_serp
+from integrations.sources.drom_ru import fetch_drom_ru_serp
 
 # Форумы (HTTP, без Playwright)
 from integrations.sources.benzclub import fetch_benzclub_listings
@@ -66,16 +68,9 @@ def _parse_sources() -> List[str]:
 
 
 def _ensure_event_loop() -> asyncio.AbstractEventLoop:
-    """
-    FastAPI/AnyIO может выполнять этот код в worker thread без event loop.
-    Поэтому принудительно создаём loop и привязываем к текущему потоку.
-    """
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            raise RuntimeError("event loop is closed")
-        return loop
-    except Exception:
+        return asyncio.get_running_loop()
+    except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         return loop
@@ -119,7 +114,7 @@ def run_ingest() -> Dict[str, int]:
         # -------------------------
         if "telegram" in sources:
             try:
-                items = fetch_telegram()
+                items = _run_coro(loop, fetch_telegram(limit_per_channel=None))
                 all_items.extend(items or [])
                 print(f"[INGEST][TELEGRAM] fetched: {len(items or [])}")
             except Exception as e:
@@ -184,11 +179,11 @@ def run_ingest() -> Dict[str, int]:
             print("[INGEST][WARN] no items fetched")
             return {"saved": 0, "indexed": 0, "skipped": 0}
 
-        # -------------------------
-        # DEMO LIMIT REMOVED
-        # -------------------------
         print(f"[INGEST] total items before processing: {len(all_items)}")
-        # demo cap removed — processing full dataset
+
+        if DEMO_INGEST:
+            all_items = all_items[:DEMO_INGEST_LIMIT]
+            print(f"[INGEST][DEMO] limited to {len(all_items)} items")
 
         # -------------------------
         # ANTI-NOISE + SAVE
@@ -203,28 +198,40 @@ def run_ingest() -> Dict[str, int]:
 
             if not source_url:
                 stats.add(skip=True, reason="no_source_url")
+                print(f"[DB][SAVE] saved=0 skipped=1 reason_skip=no_source_url url={source_url}", flush=True)
                 continue
 
             exists = (
                 session.query(RawDocument)
-                .filter(RawDocument.source_url == source_url)
+                .filter(
+                    RawDocument.source == source,
+                    RawDocument.source_url == source_url,
+                )
                 .first()
             )
             if exists:
                 skipped_duplicates += 1
                 stats.add(skip=True, reason="duplicate")
+                print(f"[DB][SAVE] saved=0 skipped=1 reason_skip=duplicate url={source_url}", flush=True)
                 continue
 
             title = item.get("title") or ""
             content = item.get("content") or ""
             raw_text = f"{title}\n{content}".strip()
 
+            if not raw_text or len(raw_text) < 10:
+                stats.add(skip=True, reason="content_too_short")
+                print(f"[DB][SAVE] saved=0 skipped=1 reason_skip=content_too_short url={source_url}", flush=True)
+                continue
+
             skip, skip_meta = should_skip_doc(
                 text=raw_text,
                 source=source,
             )
             if skip:
-                stats.add(skip=True, reason=skip_meta.get("reason", "unknown"))
+                reason = skip_meta.get("reason", "unknown")
+                stats.add(skip=True, reason=reason)
+                print(f"[DB][SAVE] saved=0 skipped=1 reason_skip={reason} url={source_url}", flush=True)
                 continue
 
             final_content, _meta = enrich_text_with_meta(
@@ -237,12 +244,13 @@ def run_ingest() -> Dict[str, int]:
                 source_url=source_url,
                 title=title,
                 content=final_content,
-                fetched_at=datetime.utcnow(),
+                fetched_at=datetime.now(timezone.utc),
             )
 
             session.add(doc)
             saved_docs.append(doc)
             stats.add(skip=False, reason="ok")
+            print(f"[DB][SAVE] saved=1 skipped=0 reason_skip=ok url={source_url}", flush=True)
 
         session.commit()
 

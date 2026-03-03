@@ -1,31 +1,28 @@
 from typing import List, Dict
 from playwright_base import PlaywrightBase
+import asyncio
 import random
 
 AVITO_BASE_URL = "https://www.avito.ru/all/avtomobili"
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    "Mozilla/5.0 (X11; Linux x86_64)",
-]
-
 
 async def fetch_avito_serp(limit: int = 50) -> List[Dict]:
     base = PlaywrightBase(headless=True)
-    await base.launch()
-    page = await base.new_page()
-
-    # ✔ Random User-Agent через Playwright
-    await page.set_extra_http_headers({
-        "User-Agent": random.choice(USER_AGENTS)
-    })
 
     try:
+        await base.launch()
+        page = await base.new_page()
+
         await base.safe_goto(page, AVITO_BASE_URL)
-        await page.wait_for_timeout(4000)
-        await page.mouse.wheel(0, 5000)
-        await page.wait_for_timeout(3000)
+
+        for _ in range(3):
+            await page.mouse.wheel(0, random.randint(3000, 5000))
+            await asyncio.sleep(random.uniform(1.0, 2.0))
+
+        content = await page.content()
+        if "captcha" in content.lower():
+            print("[AVITO] captcha detected — skipping")
+            return []
 
         links = await page.eval_on_selector_all(
             "a[href*='/avtomobili/']",
@@ -36,10 +33,16 @@ async def fetch_avito_serp(limit: int = 50) -> List[Dict]:
         seen = set()
 
         for url in links:
-            if not url or "/avtomobili/" not in url or url in seen:
+            if not url:
                 continue
+            if "/avtomobili/" not in url:
+                continue
+            if url in seen:
+                continue
+
             seen.add(url)
             uniq.append(url)
+
             if len(uniq) >= limit:
                 break
 
@@ -52,5 +55,10 @@ async def fetch_avito_serp(limit: int = 50) -> List[Dict]:
             }
             for url in uniq
         ]
+
+    except Exception as e:
+        print(f"[AVITO] failed: {e}")
+        return []
+
     finally:
         await base.close()

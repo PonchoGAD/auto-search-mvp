@@ -7,7 +7,7 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.types import Message
 
-from utils.telegram_filters import is_valid_telegram_post
+from data_pipeline.telegram_filters import is_valid_telegram_post
 
 
 # =========================
@@ -34,8 +34,25 @@ def load_channels() -> List[str]:
     Пример:
     TG_CHANNELS=@cars_ru,@auto_moscow
     """
-    TG_CHANNELS_RAW = os.getenv("TG_CHANNELS", "")
-    return [c.strip() for c in TG_CHANNELS_RAW.split(",") if c.strip()]
+
+    raw = os.getenv("TG_CHANNELS", "")
+    out = []
+
+    for c in raw.split(","):
+        c = c.strip()
+        if not c:
+            continue
+
+        if "t.me/" in c:
+            c = c.split("t.me/")[-1].strip("/")
+            c = "@" + c
+
+        if not c.startswith("@"):
+            c = "@" + c
+
+        out.append(c)
+
+    return out
 
 
 async def _fetch_from_channel(
@@ -44,8 +61,8 @@ async def _fetch_from_channel(
     limit: int,
 ) -> List[Dict]:
     """
-    Fetch + HARD anti-noise фильтр на уровне источника.
-    Здесь мусор умирает окончательно.
+    Fetch + минимальный anti-noise на уровне источника.
+    Бизнес-логика фильтрации остаётся в ingest_quality.
     """
 
     items: List[Dict] = []
@@ -67,10 +84,8 @@ async def _fetch_from_channel(
 
         text = msg.text.strip()
 
-        # 🔒 HARD ANTI-NOISE FILTER
-        ok, reason = is_valid_telegram_post(text)
-
-        if not ok:
+        # Минимальный мусор-фильтр на источнике
+        if len(text) < 10:
             skipped_invalid += 1
             continue
 

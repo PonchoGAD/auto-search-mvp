@@ -5,7 +5,7 @@ from db.models import RawDocument
 
 from vector_db.qdrant import QdrantStore
 from data_pipeline.chunk import chunk_text
-from data_pipeline.embed import embed_text
+from shared.embeddings.provider import embed_text
 
 
 BATCH_SIZE = 64  # upsert batching

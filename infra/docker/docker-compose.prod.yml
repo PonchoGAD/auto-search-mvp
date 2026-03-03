@@ -82,6 +82,7 @@ services:
     restart: always
     environment:
       - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__STORAGE__OPTIMIZER__INDEXING_THRESHOLD=10000
     volumes:
       - qdrant_data:/qdrant/storage
     ports:

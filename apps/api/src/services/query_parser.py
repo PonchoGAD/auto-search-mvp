@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 import re
 import yaml
 from pathlib import Path
+from datetime import datetime
 
 
 # =========================
@@ -47,10 +48,11 @@ class StructuredQuery(BaseModel):
 
     # Основные поля
     brand: Optional[str] = None
-    brand_confidence: float = 0.0  # 🆕 усиливает ranking, не ломает контракт
+    brand_confidence: float = 0.0
     model: Optional[str] = None
     price_max: Optional[int] = None
     mileage_max: Optional[int] = None
+    year_min: Optional[int] = None  # 🆕
     fuel: Optional[str] = None
     paint_condition: Optional[str] = None
     city: Optional[str] = None
@@ -69,17 +71,11 @@ class StructuredQuery(BaseModel):
 # =========================
 
 def parse_query(raw_text: str) -> StructuredQuery:
-    """
-    Главная точка входа.
-    Никогда не бросает исключения наружу.
-    Всегда возвращает StructuredQuery.
-    """
     raw_text = (raw_text or "").strip()
 
     if not raw_text:
         return StructuredQuery(raw_query=raw_text)
 
-    # 1️⃣ Пытаемся через LLM (позже)
     try:
         llm_result = _parse_with_llm(raw_text)
         sq = StructuredQuery(**llm_result)
@@ -87,7 +83,6 @@ def parse_query(raw_text: str) -> StructuredQuery:
         return sq
 
     except Exception:
-        # 2️⃣ Надёжный fallback
         return _parse_with_fallback(raw_text)
 
 
@@ -96,10 +91,6 @@ def parse_query(raw_text: str) -> StructuredQuery:
 # =========================
 
 def _parse_with_llm(raw_text: str) -> dict:
-    """
-    Заглушка под будущий LLM.
-    Любая ошибка → fallback.
-    """
     raise RuntimeError("LLM not implemented yet")
 
 
@@ -111,12 +102,14 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     text = raw_text.lower()
     result = StructuredQuery(raw_query=raw_text)
 
+    current_year = datetime.utcnow().year
+
     # -------------------------
-    # BRAND (yaml-driven, RU / EN / aliases / typos)
+    # BRAND (yaml-driven)
     # -------------------------
     brand, confidence = _extract_brand(text)
     if brand:
-        result.brand = brand
+        result.brand = brand.lower()  # гарант canonical lowercase
         result.brand_confidence = confidence
 
     # -------------------------
@@ -153,6 +146,21 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
         result.mileage_max = mileage
 
     # -------------------------
+    # YEAR_MIN (новое)
+    # -------------------------
+
+    # от 2018 / с 2020 / после 2017
+    m = re.search(r"(от|с|после)\s*(20\d{2}|19\d{2})", text)
+    if m:
+        result.year_min = int(m.group(2))
+
+    # не старше 10 лет / младше 7 лет / за последние 5 лет
+    m = re.search(r"(не\s+старше|младше|за\s+последние)\s*(\d+)\s*лет", text)
+    if m:
+        years = int(m.group(2))
+        result.year_min = current_year - years
+
+    # -------------------------
     # FUEL (strict lowercase normalization)
     # -------------------------
     if "бенз" in text:
@@ -176,7 +184,7 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
         result.paint_condition = "repainted"
 
     # -------------------------
-    # CITY (мягко, MVP)
+    # CITY
     # -------------------------
     m = re.search(
         r"\b(москва|спб|питер|екатеринбург|казань|новосибирск|алматы|астана)\b",
@@ -186,13 +194,13 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
         result.city = m.group(1)
 
     # -------------------------
-    # RECENCY INTENT (для ranking)
+    # RECENCY INTENT
     # -------------------------
     if any(w in text for w in ["свеж", "нов", "последн"]):
         result.keywords.append("recent")
 
     # -------------------------
-    # KEYWORDS / EXCLUSIONS
+    # KEYWORDS / EXCLUSIONS (hardened)
     # -------------------------
     tokens = re.findall(r"[a-zа-я0-9]+", text)
 
@@ -200,9 +208,26 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
         "до", "без", "и", "или", "не",
         "бит", "крашен",
         "км", "тыс", "руб", "р", "₽",
+        "от", "с", "после", "старше", "младше",
+        "лет", "год", "года",
     }
 
+    brand_synonyms = set()
+    if result.brand and result.brand in BRANDS_CONFIG:
+        cfg = BRANDS_CONFIG[result.brand]
+        for w in cfg.get("en", []) + cfg.get("ru", []) + cfg.get("aliases", []):
+            brand_synonyms.add(w.lower())
+
     for t in tokens:
+        if t.isdigit():
+            continue
+
+        if result.brand and t == result.brand:
+            continue
+
+        if t in brand_synonyms:
+            continue
+
         if t.startswith("не") and len(t) > 2:
             result.exclusions.append(t[1:])
         elif t not in STOP_TOKENS and t not in result.keywords:
@@ -225,19 +250,16 @@ def _extract_brand(text: str) -> Tuple[Optional[str], float]:
         fuzzy → 0.6
     """
     for brand, cfg in BRANDS_CONFIG.items():
-        # exact EN / RU
         for w in cfg.get("en", []) + cfg.get("ru", []):
             if re.search(rf"\b{re.escape(w.lower())}\b", text):
-                return brand, 1.0
+                return brand.lower(), 1.0
 
-        # aliases / typos
         for a in cfg.get("aliases", []):
             if re.search(rf"\b{re.escape(a.lower())}\b", text):
-                return brand, 0.8
+                return brand.lower(), 0.8
 
-        # very light fuzzy (substring, MVP-safe)
         for w in cfg.get("en", []) + cfg.get("ru", []):
             if w.lower() in text:
-                return brand, 0.6
+                return brand.lower(), 0.6
 
     return None, 0.0

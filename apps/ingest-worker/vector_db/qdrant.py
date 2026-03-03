@@ -199,6 +199,9 @@ class QdrantStore:
         if hasattr(document, "mileage"):
             payload["mileage"] = getattr(document, "mileage", None)
 
+        if hasattr(document, "year"):
+            payload["year"] = getattr(document, "year", None)
+
         if hasattr(document, "fuel"):
             payload["fuel"] = getattr(document, "fuel", None)
 
@@ -213,6 +216,34 @@ class QdrantStore:
 
         if hasattr(document, "created_at_ts"):
             payload["created_at_ts"] = getattr(document, "created_at_ts", None)
+
+        # =====================================================
+        # 🔥 PAYLOAD NORMALIZATION (PRODUCTION STANDARD)
+        # =====================================================
+
+        # --- NORMALIZE BRAND ---
+        brand = payload.get("brand")
+        if isinstance(brand, str):
+            payload["brand"] = brand.lower().strip()
+
+        # --- NORMALIZE FUEL ---
+        fuel = payload.get("fuel")
+        if isinstance(fuel, str):
+            fuel = fuel.lower().strip()
+            allowed = {"petrol", "diesel", "hybrid", "electric"}
+            if fuel in allowed:
+                payload["fuel"] = fuel
+            else:
+                payload["fuel"] = None
+
+        # --- FORCE INT NUMERIC ---
+        for field in ["price", "mileage", "year"]:
+            value = payload.get(field)
+            if value is not None:
+                try:
+                    payload[field] = int(value)
+                except Exception:
+                    payload[field] = None
 
         return PointStruct(
             id=str(uuid4()),

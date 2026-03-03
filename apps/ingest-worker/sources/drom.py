@@ -31,6 +31,8 @@ if DROM_PROXY:
         "http": DROM_PROXY,
         "https": DROM_PROXY,
     }
+else:
+    print("[DROM][WARN] proxy_not_set", flush=True)
 
 # 🔁 RETRY SESSION (PRODUCTION SAFE)
 session = requests.Session()
@@ -71,26 +73,42 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
             "User-Agent": random.choice(USER_AGENTS)
         }
 
-        resp = session.get(
-            url,
-            headers=headers,
-            timeout=20,
-            proxies=PROXIES,
-        )
-        resp.raise_for_status()
+        try:
+            resp = session.get(
+                url,
+                headers=headers,
+                timeout=20,
+                proxies=PROXIES,
+            )
+        except Exception as e:
+            print(f"[DROM][ERROR] url={url} err={e}", flush=True)
+            continue
 
-        soup = BeautifulSoup(resp.text, "html.parser")
+        try:
+            resp.raise_for_status()
+        except Exception as e:
+            print(f"[DROM][ERROR] url={url} status_err={e}", flush=True)
+            continue
+
+        try:
+            soup = BeautifulSoup(resp.text, "html.parser")
+        except Exception as e:
+            print(f"[DROM][ERROR] url={url} parse_err={e}", flush=True)
+            continue
 
         # ⚠️ Drom реально часто меняет классы
-        # Этот селектор сейчас самый стабильный для ссылок на объявления
         cards = soup.select("a[href*='auto.drom.ru']")
 
         for card in cards:
             if len(items) >= limit:
                 break
 
-            ad_url = card.get("href")
-            title = card.get_text(strip=True)
+            try:
+                ad_url = card.get("href")
+                title = card.get_text(strip=True)
+            except Exception:
+                filtered += 1
+                continue
 
             if not ad_url or "auto.drom.ru" not in ad_url:
                 filtered += 1
@@ -160,5 +178,5 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
                 }
             )
 
-    print(f"[DROM] fetched={len(items)} filtered={filtered}")
+    print(f"[DROM] fetched={len(items)} filtered={filtered}", flush=True)
     return items

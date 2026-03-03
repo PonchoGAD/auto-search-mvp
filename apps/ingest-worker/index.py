@@ -8,6 +8,9 @@ from data_pipeline.chunk import chunk_text
 from data_pipeline.embed import embed_text
 
 
+BATCH_SIZE = 64  # upsert batching
+
+
 def run_index(limit: int = 200):
     session = SessionLocal()
     store = QdrantStore()
@@ -31,18 +34,38 @@ def run_index(limit: int = 200):
 
         # 🔥 1️⃣ Получаем размер вектора
         test_vector = embed_text("test")
+        if not test_vector:
+            print("[INDEX][ERROR] embed_text returned empty for test")
+            return 0
+
         vector_size = len(test_vector)
+        print(f"[INDEX] vector_size={vector_size}")
+
+        if vector_size != 768:
+            print(f"[INDEX][WARN] unexpected_vector_size={vector_size}")
 
         # 🔥 2️⃣ Создаём коллекцию если нет
         store.create_collection(vector_size)
 
         total_chunks = 0
+        batch = []
 
         for doc in docs:
+            # ограничиваем количество чанков (3–5)
             chunks = chunk_text(doc.content or "")[:5]
 
             for chunk in chunks:
                 vector = embed_text(chunk)
+
+                if not vector:
+                    print(f"[INDEX][WARN] empty_vector doc_id={doc.id}")
+                    continue
+
+                if len(vector) != vector_size:
+                    print(
+                        f"[INDEX][WARN] bad_vector_size doc_id={doc.id} size={len(vector)}"
+                    )
+                    continue
 
                 point = store.build_point(
                     document=doc,
@@ -50,11 +73,24 @@ def run_index(limit: int = 200):
                     vector=vector,
                 )
 
-                store.upsert([point])
+                if not point:
+                    continue
+
+                batch.append(point)
                 total_chunks += 1
-                print(f"[INDEX] chunks_created={total_chunks}")
+
+                # 🔥 batch upsert
+                if len(batch) >= BATCH_SIZE:
+                    store.upsert(batch)
+                    print(f"[INDEX] upserted: {len(batch)}")
+                    batch = []
 
             doc.indexed = True
+
+        # финальный flush
+        if batch:
+            store.upsert(batch)
+            print(f"[INDEX] upserted: {len(batch)}")
 
         session.commit()
 

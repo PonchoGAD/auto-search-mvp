@@ -72,7 +72,7 @@ ensure_schema()
 
 
 # =========================
-# SAVE
+# SAVE (HARDENED)
 # =========================
 def save_items(items):
     session = SessionLocal()
@@ -81,25 +81,35 @@ def save_items(items):
 
     try:
         for item in items:
-            if not item.get("source_url"):
+            url = item.get("source_url")
+            content = item.get("content")
+
+            if not url:
                 skipped += 1
+                print(f"[DB][SAVE] reason_skip=no_url item={item}", flush=True)
+                continue
+
+            if not content or len(content.strip()) < 10:
+                skipped += 1
+                print(f"[DB][SAVE] reason_skip=short_content url={url}", flush=True)
                 continue
 
             exists = (
                 session.query(RawDocument)
-                .filter_by(source_url=item["source_url"])
+                .filter_by(source_url=url)
                 .first()
             )
             if exists:
                 skipped += 1
+                print(f"[DB][SAVE] reason_skip=duplicate url={url}", flush=True)
                 continue
 
             session.add(
                 RawDocument(
                     source=item.get("source", "unknown"),
-                    source_url=item["source_url"],
+                    source_url=url,
                     title=item.get("title"),
-                    content=item.get("content"),
+                    content=content,
                 )
             )
             saved += 1

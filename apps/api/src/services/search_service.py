@@ -7,7 +7,7 @@ import os
 
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-from integrations.embeddings.embedder import embed_query
+from shared.embeddings.provider import embed_text
 
 from integrations.vector_db.qdrant import QdrantStore
 from services.query_parser import StructuredQuery
@@ -97,7 +97,7 @@ class SearchService:
         # EMBEDDING (provider-consistent)
         # -------------------------
         query_text = self._build_query_text(structured)
-        query_vector = embed_query(query_text)
+        query_vector = embed_text(query_text)
 
         # =====================================================
         # 1) QDRANT FILTER LAYER (brand strict by confidence + fuel strict)

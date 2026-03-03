@@ -2,21 +2,27 @@ import random
 import asyncio
 from typing import Optional, List
 
-from playwright.async_api import async_playwright, Browser, Page
+from playwright.async_api import async_playwright, Browser, Page, BrowserContext
 
 
 DEFAULT_UA_LIST = [
-    # Desktop
+    # Desktop realistic
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
     "(KHTML, like Gecko) Version/17.1 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
 ]
 
 
 class PlaywrightBase:
+    """
+    Production-safe Playwright wrapper:
+    - Single browser instance
+    - Retry with exponential backoff + jitter
+    - Randomized context per page
+    - Safe shutdown
+    """
+
     def __init__(
         self,
         proxies: Optional[List[str]] = None,
@@ -35,6 +41,9 @@ class PlaywrightBase:
         self._browser: Optional[Browser] = None
 
     async def launch(self):
+        if self._browser:
+            return  # already launched
+
         self._pw = await async_playwright().start()
 
         proxy_cfg = None
@@ -45,6 +54,10 @@ class PlaywrightBase:
         self._browser = await self._pw.chromium.launch(
             headless=self.headless,
             proxy=proxy_cfg,
+            args=[
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",
+            ],
         )
 
     async def new_page(self) -> Page:
@@ -53,19 +66,26 @@ class PlaywrightBase:
 
         ua = random.choice(self.user_agents)
 
-        context = await self._browser.new_context(
+        context: BrowserContext = await self._browser.new_context(
             user_agent=ua,
             viewport={"width": 1366, "height": 768},
+            java_script_enabled=True,
         )
 
         page = await context.new_page()
+
+        # small random delay to mimic human
+        await asyncio.sleep(random.uniform(0.5, 1.5))
+
         return page
 
     async def close(self):
-        if self._browser:
-            await self._browser.close()
-        if self._pw:
-            await self._pw.stop()
+        try:
+            if self._browser:
+                await self._browser.close()
+        finally:
+            if self._pw:
+                await self._pw.stop()
 
     async def safe_goto(
         self,
@@ -77,10 +97,12 @@ class PlaywrightBase:
 
         for attempt in range(1, self.retries + 1):
             try:
-                await page.goto(url, timeout=timeout_ms)
+                await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+                await asyncio.sleep(random.uniform(1.0, 2.5))
                 return
             except Exception as e:
                 last_error = e
-                await asyncio.sleep(self.backoff_sec * attempt)
+                sleep_time = self.backoff_sec * attempt + random.uniform(0.5, 1.5)
+                await asyncio.sleep(sleep_time)
 
-        raise RuntimeError(f"Failed to load {url}: {last_error}")
+        raise RuntimeError(f"[PLAYWRIGHT] Failed to load {url}: {last_error}")

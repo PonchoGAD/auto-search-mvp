@@ -2,8 +2,13 @@ from typing import List, Dict
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-from datetime import datetime
+from datetime import datetime, timezone
 import re
+import time
+import random
+
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 BASE_URL = "https://www.benzclub.ru"
 
@@ -21,6 +26,32 @@ HEADERS = {
 }
 
 
+# =========================
+# SESSION + RETRY
+# =========================
+
+def build_session():
+    s = requests.Session()
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        backoff_factor=1.2,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+        raise_on_status=False,
+        respect_retry_after_header=True,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    s.headers.update(HEADERS)
+    return s
+
+
+SESSION = build_session()
+
+
 def detect_brand(text: str) -> str | None:
     if not text:
         return None
@@ -36,7 +67,6 @@ def detect_brand(text: str) -> str | None:
 
 
 def normalize_benzclub_url(url: str) -> str:
-    import re
     from urllib.parse import urlparse, parse_qs
 
     parsed = urlparse(url)
@@ -69,8 +99,25 @@ def _clean_post_text(text: str) -> str:
     return text
 
 
+def _extract_datetime(soup) -> tuple[str | None, int | None, str]:
+    # 1) ищем <time datetime="...">
+    t = soup.select_one("time[datetime]")
+    if t and t.get("datetime"):
+        try:
+            dt = datetime.fromisoformat(t["datetime"].replace("Z", "+00:00"))
+            return dt.isoformat(), int(dt.timestamp()), "benzclub"
+        except Exception:
+            pass
+
+    # fallback
+    now = datetime.now(timezone.utc)
+    return now.isoformat(), int(now.timestamp()), "ingested"
+
+
 def _fetch_thread(url: str) -> Dict:
-    r = requests.get(url, headers=HEADERS, timeout=30)
+    r = SESSION.get(url, timeout=30)
+    if r.status_code >= 400:
+        print(f"[BENZCLUB][HTTP] status={r.status_code} url={url}")
     r.raise_for_status()
 
     soup = BeautifulSoup(r.text, "html.parser")
@@ -83,15 +130,22 @@ def _fetch_thread(url: str) -> Dict:
 
     clean_text = _clean_post_text(content)
 
+    created_at, created_at_ts, created_at_source = _extract_datetime(soup)
+
     return {
         "title": title,
         "content": f"{title}\n\n{clean_text}",
         "clean_text": clean_text,
+        "created_at": created_at,
+        "created_at_ts": created_at_ts,
+        "created_at_source": created_at_source,
     }
 
 
 def _fetch_listing_page(url: str) -> List[str]:
-    r = requests.get(url, headers=HEADERS, timeout=30)
+    r = SESSION.get(url, timeout=30)
+    if r.status_code >= 400:
+        print(f"[BENZCLUB][HTTP] status={r.status_code} url={url}")
     r.raise_for_status()
 
     soup = BeautifulSoup(r.text, "html.parser")
@@ -103,11 +157,17 @@ def _fetch_listing_page(url: str) -> List[str]:
             continue
 
         full_url = urljoin(BASE_URL, href)
-        full_url = normalize_benzclub_url(full_url)
 
+        # оставить только ссылки с t=<digits>
+        if not re.search(r"[?&]t=\d+", full_url):
+            continue
+
+        full_url = normalize_benzclub_url(full_url)
         links.append(full_url)
 
-    return list(set(links))
+    # дедуп + ограничение
+    unique_links = list(set(links))
+    return unique_links[:100]
 
 
 def fetch_benzclub_listings(limit: int = 30) -> List[Dict]:
@@ -129,30 +189,29 @@ def fetch_benzclub_listings(limit: int = 30) -> List[Dict]:
                 continue
             seen.add(thread_url)
 
+            # rate limit
+            time.sleep(random.uniform(0.7, 1.6))
+
             try:
                 data = _fetch_thread(thread_url)
             except Exception as e:
                 print(f"[BENZCLUB][THREAD_ERROR] {thread_url}: {e}")
                 continue
 
-            brand = detect_brand(data["content"])
+            clean_text = (data.get("clean_text") or "").strip()
+            if not clean_text or len(clean_text) < 10:
+                print(f"[BENZCLUB][SKIP] reason=short_content url={thread_url}")
+                continue
 
-            results.append(
-                {
-                    "source": "benzclub.ru",
-                    "source_url": thread_url,
-                    "title": data["title"],
-                    "content": data["content"],
-                    "brand": brand,
-                    "model": None,
-                    "price": None,
-                    "mileage": None,
-                    "currency": "RUB",
-                    "sale_intent": 1,
-                    "created_at": datetime.utcnow().isoformat(),
-                    "created_at_ts": int(datetime.utcnow().timestamp()),
-                }
-            )
+            results.append({
+                "source": "benzclub.ru",
+                "source_url": thread_url,
+                "title": data["title"] or "",
+                "content": data["content"] or "",
+                "created_at": data.get("created_at"),
+                "created_at_ts": data.get("created_at_ts"),
+                "created_at_source": data.get("created_at_source", "benzclub"),
+            })
 
             if len(results) >= limit:
                 return results

@@ -7,7 +7,7 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.types import Message
 
-from data_pipeline.telegram_filters import is_valid_telegram_post
+from utils.telegram_filters import is_valid_telegram_post
 
 
 # =========================

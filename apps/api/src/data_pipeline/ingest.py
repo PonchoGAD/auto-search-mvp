@@ -13,9 +13,21 @@ from db.models import RawDocument
 # =========================
 
 from integrations.sources.telegram import fetch_telegram
-from integrations.sources.auto_ru import fetch_auto_ru_serp
-from integrations.sources.avito import fetch_avito_serp
-from integrations.sources.drom_ru import fetch_drom_ru_serp
+
+try:
+    from integrations.sources.auto_ru import fetch_auto_ru_serp
+except ImportError:
+    fetch_auto_ru_serp = None
+
+try:
+    from integrations.sources.drom_ru import fetch_drom_ru_serp
+except ImportError:
+    fetch_drom_ru_serp = None
+
+try:
+    from integrations.sources.avito import fetch_avito_serp
+except ImportError:
+    fetch_avito_serp = None
 
 # Форумы (HTTP, без Playwright)
 from integrations.sources.benzclub import fetch_benzclub_listings
@@ -123,7 +135,7 @@ def run_ingest() -> Dict[str, int]:
         # -------------------------
         # AUTO.RU
         # -------------------------
-        if "auto_ru" in sources:
+        if "auto_ru" in sources and fetch_auto_ru_serp:
             try:
                 items = _run_coro(loop, fetch_auto_ru_serp(limit=AUTO_RU_LIMIT))
                 all_items.extend(items or [])
@@ -134,7 +146,7 @@ def run_ingest() -> Dict[str, int]:
         # -------------------------
         # DROM.RU
         # -------------------------
-        if "drom_ru" in sources:
+        if "drom_ru" in sources and fetch_drom_ru_serp:
             try:
                 items = _run_coro(loop, fetch_drom_ru_serp(limit=DROM_RU_LIMIT))
                 all_items.extend(items or [])
@@ -145,7 +157,7 @@ def run_ingest() -> Dict[str, int]:
         # -------------------------
         # AVITO
         # -------------------------
-        if "avito" in sources:
+        if "avito" in sources and fetch_avito_serp:
             try:
                 items = _run_coro(loop, fetch_avito_serp(limit=AVITO_LIMIT))
                 all_items.extend(items or [])

@@ -184,6 +184,9 @@ class QdrantStore:
             "content": chunk_text,
         }
 
+        # 🎯 Добавлено: doc_id
+        payload["doc_id"] = document.id
+
         if hasattr(document, "brand"):
             payload["brand"] = getattr(document, "brand", None)
 

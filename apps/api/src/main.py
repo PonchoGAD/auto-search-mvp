@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
 import os
 
 from db.session import engine
@@ -25,9 +26,20 @@ API_KEY = os.getenv("API_KEY")
 
 @app.middleware("http")
 async def check_api_key(request: Request, call_next):
+
+    # Разрешаем health и readiness без ключа
+    if request.url.path.startswith("/api/v1/health") or \
+       request.url.path.startswith("/api/v1/ready"):
+        return await call_next(request)
+
+    # Защищаем остальное API
     if request.url.path.startswith("/api/"):
         if API_KEY and request.headers.get("X-API-Key") != API_KEY:
-            raise HTTPException(status_code=403, detail="Forbidden")
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Forbidden"}
+            )
+
     return await call_next(request)
 
 

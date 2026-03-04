@@ -5,10 +5,13 @@ from sqlalchemy import text
 import redis
 import requests
 import time
+import json
+from fastapi import Response, status
 
 from db.session import SessionLocal
 from db.models import SearchHistory
 from core.settings import settings
+from integrations.vector_db.qdrant import qdrant_client
 
 router = APIRouter(tags=["Health"])
 
@@ -80,19 +83,12 @@ def readiness():
         timings["redis_ms"] = int((time.time() - start) * 1000)
 
     # -------------------------
-    # Qdrant
+    # Qdrant (через client)
     # -------------------------
     start = time.time()
     try:
-        resp = requests.get(
-            f"{settings.qdrant_url}/collections",
-            timeout=2,
-        )
-        if resp.status_code == 200:
-            checks["qdrant"] = "ok"
-        else:
-            checks["qdrant"] = "error"
-            checks["qdrant_status"] = resp.status_code
+        qdrant_client.get_collections()
+        checks["qdrant"] = "ok"
     except Exception as e:
         checks["qdrant"] = "error"
         checks["qdrant_error"] = str(e)
@@ -123,8 +119,14 @@ def readiness():
         if not key.endswith("_error") and not key.endswith("_status")
     )
 
-    return {
-        "status": "ready" if is_ready else "not_ready",
-        "checks": checks,
-        "timings": timings,
-    }
+    response_status = status.HTTP_200_OK if is_ready else status.HTTP_503_SERVICE_UNAVAILABLE
+
+    return Response(
+        content=json.dumps({
+            "status": "ready" if is_ready else "not_ready",
+            "checks": checks,
+            "timings": timings,
+        }),
+        media_type="application/json",
+        status_code=response_status
+    )

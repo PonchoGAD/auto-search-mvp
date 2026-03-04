@@ -31,7 +31,9 @@ export async function POST(req: Request) {
     // вернуть как есть (FastAPI отдаёт JSON)
     return new NextResponse(text, {
       status: r.status,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json",
+                 "X-API-Key": process.env.NEXT_PUBLIC_API_KEY as string
+       },
     });
   } catch (e: unknown) {
     const err = e instanceof Error ? e : new Error(String(e));

@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 import os
 
 from db.session import engine
@@ -19,6 +19,17 @@ app = FastAPI(
     version="0.1.0",
     debug=settings.DEBUG,
 )
+
+API_KEY = os.getenv("API_KEY")
+
+
+@app.middleware("http")
+async def check_api_key(request: Request, call_next):
+    if request.url.path.startswith("/api/"):
+        if API_KEY and request.headers.get("X-API-Key") != API_KEY:
+            raise HTTPException(status_code=403, detail="Forbidden")
+    return await call_next(request)
+
 
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(search_router, prefix="/api/v1")

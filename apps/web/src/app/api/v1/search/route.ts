@@ -18,7 +18,9 @@ export async function POST(req: Request) {
 
     const r = await fetch(`${UPSTREAM}/api/v1/search`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json",
+                 "X-API-Key": process.env.NEXT_PUBLIC_API_KEY as string
+       },
       // можно пробросить user-agent / x-forwarded-for при желании
       body: JSON.stringify(body),
       // таймауты в fetch в Node 18+ — через AbortController (если нужно)

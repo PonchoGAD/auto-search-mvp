@@ -133,7 +133,9 @@ export default function HomePage() {
       try {
         const res = await fetch("/api/v1/search", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json",
+                     "X-API-Key": process.env.NEXT_PUBLIC_API_KEY as string
+           },
           body: JSON.stringify({ query: q }),
           signal: abortRef.current.signal,
         });

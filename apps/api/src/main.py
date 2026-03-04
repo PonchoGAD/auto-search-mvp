@@ -24,8 +24,8 @@ app = FastAPI(
 API_KEY = os.getenv("API_KEY")
 
 
-# @app.middleware("http")
-# async def check_api_key(request: Request, call_next):
+@app.middleware("http")
+async def check_api_key(request: Request, call_next):
 
     # Разрешаем health и readiness без ключа
     if request.url.path.startswith("/api/v1/health") or \

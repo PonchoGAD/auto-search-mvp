@@ -15,6 +15,45 @@ class AnswerBuilder:
         structured: StructuredQuery,
         results: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
+
+        # 🔒 FINAL RESULT GUARD (brand mismatch protection)
+
+        if structured.brand:
+
+            filtered = []
+
+            for r in results:
+
+                brand = r.get("brand")
+
+                if not brand:
+                    continue
+
+                if brand.lower() == structured.brand.lower():
+                    filtered.append(r)
+
+            if filtered:
+                results = filtered
+
+        # 🔒 MODEL GUARD
+
+        if structured.model:
+
+            filtered = []
+
+            for r in results:
+
+                model = r.get("model")
+
+                if not model:
+                    continue
+
+                if model.lower() == structured.model.lower():
+                    filtered.append(r)
+
+            if filtered:
+                results = filtered
+
         if not results:
             return {
                 "summary": "По вашему запросу подходящих вариантов не найдено.",
@@ -69,11 +108,21 @@ class AnswerBuilder:
         bullets = []
 
         for r in results:
+
+            brand = r.get("brand") or ""
+            model = r.get("model") or ""
+
+            price = r.get("price")
+            price_text = f"{price:,}".replace(",", " ") if isinstance(price, int) else "—"
+
+            mileage = r.get("mileage")
+            mileage_text = f"{mileage:,}".replace(",", " ") if isinstance(mileage, int) else "—"
+
             text = (
-                f"{r.get('brand')} {r.get('model', '')}, "
+                f"{brand} {model}, "
                 f"{r.get('year', '—')} г., "
-                f"{r.get('mileage', '—')} км, "
-                f"{r.get('price', '—')} ₽ — "
+                f"{mileage_text} км, "
+                f"{price_text} ₽ — "
                 f"{r.get('why_match')}"
             )
             bullets.append(text)

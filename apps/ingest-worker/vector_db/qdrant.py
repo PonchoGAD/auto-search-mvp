@@ -226,6 +226,11 @@ class QdrantStore:
         if isinstance(brand, str):
             payload["brand"] = brand.lower().strip()
 
+        # --- NORMALIZE MODEL ---
+        model = payload.get("model")
+        if isinstance(model, str):
+            payload["model"] = model.lower().strip()
+
         # --- NORMALIZE FUEL ---
         fuel = payload.get("fuel")
         if isinstance(fuel, str):
@@ -236,14 +241,46 @@ class QdrantStore:
             else:
                 payload["fuel"] = None
 
-        # --- FORCE INT NUMERIC ---
+        # --- SAFE NUMERIC PARSING ---
         for field in ["price", "mileage", "year"]:
+
             value = payload.get(field)
-            if value is not None:
-                try:
-                    payload[field] = int(value)
-                except Exception:
-                    payload[field] = None
+
+            if value is None:
+                payload[field] = None
+                continue
+
+            try:
+                if isinstance(value, str):
+                    value = value.replace(" ", "")
+                payload[field] = int(value)
+            except Exception:
+                payload[field] = None
+
+        # --- YEAR SANITY CHECK ---
+        year = payload.get("year")
+
+        if isinstance(year, int):
+
+            if year < 1985:
+                payload["year"] = None
+
+            if year > datetime.now().year + 1:
+                payload["year"] = None
+
+        # --- PRICE SANITY CHECK ---
+        price = payload.get("price")
+
+        if isinstance(price, int):
+
+            if price < 10000:
+                payload["price"] = None
+
+            if price > 200000000:
+                payload["price"] = None
+
+        if os.getenv("DEBUG_QDRANT_PAYLOAD") == "1":
+            print("[QDRANT][PAYLOAD]", payload)
 
         return PointStruct(
             id=str(uuid4()),

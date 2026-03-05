@@ -65,9 +65,10 @@ def clean_text(text: str) -> str:
 
 def extract_brand_fallback(text: str) -> Optional[str]:
     """
-    Минимальный fallback-детектор бренда.
-    Используется только если brand не пришёл из meta.
+    Минимальный fallback детектор бренда
+    возвращает canonical lowercase brand
     """
+
     brands = [
         "bmw",
         "audi",
@@ -83,9 +84,28 @@ def extract_brand_fallback(text: str) -> Optional[str]:
     ]
 
     lower = text.lower()
+
     for b in brands:
-        if b in lower:
-            return b.upper()
+        if re.search(rf"\b{b}\b", lower):
+            return b
+
+    return None
+
+
+def extract_model(text: str, brand: Optional[str]) -> Optional[str]:
+    """
+    Простое извлечение модели рядом с брендом
+    """
+
+    if not brand:
+        return None
+
+    pattern = rf"{brand}\s+([a-z0-9\-]+)"
+
+    m = re.search(pattern, text.lower())
+    if m:
+        return m.group(1)
+
     return None
 
 
@@ -102,6 +122,14 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     if m:
         year = int(m.group(1))
 
+    current_year = 2026
+
+    if year and year < 1980:
+        year = None
+
+    if year and year > current_year + 1:
+        year = None
+
     # пробег
     mileage = None
     m = re.search(r"(\d[\d\s]{1,8})\s*(км|тыс)\b", lower)
@@ -116,6 +144,13 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     if m:
         price = int(m.group(1).replace(" ", ""))
         currency = "RUB"
+
+    # sanity price
+    if price and price < 10000:
+        price = None
+
+    if price and price > 200000000:
+        price = None
 
     # топливо
     fuel = None
@@ -226,7 +261,7 @@ def run_normalize(limit: int = 500):
         # brand: meta → fallback
         brand = meta.get("brand")
         if brand and brand != "none":
-            brand = brand.upper()
+            brand = brand.lower()
         else:
             brand = extract_brand_fallback(text)
 
@@ -235,6 +270,8 @@ def run_normalize(limit: int = 500):
         # =====================================================
         fields = extract_fields(text)
 
+        model = extract_model(text, brand)
+
         doc = NormalizedDocument(
             raw_id=raw.id,
             source=raw.source,
@@ -242,6 +279,7 @@ def run_normalize(limit: int = 500):
             title=raw.title,
             normalized_text=text,
             brand=brand,
+            model=model,
             year=fields["year"],
             mileage=fields["mileage"],
             price=fields["price"],

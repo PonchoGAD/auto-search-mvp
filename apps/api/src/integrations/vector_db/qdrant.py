@@ -92,6 +92,81 @@ class QdrantStore:
 
         return payload
 
+    def _normalize_payload_schema(self, payload: dict) -> dict:
+        """
+        Enforce payload schema for search filters.
+        Ensures fields always exist and are normalized.
+        """
+
+        # -------------------------
+        # brand
+        # -------------------------
+        brand = payload.get("brand")
+        if isinstance(brand, str):
+            payload["brand"] = brand.lower().strip()
+        else:
+            payload["brand"] = None
+
+        # -------------------------
+        # model
+        # -------------------------
+        model = payload.get("model")
+        if isinstance(model, str):
+            payload["model"] = model.lower().strip()
+        else:
+            payload["model"] = None
+
+        # -------------------------
+        # fuel
+        # -------------------------
+        fuel = payload.get("fuel")
+        if isinstance(fuel, str):
+            payload["fuel"] = fuel.lower().strip()
+        else:
+            payload["fuel"] = None
+
+        # -------------------------
+        # price
+        # -------------------------
+        price = payload.get("price")
+
+        try:
+            if isinstance(price, str):
+                price = int(price.replace(" ", ""))
+            elif isinstance(price, float):
+                price = int(price)
+
+            payload["price"] = price
+        except Exception:
+            payload["price"] = None
+
+        # -------------------------
+        # mileage
+        # -------------------------
+        mileage = payload.get("mileage")
+
+        try:
+            if isinstance(mileage, str):
+                mileage = int(mileage.replace(" ", ""))
+            elif isinstance(mileage, float):
+                mileage = int(mileage)
+
+            payload["mileage"] = mileage
+        except Exception:
+            payload["mileage"] = None
+
+        # -------------------------
+        # year
+        # -------------------------
+        year = payload.get("year")
+
+        try:
+            payload["year"] = int(year)
+        except Exception:
+            payload["year"] = None
+
+        return payload
+
     # =====================================================
     # UPSERT
     # =====================================================
@@ -104,9 +179,12 @@ class QdrantStore:
         normalized_points: List[PointStruct] = []
 
         for p in points:
+
             payload = p.payload or {}
 
-            # 🔑 RECENCY HARDENING
+            # 🔒 SCHEMA ENFORCEMENT
+            payload = self._normalize_payload_schema(payload)
+
             payload = self._normalize_created_at(payload)
 
             normalized_points.append(
@@ -121,6 +199,10 @@ class QdrantStore:
             collection_name=COLLECTION_NAME,
             points=normalized_points,
         )
+
+        if normalized_points:
+            sample = normalized_points[0].payload
+            print(f"[QDRANT] sample payload schema: {sample}")
 
         print(f"[QDRANT] upserted points: {len(normalized_points)}")
 
@@ -148,12 +230,17 @@ class QdrantStore:
                 limit=limit,
             )
 
-        # 🔒 READ-SIDE NORMALIZATION (legacy protection)
+        # 🔒 READ-SIDE NORMALIZATION (safety)
+
         for p in response.points:
+
             payload = p.payload or {}
 
             if "brand" in payload and isinstance(payload["brand"], str):
                 payload["brand"] = payload["brand"].lower()
+
+            if "model" in payload and isinstance(payload["model"], str):
+                payload["model"] = payload["model"].lower()
 
             if "fuel" in payload and isinstance(payload["fuel"], str):
                 payload["fuel"] = payload["fuel"].lower()

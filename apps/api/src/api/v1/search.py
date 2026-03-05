@@ -107,7 +107,14 @@ def search(request: SearchRequest):
         try:
             results = service.search(structured)
             vector_hits = len(results)
+
+            print(
+                f"[SEARCH] query='{request.query}' results={len(results)}",
+                flush=True,
+            )
+
             print(f"[SEARCH][DEMO] hits={vector_hits}")
+
         except Exception as e:
             # 🔥 КЛЮЧЕВОЕ ДЛЯ SMOKE DEMO
             # Qdrant пуст / коллекции нет / index не запускался
@@ -169,6 +176,7 @@ def search(request: SearchRequest):
             structured_query=structured.model_dump() if structured else {},
             results_count=len(results),
             latency_ms=latency_ms,
+            results=results,
         )
     except Exception:
         pass

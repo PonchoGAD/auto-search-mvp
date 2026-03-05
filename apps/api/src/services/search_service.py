@@ -8,12 +8,36 @@ import os
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 from shared.embeddings.provider import embed_text
+from sentence_transformers import CrossEncoder
 
 from integrations.vector_db.qdrant import QdrantStore
 from services.query_parser import StructuredQuery
 
 from db.session import SessionLocal
 from db.models import SearchHistory
+
+
+# =====================================================
+# CROSS ENCODER RERANKER
+# =====================================================
+
+_reranker = None
+
+
+def get_reranker():
+    global _reranker
+
+    if _reranker is None:
+        model_name = os.getenv(
+            "RERANK_MODEL",
+            "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        )
+
+        print(f"[RERANK] loading model: {model_name}", flush=True)
+
+        _reranker = CrossEncoder(model_name)
+
+    return _reranker
 
 
 # =========================
@@ -67,7 +91,6 @@ class SearchService:
         if limit is None:
             limit = int(os.getenv("SEARCH_LIMIT", "50"))
 
-        # V2 retrieval default
         if top_k is None:
             top_k = int(os.getenv("SEARCH_TOP_K", "120"))
 
@@ -78,9 +101,6 @@ class SearchService:
         brand_value = (structured.brand or "").strip().lower() if structured.brand else None
         fuel_value = (structured.fuel or "").strip().lower() if structured.fuel else None
 
-        # -------------------------
-        # DEBUG COUNTERS
-        # -------------------------
         debug = {
             "applied_filters": [],
             "skipped_by_price": 0,
@@ -93,15 +113,8 @@ class SearchService:
             "fallback_triggered": False,
         }
 
-        # -------------------------
-        # EMBEDDING (provider-consistent)
-        # -------------------------
         query_text = self._build_query_text(structured)
         query_vector = embed_text(query_text)
-
-        # =====================================================
-        # 1) QDRANT FILTER LAYER
-        # =====================================================
 
         must_conditions: List[FieldCondition] = []
 
@@ -115,7 +128,6 @@ class SearchService:
             )
             debug["applied_filters"].append(f"brand=strict({brand_value})")
 
-        # Fuel strict MUST always if provided (fuel not used in ranking)
         if fuel_value:
             must_conditions.append(
                 FieldCondition(
@@ -125,7 +137,6 @@ class SearchService:
             )
             debug["applied_filters"].append(f"fuel=strict({fuel_value})")
 
-        # Model strict filter
         model_value = (structured.model or "").strip().lower() if structured.model else None
 
         if model_value:
@@ -139,10 +150,6 @@ class SearchService:
 
         qdrant_filter = Filter(must=must_conditions) if must_conditions else None
 
-        # =====================================================
-        # 2) SEMANTIC RETRIEVAL (top_k)
-        # =====================================================
-
         try:
             hits = self.store.search(
                 vector=query_vector,
@@ -152,10 +159,6 @@ class SearchService:
         except Exception as e:
             print(f"[SEARCH][WARN] qdrant unavailable: {e}", flush=True)
             return []
-
-        # =====================================================
-        # 2.1) FALLBACK UX
-        # =====================================================
 
         if strict_brand and not hits:
             debug["fallback_triggered"] = True
@@ -186,10 +189,6 @@ class SearchService:
             print(f"[DEBUG] stats={debug}", flush=True)
             return []
 
-        # =====================================================
-        # 3) DOC-LEVEL AGGREGATION
-        # =====================================================
-
         doc_scores: Dict[str, float] = {}
         doc_payloads: Dict[str, Dict[str, Any]] = {}
 
@@ -202,30 +201,20 @@ class SearchService:
             score = float(getattr(hit, "score", 0.0) or 0.0)
 
             if url not in doc_scores or score > doc_scores[url]:
-                doc_scores[url] = score
+                doc_scores[url] = max(score, doc_scores.get(url, 0))
                 doc_payloads[url] = payload
-
-        # =====================================================
-        # 4) STRICT POST-FILTER + 5) RANKING
-        # =====================================================
 
         scored_results: List[Tuple[float, Dict[str, Any], List[str]]] = []
 
         for url, payload in doc_payloads.items():
             semantic = float(doc_scores.get(url, 0.0) or 0.0)
 
-            # Hard brand mismatch protection
-            if brand_value and payload.get("brand"):
+            if strict_brand and payload.get("brand"):
                 if payload.get("brand") != brand_value:
                     continue
 
-            # PROD safety
             if is_prod and (payload.get("source") == "dev_seed"):
                 continue
-
-            # -------------------------
-            # STRICT NUMERIC FILTERS
-            # -------------------------
 
             if structured.price_max is not None:
                 if payload.get("price") is None:
@@ -267,11 +256,14 @@ class SearchService:
             sale_bonus = self._sale_bonus(payload)
             completeness = self._completeness_score(payload)
 
+            text_score = self._text_score(payload, structured)
+
             final_score = (
-                semantic * 0.50
-                + recency * 0.25
-                + sale_bonus * 0.15
-                + completeness * 0.10
+                semantic * 0.40
+                + text_score * 0.25
+                + recency * 0.20
+                + sale_bonus * 0.10
+                + completeness * 0.05
             )
 
             brand_boost = 0.0
@@ -291,6 +283,7 @@ class SearchService:
 
             reasons = [
                 f"semantic={round(semantic, 4)}",
+                f"text={round(text_score,4)}",
                 f"recency={round(recency, 4)}",
                 f"sale={round(sale_bonus, 4)}",
                 f"complete={round(completeness, 4)}",
@@ -302,10 +295,6 @@ class SearchService:
             scored_results.append((final_score, payload, reasons))
 
         scored_results.sort(key=lambda x: x[0], reverse=True)
-
-        # =====================================================
-        # 6) RESPONSE BUILD
-        # =====================================================
 
         results: List[Dict[str, Any]] = []
         seen_urls = set()
@@ -371,7 +360,106 @@ class SearchService:
             except Exception:
                 pass
 
+        # =====================================================
+        # CROSS ENCODER RERANK (FINAL STAGE)
+        # =====================================================
+
+        try:
+
+            query_text = structured.raw_query
+
+            results = self._rerank_results(
+                query=query_text,
+                results=results,
+                top_k=min(len(results), 20),
+            )
+
+        except Exception as e:
+
+            print(f"[RERANK][WARN] skipped: {e}", flush=True)
+
         return results
+
+    # =====================================================
+    # TEXT SCORE (BM25-lite)
+    # =====================================================
+
+    def _text_score(self, payload: Dict[str, Any], structured: StructuredQuery) -> float:
+        """
+        Simple lexical match scoring (BM25-lite).
+        Improves precision for brand/model queries.
+        """
+
+        text_parts = []
+
+        if payload.get("brand"):
+            text_parts.append(str(payload["brand"]))
+
+        if payload.get("model"):
+            text_parts.append(str(payload["model"]))
+
+        text = " ".join(text_parts).lower()
+
+        score = 0.0
+
+        if structured.brand and structured.brand.lower() in text:
+            score += 1.0
+
+        if structured.model and structured.model.lower() in text:
+            score += 1.5
+
+        if structured.fuel and structured.fuel.lower() == payload.get("fuel"):
+            score += 0.5
+
+        return min(score / 3.0, 1.0)
+
+    # =====================================================
+    # CROSS ENCODER RERANK
+    # =====================================================
+
+    def _rerank_results(
+        self,
+        query: str,
+        results: List[Dict[str, Any]],
+        top_k: int = 20,
+    ) -> List[Dict[str, Any]]:
+
+        if not results:
+            return results
+
+        reranker = get_reranker()
+
+        pairs = []
+
+        for r in results:
+            text = ""
+
+            if r.get("brand"):
+                text += str(r["brand"]) + " "
+
+            if r.get("model"):
+                text += str(r["model"]) + " "
+
+            if r.get("source_url"):
+                text += str(r["source_url"])
+
+            pairs.append((query, text.strip()))
+
+        try:
+            scores = reranker.predict(pairs)
+        except Exception as e:
+            print(f"[RERANK][WARN] failed: {e}", flush=True)
+            return results
+
+        for i, score in enumerate(scores):
+            results[i]["rerank_score"] = float(score)
+
+        results.sort(
+            key=lambda x: x.get("rerank_score", 0),
+            reverse=True,
+        )
+
+        return results[:top_k]
 
     # =====================================================
     # RANKING HELPERS (V2)

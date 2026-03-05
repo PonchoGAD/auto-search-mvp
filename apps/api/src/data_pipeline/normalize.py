@@ -2,6 +2,8 @@
 
 import re
 from typing import Optional, Dict, Tuple
+from pathlib import Path
+import yaml
 
 from db.session import SessionLocal, engine
 from db.models import Base, RawDocument, NormalizedDocument
@@ -56,6 +58,28 @@ def parse_meta(text: str) -> Tuple[Dict[str, str], str]:
 
 
 # =========================
+# BRANDS CONFIG
+# =========================
+
+def load_brands():
+    try:
+        base_dir = Path(__file__).resolve().parent.parent
+        brands_path = base_dir / "config" / "brands.yaml"
+
+        with open(brands_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+
+        return data.get("brands", {})
+
+    except Exception as e:
+        print(f"[NORMALIZE][WARN] brands.yaml load failed: {e}")
+        return {}
+
+
+BRANDS_CONFIG = load_brands()
+
+
+# =========================
 # TEXT HELPERS
 # =========================
 
@@ -65,29 +89,30 @@ def clean_text(text: str) -> str:
 
 def extract_brand_fallback(text: str) -> Optional[str]:
     """
-    Минимальный fallback детектор бренда
-    возвращает canonical lowercase brand
+    Fallback brand detection using brands.yaml
     """
 
-    brands = [
-        "bmw",
-        "audi",
-        "mercedes",
-        "toyota",
-        "lexus",
-        "volkswagen",
-        "porsche",
-        "skoda",
-        "volvo",
-        "ford",
-        "tesla",
-    ]
+    if not text:
+        return None
 
     lower = text.lower()
 
-    for b in brands:
-        if re.search(rf"\b{b}\b", lower):
-            return b
+    for brand_key, cfg in BRANDS_CONFIG.items():
+
+        # en
+        for v in cfg.get("en", []):
+            if v.lower() in lower:
+                return brand_key
+
+        # ru
+        for v in cfg.get("ru", []):
+            if v.lower() in lower:
+                return brand_key
+
+        # aliases
+        for v in cfg.get("aliases", []):
+            if v.lower() in lower:
+                return brand_key
 
     return None
 
@@ -100,7 +125,7 @@ def extract_model(text: str, brand: Optional[str]) -> Optional[str]:
     if not brand:
         return None
 
-    pattern = rf"{brand}\s+([a-z0-9\-]+)"
+    pattern = rf"\b{brand}\b\s+([a-z0-9\-]+)"
 
     m = re.search(pattern, text.lower())
     if m:
@@ -294,4 +319,4 @@ def run_normalize(limit: int = 500):
     session.commit()
     session.close()
 
-    print(f"[NORMALIZE] saved: {saved}, skipped: {skipped}")
+    print(f"[NORMALIZE] docs_saved={saved} skipped={skipped} total={len(raws)}")

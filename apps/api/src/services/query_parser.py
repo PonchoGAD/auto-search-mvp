@@ -56,6 +56,23 @@ for brand, cfg in BRANDS_CONFIG.items():
         BRAND_TOKEN_INDEX[t.lower()] = brand.lower()
 
 
+MODEL_EXPANSION = {
+    "bmw": {
+        "3": ["3 series", "f30", "320", "328", "330"],
+        "5": ["5 series", "f10", "g30", "520", "530"],
+        "x5": ["f15", "g05"],
+    },
+    "toyota": {
+        "camry": ["xv70", "xv50"],
+        "land cruiser": ["lc200", "lc300"],
+    },
+    "mercedes": {
+        "c": ["c200", "c300", "w205"],
+        "e": ["e200", "e300", "w213"],
+    }
+}
+
+
 # =========================
 # MAIN ENTRY
 # =========================
@@ -84,6 +101,31 @@ def _parse_with_llm(raw_text: str) -> dict:
     raise RuntimeError("LLM not implemented yet")
 
 
+def expand_query_keywords(query: StructuredQuery):
+
+    if not query.brand:
+        return
+
+    brand = query.brand.lower()
+
+    if brand not in MODEL_EXPANSION:
+        return
+
+    expanded = []
+
+    for key, values in MODEL_EXPANSION[brand].items():
+
+        if query.model and key in query.model:
+            expanded.extend(values)
+
+        if key in query.raw_query.lower():
+            expanded.extend(values)
+
+    for v in expanded:
+        if v not in query.keywords:
+            query.keywords.append(v)
+
+
 # =========================
 # FALLBACK PARSER (RULE-BASED)
 # =========================
@@ -99,12 +141,11 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     # -------------------------
     brand, confidence = _extract_brand(text)
 
-    # brand detected → enforce high confidence
     if brand:
         confidence = max(confidence, 0.9)
 
     if brand:
-        result.brand = brand.lower()  # гарант canonical lowercase
+        result.brand = brand.lower()
         result.brand_confidence = confidence
 
     # -------------------------
@@ -164,12 +205,10 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     # YEAR_MIN (новое)
     # -------------------------
 
-    # от 2018 / с 2020 / после 2017
     m = re.search(r"(от|с|после)\s*(20\d{2}|19\d{2})", text)
     if m:
         result.year_min = int(m.group(2))
 
-    # не старше 10 лет / младше 7 лет / за последние 5 лет
     m = re.search(r"(не\s+старше|младше|за\s+последние)\s*(\d+)\s*лет", text)
     if m:
         years = int(m.group(2))
@@ -252,6 +291,8 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
         elif t not in STOP_TOKENS and t not in result.keywords:
             result.keywords.append(t)
 
+    expand_query_keywords(result)
+
     return result
 
 
@@ -263,13 +304,11 @@ def _extract_brand(text: str) -> Tuple[Optional[str], float]:
 
     tokens = re.findall(r"[a-zа-я0-9]+", text)
 
-    # exact token match
     for t in tokens:
         brand = BRAND_TOKEN_INDEX.get(t)
         if brand:
             return brand, 1.0
 
-    # alias / partial detection
     for token, brand in BRAND_TOKEN_INDEX.items():
         if token in text:
             return brand, 0.8

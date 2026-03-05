@@ -4,8 +4,36 @@ from db.session import SessionLocal, engine
 from db.models import Base, NormalizedDocument, DocumentChunk
 
 
+def clean_text(text: str) -> str:
+    if not text:
+        return ""
+    return " ".join(text.split())
+
+
 def chunk_text_by_chars(text: str, size: int = 1500) -> list[str]:
-    return [text[i:i + size] for i in range(0, len(text), size) if text[i:i + size]]
+    """
+    Production chunker.
+
+    - очищает текст
+    - режет по символам
+    - убирает слишком короткие куски
+    """
+
+    text = clean_text(text)
+
+    if not text:
+        return []
+
+    chunks = [
+        text[i:i + size]
+        for i in range(0, len(text), size)
+        if text[i:i + size]
+    ]
+
+    # фильтр слишком маленьких чанков
+    filtered = [c for c in chunks if len(c) > 50]
+
+    return filtered
 
 
 def run_chunk(limit: int = 500):
@@ -35,7 +63,12 @@ def run_chunk(limit: int = 500):
         if exists:
             continue
 
-        chunks = chunk_text_by_chars(doc.normalized_text or "")
+        text = doc.normalized_text or ""
+
+        if not text or len(text) < 30:
+            continue
+
+        chunks = chunk_text_by_chars(text)
 
         for idx, ch in enumerate(chunks):
             session.add(
@@ -50,4 +83,4 @@ def run_chunk(limit: int = 500):
     session.commit()
     session.close()
 
-    print(f"[CHUNK] saved: {saved}")
+    print(f"[CHUNK] chunks saved: {saved} from docs: {len(docs)}")

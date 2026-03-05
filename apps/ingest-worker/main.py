@@ -19,6 +19,13 @@ from sources.telegram import fetch_telegram  # async def
 from sources.benzclub import fetch_benzclub_listings
 from sources.bmwclub import fetch_bmwclub_listings
 
+# =========================
+# DATA PIPELINE
+# =========================
+from data_pipeline.normalize import run_normalize
+from data_pipeline.chunk import run_chunk
+from data_pipeline.index import index_document_chunks
+
 SLEEP_BASE = 900   # 15 минут
 MAX_BACKOFF = 3600 # 1 час
 
@@ -191,13 +198,24 @@ async def run_cycle():
     saved, skipped = save_items(total)
     print(f"[INGEST] saved={saved} skipped={skipped}", flush=True)
 
-    # ✅ ЛЕНИВЫЙ IMPORT индекса — после DB save
+    # =========================
+    # DATA PIPELINE
+    # =========================
     if saved > 0:
-        print("[INDEX] run_index CALLED", flush=True)
-        from index import run_index
-        run_index(limit=200)
+
+        print("[PIPELINE] normalize started", flush=True)
+        run_normalize(limit=500)
+
+        print("[PIPELINE] chunk started", flush=True)
+        run_chunk(limit=500)
+
+        print("[PIPELINE] index started", flush=True)
+        index_document_chunks(limit=1000)
+
+        print("[PIPELINE] completed", flush=True)
+
     else:
-        print("[INDEX] skipped (nothing saved)", flush=True)
+        print("[PIPELINE] skipped (nothing saved)", flush=True)
 
 
 # =========================

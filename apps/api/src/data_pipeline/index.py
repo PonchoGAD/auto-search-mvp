@@ -13,6 +13,8 @@ from qdrant_client.models import PointStruct
 from db.models import RawDocument
 from integrations.vector_db.qdrant import QdrantStore
 from shared.embeddings.provider import embed_text
+from services.ingest_quality import detect_brand as detect_brand_cfg
+
 
 # =====================================================
 # VECTOR CONFIG (FIXED)
@@ -121,6 +123,87 @@ def detect_model(source_url: str | None) -> str | None:
 
 
 # =====================================================
+# FIELD EXTRACTION (MINIMAL BUT STRICT)
+# =====================================================
+
+def extract_fields_from_text(text: str) -> dict:
+    lower = (text or "").lower()
+
+    # year
+    year = None
+    m = re.search(r"\b(19\d{2}|20\d{2})\b", lower)
+    if m:
+        try:
+            year = int(m.group(1))
+        except Exception:
+            year = None
+
+    # mileage (km / тыс)
+    mileage = None
+    m = re.search(r"(\d[\d\s]{1,8})\s*(км|тыс)\b", lower)
+    if m:
+        try:
+            num = int(m.group(1).replace(" ", ""))
+            mileage = num * 1000 if m.group(2) == "тыс" else num
+        except Exception:
+            mileage = None
+
+    # price (RUB only here)
+    price = None
+    currency = None
+    m = re.search(r"(до|<=|<)?\s*(\d[\d\s]{1,10})\s*(₽|руб|р\.|р)\b", lower)
+    if m:
+        try:
+            price = int(m.group(2).replace(" ", ""))
+            currency = "RUB"
+        except Exception:
+            price = None
+            currency = None
+
+    # fuel
+    fuel = None
+    if "бенз" in lower:
+        fuel = "petrol"
+    elif "диз" in lower:
+        fuel = "diesel"
+    elif "гибрид" in lower:
+        fuel = "hybrid"
+    elif "электро" in lower or "электр" in lower:
+        fuel = "electric"
+
+    # paint_condition
+    paint_condition = None
+    if "без окрас" in lower or "не бит" in lower or "родная краска" in lower:
+        paint_condition = "original"
+    elif "крашен" in lower or "бит" in lower:
+        paint_condition = "repainted"
+
+    # sanity (hard)
+    if isinstance(year, int):
+        now_y = datetime.now(tz=timezone.utc).year
+        if year < 1985 or year > now_y + 1:
+            year = None
+
+    if isinstance(price, int):
+        if price < 10000 or price > 200000000:
+            price = None
+            currency = None
+
+    if isinstance(mileage, int):
+        if mileage < 0 or mileage > 1000000:
+            mileage = None
+
+    return {
+        "year": year,
+        "mileage": mileage,
+        "price": price,
+        "currency": currency,
+        "fuel": fuel,
+        "paint_condition": paint_condition,
+    }
+
+
+# =====================================================
 # INDEX RAW DOCUMENTS
 # =====================================================
 
@@ -140,7 +223,7 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
         if not text:
             continue
 
-        vector = embed_text(text)
+        vector = deterministic_embedding(text)
         if not vector:
             continue
 
@@ -170,19 +253,43 @@ def index_raw_documents(raw_docs: List[RawDocument]) -> int:
         if not re.search(r"\d{6,}", url):
             continue
 
-        brand = detect_brand(doc.source_url, doc.title, doc.content)
+        # brand: unified detector (brands.yaml)
+        brand_key, brand_conf = detect_brand_cfg(text)
+
+        # fallback brand from url/title/content only if detector failed
+        brand = brand_key or detect_brand(doc.source_url, doc.title, doc.content)
+
         model = detect_model(doc.source_url)
+
+        fields = extract_fields_from_text(text)
+
+        # normalize brand/model/fuel to lowercase (search_service expects lowercase strict matches)
+        brand_norm = brand.lower().strip() if isinstance(brand, str) else None
+        model_norm = model.lower().strip() if isinstance(model, str) else None
+
+        fuel_norm = fields["fuel"].lower().strip() if isinstance(fields.get("fuel"), str) else None
+        if fuel_norm not in {"petrol", "diesel", "hybrid", "electric"}:
+            fuel_norm = None
+
+        # Hard gate: if no structured signals, indexing this point harms precision
+        if fields["price"] is None and fields["year"] is None and fields["mileage"] is None and brand_norm is None:
+            continue
 
         payload = {
             "source": doc.source,
             "source_url": doc.source_url,
-            "brand": brand,
-            "model": model,
-            "price": None,
-            "mileage": None,
-            "fuel": None,
+            "brand": brand_norm,
+            "brand_confidence": float(brand_conf or 0.0),
+            "model": model_norm,
+
+            "price": fields["price"],
+            "currency": fields["currency"],
+            "mileage": fields["mileage"],
+            "year": fields["year"],
+            "fuel": fuel_norm,
             "region": None,
-            "paint_condition": None,
+            "paint_condition": fields["paint_condition"],
+
             "created_at": fetched_at.isoformat(),
             "created_at_ts": int(fetched_at.timestamp()),
             "created_at_source": "fetched",

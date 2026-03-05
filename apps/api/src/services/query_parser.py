@@ -4,6 +4,7 @@ import re
 import yaml
 from pathlib import Path
 from datetime import datetime
+from domain.query_schema import StructuredQuery
 
 
 # =========================
@@ -37,33 +38,22 @@ def load_brands() -> Dict[str, Dict[str, List[str]]]:
 
 BRANDS_CONFIG = load_brands()
 
-
 # =========================
-# SCHEMA
+# BUILD BRAND INDEX (FAST LOOKUP)
 # =========================
 
-class StructuredQuery(BaseModel):
-    # 🔑 RAW QUERY (для retention / analytics)
-    raw_query: Optional[str] = None
+BRAND_TOKEN_INDEX = {}
 
-    # Основные поля
-    brand: Optional[str] = None
-    brand_confidence: float = 0.0
-    model: Optional[str] = None
-    price_max: Optional[int] = None
-    mileage_max: Optional[int] = None
-    year_min: Optional[int] = None  # 🆕
-    fuel: Optional[str] = None
-    paint_condition: Optional[str] = None
-    city: Optional[str] = None
-    region: Optional[str] = None
+for brand, cfg in BRANDS_CONFIG.items():
 
-    # Дополнительно
-    keywords: List[str] = Field(default_factory=list)
-    exclusions: List[str] = Field(default_factory=list)
+    tokens = set()
 
-    class Config:
-        extra = "forbid"
+    tokens.update(cfg.get("en", []))
+    tokens.update(cfg.get("ru", []))
+    tokens.update(cfg.get("aliases", []))
+
+    for t in tokens:
+        BRAND_TOKEN_INDEX[t.lower()] = brand.lower()
 
 
 # =========================
@@ -108,9 +98,34 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     # BRAND (yaml-driven)
     # -------------------------
     brand, confidence = _extract_brand(text)
+
+    # brand detected → enforce high confidence
+    if brand:
+        confidence = max(confidence, 0.9)
+
     if brand:
         result.brand = brand.lower()  # гарант canonical lowercase
         result.brand_confidence = confidence
+
+    # -------------------------
+    # MODEL (basic extraction)
+    # -------------------------
+
+    if result.brand:
+
+        MODEL_PATTERNS = {
+            "bmw": ["x5", "x6", "x3", "m5", "m3"],
+            "toyota": ["camry", "corolla", "land cruiser", "rav4"],
+            "mercedes": ["c200", "e200", "e300", "gle", "gls"],
+            "volkswagen": ["tiguan", "touareg", "polo", "passat"],
+        }
+
+        brand_models = MODEL_PATTERNS.get(result.brand, [])
+
+        for m in brand_models:
+            if m in text:
+                result.model = m
+                break
 
     # -------------------------
     # PRICE (max)
@@ -219,10 +234,14 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
             brand_synonyms.add(w.lower())
 
     for t in tokens:
+
         if t.isdigit():
             continue
 
         if result.brand and t == result.brand:
+            continue
+
+        if result.model and t == result.model:
             continue
 
         if t in brand_synonyms:
@@ -241,25 +260,18 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
 # =========================
 
 def _extract_brand(text: str) -> Tuple[Optional[str], float]:
-    """
-    Возвращает:
-    - canonical brand
-    - confidence:
-        exact → 1.0
-        alias → 0.8
-        fuzzy → 0.6
-    """
-    for brand, cfg in BRANDS_CONFIG.items():
-        for w in cfg.get("en", []) + cfg.get("ru", []):
-            if re.search(rf"\b{re.escape(w.lower())}\b", text):
-                return brand.lower(), 1.0
 
-        for a in cfg.get("aliases", []):
-            if re.search(rf"\b{re.escape(a.lower())}\b", text):
-                return brand.lower(), 0.8
+    tokens = re.findall(r"[a-zа-я0-9]+", text)
 
-        for w in cfg.get("en", []) + cfg.get("ru", []):
-            if w.lower() in text:
-                return brand.lower(), 0.6
+    # exact token match
+    for t in tokens:
+        brand = BRAND_TOKEN_INDEX.get(t)
+        if brand:
+            return brand, 1.0
+
+    # alias / partial detection
+    for token, brand in BRAND_TOKEN_INDEX.items():
+        if token in text:
+            return brand, 0.8
 
     return None, 0.0

@@ -183,6 +183,11 @@ def compute_quality_score(text: str) -> float:
 # =========================
 
 def detect_brand(text: str) -> Tuple[Optional[str], float]:
+    """
+    Canonical brand detection
+    returns lowercase canonical brand
+    """
+
     if not text:
         return None, 0.0
 
@@ -190,19 +195,46 @@ def detect_brand(text: str) -> Tuple[Optional[str], float]:
     brands = _load_brands()
 
     for brand_key, cfg in brands.items():
+
+        # exact en
         for v in cfg.get("en", []):
-            if v.lower() in text:
-                return brand_key, 1.0
+            if re.search(rf"\b{re.escape(v.lower())}\b", text):
+                return brand_key.lower(), 1.0
 
+        # exact ru
         for v in cfg.get("ru", []):
-            if v.lower() in text:
-                return brand_key, 1.0
+            if re.search(rf"\b{re.escape(v.lower())}\b", text):
+                return brand_key.lower(), 1.0
 
+        # alias
         for v in cfg.get("aliases", []):
-            if v.lower() in text:
-                return brand_key, 0.7
+            if re.search(rf"\b{re.escape(v.lower())}\b", text):
+                return brand_key.lower(), 0.8
 
     return None, 0.0
+
+
+def detect_model(text: str, brand: Optional[str]) -> Optional[str]:
+    """
+    simple model detection near brand
+    example:
+    toyota camry
+    bmw x5
+    """
+
+    if not text or not brand:
+        return None
+
+    text = text.lower()
+
+    pattern = rf"{brand}\s+([a-z0-9\-]+)"
+
+    m = re.search(pattern, text)
+
+    if m:
+        return m.group(1)
+
+    return None
 
 
 # =========================
@@ -277,17 +309,26 @@ def should_skip_doc(
                 stats.add(True, "empty_text")
             return True, meta
 
+        lower = text.lower()
+
+        for w in DEFAULT_BLACKLIST_WORDS:
+            if w in lower:
+                meta["reason"] = "blacklist_word"
+                if stats:
+                    stats.add(True, "blacklist_word")
+                return True, meta
+
         sale = is_sale_intent(text)
         quality_score = compute_quality_score(text)
 
         meta["sale_intent"] = 1 if sale else 0
         meta["quality_score"] = quality_score
 
-        # 🔒 QUALITY GATE: пропускаем ТОЛЬКО sale
-        if not sale:
-            meta["reason"] = "not_sale_intent"
+        # 🔒 QUALITY GATE
+        if not sale or quality_score < 0.3:
+            meta["reason"] = "low_quality_or_not_sale"
             if stats:
-                stats.add(True, "not_sale_intent")
+                stats.add(True, "low_quality_or_not_sale")
             return True, meta
 
         meta["reason"] = "ok"
@@ -315,11 +356,14 @@ def enrich_text_with_meta(
     meta: Dict[str, Any] = {}
 
     brand, brand_conf = detect_brand(raw_text)
+    model = detect_model(raw_text, brand)
+
     sale = is_sale_intent(raw_text)
     boost = resolve_source_boost(source)
     quality_score = compute_quality_score(raw_text)
 
     meta["brand"] = brand
+    meta["model"] = model
     meta["brand_confidence"] = float(brand_conf)
     meta["sale_intent"] = 1 if sale else 0
     meta["quality_score"] = quality_score
@@ -328,6 +372,7 @@ def enrich_text_with_meta(
     meta_prefix = (
         "__meta__: "
         f"brand={brand or 'none'}; "
+        f"model={model or 'none'}; "
         f"brand_conf={round(brand_conf, 2)}; "
         f"sale_intent={1 if sale else 0}; "
         f"quality_score={quality_score}; "

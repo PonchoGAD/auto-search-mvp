@@ -67,9 +67,9 @@ class SearchService:
         if limit is None:
             limit = int(os.getenv("SEARCH_LIMIT", "50"))
 
-        # V2 retrieval default: 200
+        # V2 retrieval default
         if top_k is None:
-            top_k = int(os.getenv("SEARCH_TOP_K", "200"))
+            top_k = int(os.getenv("SEARCH_TOP_K", "120"))
 
         env = (os.getenv("ENV", "") or os.getenv("APP_ENV", "") or "dev").lower()
         is_prod = env == "prod"
@@ -100,7 +100,7 @@ class SearchService:
         query_vector = embed_text(query_text)
 
         # =====================================================
-        # 1) QDRANT FILTER LAYER (brand strict by confidence + fuel strict)
+        # 1) QDRANT FILTER LAYER
         # =====================================================
 
         must_conditions: List[FieldCondition] = []
@@ -125,6 +125,18 @@ class SearchService:
             )
             debug["applied_filters"].append(f"fuel=strict({fuel_value})")
 
+        # Model strict filter
+        model_value = (structured.model or "").strip().lower() if structured.model else None
+
+        if model_value:
+            must_conditions.append(
+                FieldCondition(
+                    key="model",
+                    match=MatchValue(value=model_value),
+                )
+            )
+            debug["applied_filters"].append(f"model=strict({model_value})")
+
         qdrant_filter = Filter(must=must_conditions) if must_conditions else None
 
         # =====================================================
@@ -143,7 +155,6 @@ class SearchService:
 
         # =====================================================
         # 2.1) FALLBACK UX
-        # strict brand filter gave 0 -> retry without brand, keep fuel + numeric post-filters
         # =====================================================
 
         if strict_brand and not hits:
@@ -176,7 +187,7 @@ class SearchService:
             return []
 
         # =====================================================
-        # 3) DOC-LEVEL AGGREGATION (by source_url, keep best semantic)
+        # 3) DOC-LEVEL AGGREGATION
         # =====================================================
 
         doc_scores: Dict[str, float] = {}
@@ -195,7 +206,7 @@ class SearchService:
                 doc_payloads[url] = payload
 
         # =====================================================
-        # 4) STRICT POST-FILTER (NULL SAFE) + 5) RANKING
+        # 4) STRICT POST-FILTER + 5) RANKING
         # =====================================================
 
         scored_results: List[Tuple[float, Dict[str, Any], List[str]]] = []
@@ -203,15 +214,19 @@ class SearchService:
         for url, payload in doc_payloads.items():
             semantic = float(doc_scores.get(url, 0.0) or 0.0)
 
-            # PROD safety: drop dev_seed in prod
+            # Hard brand mismatch protection
+            if brand_value and payload.get("brand"):
+                if payload.get("brand") != brand_value:
+                    continue
+
+            # PROD safety
             if is_prod and (payload.get("source") == "dev_seed"):
                 continue
 
             # -------------------------
-            # STRICT NUMERIC FILTERS (NULL SAFE)
+            # STRICT NUMERIC FILTERS
             # -------------------------
 
-            # price_max
             if structured.price_max is not None:
                 if payload.get("price") is None:
                     debug["skipped_by_price_null"] += 1
@@ -224,7 +239,6 @@ class SearchService:
                     debug["skipped_by_price"] += 1
                     continue
 
-            # mileage_max
             if structured.mileage_max is not None:
                 if payload.get("mileage") is None:
                     debug["skipped_by_mileage_null"] += 1
@@ -237,7 +251,6 @@ class SearchService:
                     debug["skipped_by_mileage"] += 1
                     continue
 
-            # year_min
             if structured.year_min is not None:
                 if payload.get("year") is None:
                     debug["skipped_by_year_null"] += 1
@@ -250,21 +263,15 @@ class SearchService:
                     debug["skipped_by_year"] += 1
                     continue
 
-            # -------------------------
-            # RANKING LAYER (transparent)
-            # final = semantic*0.7 + recency*0.15 + sale_bonus*0.1 + completeness*0.05
-            # + brand_boost (only if confidence>=0.5 and exact match)
-            # -------------------------
-
             recency = self._recency_score(payload)
             sale_bonus = self._sale_bonus(payload)
             completeness = self._completeness_score(payload)
 
             final_score = (
-                semantic * 0.70
-                + recency * 0.15
-                + sale_bonus * 0.10
-                + completeness * 0.05
+                semantic * 0.50
+                + recency * 0.25
+                + sale_bonus * 0.15
+                + completeness * 0.10
             )
 
             brand_boost = 0.0
@@ -274,12 +281,21 @@ class SearchService:
 
             final_score = final_score + brand_boost
 
+            model_boost = 0.0
+
+            if structured.model and payload.get("model"):
+                if payload.get("model") == structured.model:
+                    model_boost = 0.25
+
+            final_score = final_score + model_boost
+
             reasons = [
                 f"semantic={round(semantic, 4)}",
                 f"recency={round(recency, 4)}",
                 f"sale={round(sale_bonus, 4)}",
                 f"complete={round(completeness, 4)}",
                 f"brand_boost={round(brand_boost, 4)}",
+                f"model_boost={round(model_boost,4)}",
                 f"final={round(final_score, 4)}",
             ]
 
@@ -288,7 +304,7 @@ class SearchService:
         scored_results.sort(key=lambda x: x[0], reverse=True)
 
         # =====================================================
-        # 6) RESPONSE BUILD (API unchanged)
+        # 6) RESPONSE BUILD
         # =====================================================
 
         results: List[Dict[str, Any]] = []
@@ -336,10 +352,6 @@ class SearchService:
         print(f"[DEBUG] filters={debug['applied_filters']}", flush=True)
         print(f"[DEBUG] stats={debug}", flush=True)
 
-        # =====================================================
-        # HISTORY SAVE (unchanged)
-        # =====================================================
-
         try:
             session = SessionLocal()
             history = SearchHistory(
@@ -377,7 +389,6 @@ class SearchService:
             return 0.0
 
     def _sale_bonus(self, payload: Dict[str, Any]) -> float:
-        # normalized 0..1 bonus
         try:
             return 1.0 if str(payload.get("sale_intent")) == "1" else 0.0
         except Exception:
@@ -392,14 +403,6 @@ class SearchService:
         return present / float(len(keys)) if keys else 0.0
 
     def _price_score(self, payload: Dict[str, Any], structured: StructuredQuery) -> float:
-        """
-        Price score fix (null-safe, no division by 0).
-
-        If structured.price_max set:
-            score = max(0, 1 - price/price_max)
-        else:
-            fallback = max(0, 1 - price/5_000_000)
-        """
         price = payload.get("price")
         if price is None:
             return 0.0

@@ -27,9 +27,9 @@ from sources.bmwclub import fetch_bmwclub_listings
 # =========================
 # DATA PIPELINE
 # =========================
-from data_pipeline.normalize import run_normalize
-from data_pipeline.chunk import run_chunk
-from data_pipeline.index import index_document_chunks
+from src.data_pipeline.normalize import run_normalize
+from src.data_pipeline.chunk import run_chunk
+from src.data_pipeline.index import run_index
 
 SLEEP_BASE = 900   # 15 минут
 MAX_BACKOFF = 3600 # 1 час

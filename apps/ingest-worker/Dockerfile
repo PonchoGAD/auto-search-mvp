@@ -16,6 +16,8 @@ RUN playwright install --with-deps chromium
 
 COPY apps/ingest-worker /app
 
+COPY apps/api/src /app/src
+
 ENV PYTHONPATH=/app:/app/apps
 
 COPY apps/shared /app/apps/shared

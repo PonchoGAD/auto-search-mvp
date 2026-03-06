@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.append("/app/src")
+
 import asyncio
 import time
 import random

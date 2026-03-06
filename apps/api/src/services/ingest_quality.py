@@ -1,6 +1,7 @@
 import re
 import yaml
 from typing import Optional, Tuple, Dict, Any
+from pathlib import Path
 
 # =========================
 # CONFIG / DEFAULTS
@@ -10,8 +11,8 @@ DEFAULT_MIN_SALE_SCORE = int(
     __import__("os").getenv("MIN_SALE_SCORE", "2")
 )
 
-# путь к brands.yaml (единый для проекта)
-BRANDS_YAML_PATH = "apps/api/src/config/brands.yaml"
+BASE_DIR = Path(__file__).resolve().parent.parent
+BRANDS_YAML_PATH = BASE_DIR / "config" / "brands.yaml"
 
 # 🆕 Anti-noise thresholds (VPS-safe defaults)
 DEFAULT_MIN_TEXT_LEN = int(__import__("os").getenv("MIN_TEXT_LEN", "80"))
@@ -215,24 +216,18 @@ def detect_brand(text: str) -> Tuple[Optional[str], float]:
 
 
 def detect_model(text: str, brand: Optional[str]) -> Optional[str]:
-    """
-    simple model detection near brand
-    example:
-    toyota camry
-    bmw x5
-    """
 
     if not text or not brand:
         return None
 
     text = text.lower()
 
-    pattern = rf"{brand}\s+([a-z0-9\-]+)"
+    pattern = rf"{brand}\s+([a-z0-9\-]+(?:\s+[a-z0-9\-]+)?)"
 
     m = re.search(pattern, text)
 
     if m:
-        return m.group(1)
+        return m.group(1).strip()
 
     return None
 
@@ -312,7 +307,7 @@ def should_skip_doc(
         lower = text.lower()
 
         for w in DEFAULT_BLACKLIST_WORDS:
-            if w in lower:
+            if w in lower and not is_sale_intent(text):
                 meta["reason"] = "blacklist_word"
                 if stats:
                     stats.add(True, "blacklist_word")
@@ -381,3 +376,48 @@ def enrich_text_with_meta(
 
     content = f"{meta_prefix}\n{raw_text}"
     return content, meta
+
+# =====================================================
+# META PREFIX BUILDER
+# =====================================================
+
+def build_meta_prefix(
+    brand: str | None = None,
+    brand_confidence: float | None = None,
+    sale_intent: bool | None = None,
+    source_boost: float | None = None,
+    quality_score: float | None = None,
+) -> str:
+
+    parts = []
+
+    if brand:
+        parts.append(f"brand={brand}")
+
+    if brand_confidence is not None:
+        parts.append(f"brand_conf={round(brand_confidence,2)}")
+
+    if sale_intent is not None:
+        parts.append(f"sale_intent={1 if sale_intent else 0}")
+
+    if quality_score is not None:
+        parts.append(f"quality_score={quality_score}")
+
+    if source_boost:
+        parts.append(f"source_boost={round(source_boost,2)}")
+
+    if not parts:
+        return ""
+
+    return "__meta__: " + "; ".join(parts)
+
+
+# =====================================================
+# WARMUP
+# =====================================================
+
+try:
+    _load_brands()
+    print("[INGEST][QUALITY] brands loaded", flush=True)
+except Exception as e:
+    print(f"[INGEST][QUALITY][WARN] brands load failed: {e}", flush=True)

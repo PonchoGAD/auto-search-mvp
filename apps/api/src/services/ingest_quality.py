@@ -421,3 +421,21 @@ try:
     print("[INGEST][QUALITY] brands loaded", flush=True)
 except Exception as e:
     print(f"[INGEST][QUALITY][WARN] brands load failed: {e}", flush=True)
+
+# =====================================================
+# APPLY META PREFIX
+# =====================================================
+
+def apply_meta_prefix(text: str, meta_prefix: str) -> str:
+    """
+    Добавляет meta prefix к тексту.
+    normalize.py ожидает именно эту функцию.
+    """
+
+    if not text:
+        return meta_prefix or ""
+
+    if not meta_prefix:
+        return text
+
+    return f"{meta_prefix}\n{text}"

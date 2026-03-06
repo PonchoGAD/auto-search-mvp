@@ -209,7 +209,7 @@ def index_document_chunks(limit: int = 2000) -> int:
 
                 points.append(
                     PointStruct(
-                        id=f"{ch.id}_{vec_type}",
+                        id=int(ch.id),
                         vector=vec,
                         payload={
                             **payload,

@@ -158,6 +158,34 @@ def is_sale_intent(text: str, min_score: int = DEFAULT_MIN_SALE_SCORE) -> bool:
 
 
 # =========================
+# QUALITY SIGNAL EXTRACTION
+# =========================
+
+def extract_quality_signals(text: str) -> Dict[str, bool]:
+
+    signals = {
+        "has_price": False,
+        "has_year": False,
+        "has_mileage": False,
+    }
+
+    if not text:
+        return signals
+
+    t = text.lower()
+
+    if PRICE_PATTERN.search(t) or PRICE_ANY_PATTERN.search(t):
+        signals["has_price"] = True
+
+    if YEAR_PATTERN.search(t):
+        signals["has_year"] = True
+
+    if MILEAGE_PATTERN.search(t):
+        signals["has_mileage"] = True
+
+    return signals
+
+# =========================
 # QUALITY SCORE (0..1)
 # =========================
 
@@ -320,7 +348,7 @@ def should_skip_doc(
         meta["quality_score"] = quality_score
 
         # 🔒 QUALITY GATE
-        if not sale or quality_score < 0.3:
+        if not sale or quality_score == 0:
             meta["reason"] = "low_quality_or_not_sale"
             if stats:
                 stats.add(True, "low_quality_or_not_sale")

@@ -194,7 +194,9 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     currency = None
     m = re.search(r"(\d[\d\s]{1,10})\s*(₽|руб|р)\b", lower)
     if m:
-        price = int(m.group(1).replace(" ", ""))
+        price_str = m.group(1)
+        price_str = "".join(ch for ch in price_str if ch.isdigit())
+        price = int(price_str)
         currency = "RUB"
 
     if not price:
@@ -212,7 +214,9 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         title_text = text[:120]
         m = re.search(r"(\d[\d\s]{3,})\s*(₽|руб|р)", title_text)
         if m:
-            price = int(m.group(1).replace(" ", ""))
+            price_str = m.group(1)
+            price_str = "".join(ch for ch in price_str if ch.isdigit())
+            price = int(price_str)
             currency = "RUB"
 
     # sanity price

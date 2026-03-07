@@ -1,5 +1,7 @@
 import yaml
 from pathlib import Path
+import re
+
 
 def load_models():
 
@@ -22,10 +24,16 @@ def resolve_model(brand, text):
 
     text = text.lower()
 
-    for model, aliases in brand_models.items():
+    models = list(brand_models.keys())
 
-        if model in text:
+    models = sorted(models, key=len, reverse=True)
+
+    for model in models:
+
+        if re.search(r'\b' + re.escape(model) + r'\b', text):
             return model
+
+        aliases = brand_models.get(model, [])
 
         for a in aliases:
             if a in text:

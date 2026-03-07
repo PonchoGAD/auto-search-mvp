@@ -265,6 +265,12 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
     Base.metadata.create_all(bind=engine)
     session = SessionLocal()
 
+    if force_rebuild:
+        print("[NORMALIZE] force_rebuild=True → clearing normalized docs", flush=True)
+
+        session.query(NormalizedDocument).delete()
+        session.commit()
+
     raws = (
         session.query(RawDocument)
         .order_by(RawDocument.id.desc())

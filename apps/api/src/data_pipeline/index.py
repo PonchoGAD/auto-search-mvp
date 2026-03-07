@@ -152,6 +152,7 @@ def index_document_chunks(limit: int = 2000) -> int:
 
             if title_text:
                 vectors.append(("title", deterministic_embedding(title_text)))
+                vectors.append(("title_boost", deterministic_embedding(title_text)))
 
             vectors.append(("content", deterministic_embedding(chunk_text)))
 

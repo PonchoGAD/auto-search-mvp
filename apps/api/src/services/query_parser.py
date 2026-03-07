@@ -302,6 +302,12 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
 
 def _extract_brand(text: str) -> Tuple[Optional[str], float]:
 
+    if not text:
+        return None, 0.0
+
+    text = text.lower()
+
+    # 1️⃣ exact token
     tokens = re.findall(r"[a-zа-я0-9]+", text)
 
     for t in tokens:
@@ -309,8 +315,16 @@ def _extract_brand(text: str) -> Tuple[Optional[str], float]:
         if brand:
             return brand.lower(), 1.0
 
+    # 2️⃣ phrase match
     for token, brand in BRAND_TOKEN_INDEX.items():
+
+        if " " in token and token in text:
+            return brand.lower(), 0.9
+
+    # 3️⃣ substring fallback
+    for token, brand in BRAND_TOKEN_INDEX.items():
+
         if token in text:
-            return brand.lower(), 0.8
+            return brand.lower(), 0.7
 
     return None, 0.0

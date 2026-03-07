@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import yaml
 from urllib.parse import urlparse
 import os
+import json
 
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 
@@ -87,6 +88,19 @@ class SearchService:
         limit: int = None,
         top_k: int = None,
     ) -> List[Dict[str, Any]]:
+
+        cache_key = f"search:{structured.raw_query}"
+
+        # redis get
+        try:
+            from redis import Redis
+            redis = Redis(host="redis", port=6379)
+            cached = redis.get(cache_key)
+
+            if cached:
+                return json.loads(cached)
+        except:
+            pass
 
         if limit is None:
             limit = int(os.getenv("SEARCH_LIMIT", "50"))
@@ -330,11 +344,11 @@ class SearchService:
 
             if brand_value:
                 final_score = (
-                    semantic * 0.25
-                    + text_score * 0.40
+                    semantic * 0.15
+                    + text_score * 0.35
                     + recency * 0.20
-                    + sale_bonus * 0.10
-                    + completeness * 0.05
+                    + sale_bonus * 0.15
+                    + completeness * 0.15
                 )
             else:
                 final_score = (
@@ -456,6 +470,13 @@ class SearchService:
         except Exception as e:
 
             print(f"[RERANK][WARN] skipped: {e}", flush=True)
+
+        try:
+            from redis import Redis
+            redis = Redis(host="redis", port=6379)
+            redis.set(cache_key, json.dumps(results), ex=60)
+        except:
+            pass
 
         return results
 

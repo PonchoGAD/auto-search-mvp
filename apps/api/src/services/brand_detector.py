@@ -92,4 +92,40 @@ def detect_brand(title: str = "", text: str = "") -> Tuple[Optional[str], float]
     if brand:
         return brand, min(conf, 0.85)
 
+    for model, brand in MODEL_BRAND_MAP.items():
+        if model in text.lower():
+            return brand, 0.8
+
     return None, 0.0
+
+
+MODEL_BRAND_MAP = {
+
+    "glc": "mercedes",
+    "gle": "mercedes",
+    "gls": "mercedes",
+    "gla": "mercedes",
+
+    "x1": "bmw",
+    "x2": "bmw",
+    "x3": "bmw",
+    "x4": "bmw",
+    "x5": "bmw",
+    "x6": "bmw",
+    "x7": "bmw",
+
+    "q3": "audi",
+    "q5": "audi",
+    "q7": "audi",
+    "q8": "audi",
+
+    "rav4": "toyota",
+    "camry": "toyota",
+    "corolla": "toyota",
+
+    "sportage": "kia",
+    "sorento": "kia",
+
+    "solaris": "hyundai",
+    "tucson": "hyundai",
+}

@@ -24,19 +24,18 @@ def resolve_model(brand, text):
 
     text = text.lower()
 
-    models = list(brand_models.keys())
+    for model, aliases in sorted(
+        brand_models.items(),
+        key=lambda x: len(x[0]),
+        reverse=True
+    ):
 
-    models = sorted(models, key=len, reverse=True)
-
-    for model in models:
-
-        if re.search(r'\b' + re.escape(model) + r'\b', text):
+        if re.search(r"\b" + re.escape(model) + r"\b", text):
             return model
 
-        aliases = brand_models.get(model, [])
-
         for a in aliases:
-            if a in text:
+
+            if re.search(r"\b" + re.escape(a) + r"\b", text):
                 return model
 
     return None

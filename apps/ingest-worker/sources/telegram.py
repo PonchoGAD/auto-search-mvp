@@ -78,24 +78,51 @@ async def _fetch_from_channel(
             skipped_invalid += 1
             continue
 
-        if not msg.text:
+        text = msg.text or msg.message or msg.raw_text
+
+        if not text:
             skipped_invalid += 1
             continue
 
-        text = msg.text.strip()
+        text = text.strip()
 
-        # Минимальный мусор-фильтр на источнике
-        if len(text) < 10:
+        # skip forwarded ads spam
+        if getattr(msg, "fwd_from", None):
+            skipped_invalid += 1
+            continue
+
+        ok, reason = is_valid_telegram_post(text)
+
+        if not ok:
+            skipped_invalid += 1
+            continue
+
+        # limit message length
+        if len(text) > 5000:
+            text = text[:5000]
+
+        # skip repost chains
+        if text.count("http") > 5:
+            skipped_invalid += 1
+            continue
+
+        # dedupe identical posts
+        if any(x["content"] == text for x in items):
             skipped_invalid += 1
             continue
 
         source_url = f"https://t.me/{channel.lstrip('@')}/{msg.id}"
 
+        title_line = text.split("\n")[0]
+
+        if len(title_line) < 20:
+            title_line = text[:120]
+
         items.append(
             {
                 "source": "telegram",
                 "source_url": source_url,
-                "title": text[:120].replace("\n", " ").strip(),
+                "title": title_line.replace("\n", " ").strip(),
                 "content": text,
                 "created_at": msg.date.isoformat() if getattr(msg, "date", None) else None,
                 "created_at_ts": int(msg.date.timestamp()) if getattr(msg, "date", None) else None,
@@ -111,6 +138,9 @@ async def _fetch_from_channel(
         f"accepted={accepted}, "
         f"skipped={skipped_invalid}"
     )
+
+    if accepted == 0:
+        print(f"[TELEGRAM][WARN] channel {channel} returned 0 valid posts")
 
     return items
 
@@ -146,13 +176,18 @@ async def fetch_telegram(limit_per_channel: int | None = None) -> List[Dict]:
         TG_API_ID,
         TG_API_HASH,
     ) as client:
+
+        tasks = []
+
         for channel in channels:
-            await asyncio.sleep(random.uniform(1.5, 3.0))
-            try:
-                items = await _fetch_from_channel(client, channel, limit)
-                results.extend(items)
-            except Exception as e:
-                print(f"[TELEGRAM][ERROR] {channel}: {e}")
+            await asyncio.sleep(random.uniform(2.0, 4.5))
+            tasks.append(_fetch_from_channel(client, channel, limit))
+
+        results_nested = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for r in results_nested:
+            if isinstance(r, list):
+                results.extend(r)
 
     print(f"[TELEGRAM] total accepted from all channels: {len(results)}")
 

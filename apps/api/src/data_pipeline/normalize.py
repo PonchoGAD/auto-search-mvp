@@ -87,6 +87,30 @@ def clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def strip_drom_noise(text: str) -> str:
+    if not text:
+        return ""
+
+    cut_markers = [
+        "Отзывы владельцев",
+        "Мнения владельцев",
+        "Вы смотрите раздел",
+        "В разделе \"Продажа авто\"",
+        "Технические характеристики",
+        "Запчасти на",
+        "Статистика цен",
+        "О проекте Помощь Правила Для СМИ",
+    ]
+
+    cleaned = text
+    for marker in cut_markers:
+        idx = cleaned.find(marker)
+        if idx != -1:
+            cleaned = cleaned[:idx].strip()
+
+    return cleaned
+
+
 def extract_brand_fallback(text: str) -> Optional[str]:
     """
     Fallback brand detection using brands.yaml
@@ -171,6 +195,17 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         currency = "RUB"
 
     if not price:
+        m = re.search(r"(\d[\d\s'\u00A0]{3,})\s*(₽|руб|р)", lower)
+        if m:
+            raw_price = m.group(1).replace(" ", "").replace("'", "").replace("\u00A0", "")
+            try:
+                price = int(raw_price)
+                currency = "RUB"
+            except Exception:
+                price = None
+                currency = None
+
+    if not price:
         title_text = text[:120]
         m = re.search(r"(\d[\d\s]{3,})\s*(₽|руб|р)", title_text)
         if m:
@@ -216,7 +251,7 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
 # MAIN NORMALIZE
 # =========================
 
-def run_normalize(limit: int = 500):
+def run_normalize(limit: int = 500, force_rebuild: bool = False):
     """
     Normalize pipeline:
     - Anti-noise (skip мусор)
@@ -251,10 +286,17 @@ def run_normalize(limit: int = 500):
             .filter_by(source_url=raw.source_url)
             .first()
         )
-        if exists:
+
+        if exists and not force_rebuild:
             continue
 
-        raw_text = raw.content or ""
+        if exists and force_rebuild:
+            session.delete(exists)
+            session.flush()
+
+        title_text = (raw.title or "").strip()
+        body_text = strip_drom_noise((raw.content or "").strip())
+        raw_text = f"{title_text}\n{body_text}".strip()
 
         # =====================================================
         # 🧹 ANTI-NOISE (до индексации)
@@ -271,11 +313,12 @@ def run_normalize(limit: int = 500):
         # =====================================================
         # 🧠 META ENRICHMENT (до normalize)
         # =====================================================
-        title_text = raw.title or ""
+
         brand_key, brand_conf = detect_brand(title_text)
 
         if not brand_key:
             brand_key, brand_conf = detect_brand(raw_text)
+
         sale = is_sale_intent(raw_text)
         source_boost = resolve_source_boost(raw.source or "")
 
@@ -294,8 +337,10 @@ def run_normalize(limit: int = 500):
         meta, content_wo_meta = parse_meta(enriched_content)
         text = clean_text(content_wo_meta)
 
-        # brand: title -> fallback text
         brand = brand_key
+
+        if not brand:
+            brand = extract_brand_fallback(title_text)
 
         if not brand:
             brand = extract_brand_fallback(text)
@@ -308,7 +353,10 @@ def run_normalize(limit: int = 500):
         # =====================================================
         fields = extract_fields(text)
 
-        model = extract_model(text, brand)
+        model = extract_model(title_text.lower(), brand)
+
+        if not model:
+            model = extract_model(text.lower(), brand)
 
         doc = NormalizedDocument(
             raw_id=raw.id,

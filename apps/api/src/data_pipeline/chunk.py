@@ -36,7 +36,7 @@ def chunk_text_by_chars(text: str, size: int = 1500) -> list[str]:
     return filtered
 
 
-def run_chunk(limit: int = 500):
+def run_chunk(limit: int = 500, force_rebuild: bool = False):
     Base.metadata.create_all(bind=engine)
     session = SessionLocal()
 
@@ -60,8 +60,13 @@ def run_chunk(limit: int = 500):
             .filter_by(normalized_id=doc.id)
             .first()
         )
-        if exists:
+
+        if exists and not force_rebuild:
             continue
+
+        if exists and force_rebuild:
+            session.query(DocumentChunk).filter_by(normalized_id=doc.id).delete()
+            session.flush()
 
         text = doc.normalized_text or ""
 

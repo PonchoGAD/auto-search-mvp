@@ -40,6 +40,16 @@ DEFAULT_BLACKLIST_WORDS = [
 ]
 
 # =========================
+# 🆕 PARTS BLACKLIST
+# =========================
+
+PARTS_BLACKLIST = [
+    "фары", "бампер", "капот", "дверь", "крыло", "запчасти",
+    "редуктор", "двигатель отдельно", "акпп", "кпп", "диски",
+    "шины", "резина", "фонарь", "зеркало", "линзы", "ноускат"
+]
+
+# =========================
 # SALE INTENT DICTIONARIES
 # =========================
 
@@ -339,6 +349,14 @@ def should_skip_doc(
                 meta["reason"] = "blacklist_word"
                 if stats:
                     stats.add(True, "blacklist_word")
+                return True, meta
+
+        # 🆕 HARD REJECT PARTS LISTINGS
+        for w in PARTS_BLACKLIST:
+            if w in lower:
+                meta["reason"] = "parts_listing"
+                if stats:
+                    stats.add(True, "parts_listing")
                 return True, meta
 
         sale = is_sale_intent(text)

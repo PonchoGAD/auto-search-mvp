@@ -136,11 +136,16 @@ def index_document_chunks(limit: int = 2000) -> int:
             if not chunk_text:
                 continue
 
+            source_url = getattr(doc, "source_url", None)
+            title_text = (getattr(doc, "title", "") or "").strip()
+
+            if not source_url or not title_text:
+                continue
+
             # =====================================================
             # MULTI VECTOR EMBEDDINGS
             # =====================================================
 
-            title_text = (getattr(doc, "title", "") or "").strip()
             structured_text = build_structured_text(doc)
 
             vectors = []
@@ -164,7 +169,10 @@ def index_document_chunks(limit: int = 2000) -> int:
             mileage = _norm_int(getattr(doc, "mileage", None))
             year = _norm_int(getattr(doc, "year", None))
 
-            if brand is None and price is None and mileage is None and year is None:
+            if brand is None:
+                continue
+
+            if price is None and mileage is None and year is None:
                 continue
 
             created_at_ts = getattr(doc, "created_at_ts", None)
@@ -181,7 +189,7 @@ def index_document_chunks(limit: int = 2000) -> int:
 
             payload = {
                 "source": getattr(doc, "source", None),
-                "source_url": getattr(doc, "source_url", None),
+                "source_url": source_url,
                 "title": getattr(doc, "title", None),
 
                 "brand": brand,

@@ -3,27 +3,34 @@ brands:
   # =========================
   # EUROPE
   # =========================
+
   bmw:
     en: ["bmw"]
     ru: ["бмв"]
     aliases:
       - "bayerische motoren werke"
       - "bmv"
+      - "bmw group"
 
   audi:
     en: ["audi"]
     ru: ["ауди"]
 
   mercedes:
-    en: ["mercedes", "mercedes-benz"]
+    en: ["mercedes", "mercedes-benz", "mb"]
     ru: ["мерседес", "мерседес-бенц", "мерс"]
     aliases:
       - "mers"
       - "mersedes"
+      - "мерседес бенц"
+      - "мерс бенц"
 
   volkswagen:
     en: ["volkswagen", "vw"]
     ru: ["фольксваген", "фв"]
+    aliases:
+      - "фольцваген"
+      - "volks"
 
   porsche:
     en: ["porsche"]
@@ -68,6 +75,9 @@ brands:
   land_rover:
     en: ["land rover"]
     ru: ["ленд ровер"]
+    aliases:
+      - "range rover"
+      - "рендж ровер"
 
   jaguar:
     en: ["jaguar"]
@@ -96,6 +106,7 @@ brands:
   # =========================
   # JAPAN
   # =========================
+
   toyota:
     en: ["toyota"]
     ru: ["тойота"]
@@ -127,6 +138,8 @@ brands:
   mitsubishi:
     en: ["mitsubishi"]
     ru: ["митсубиси"]
+    aliases:
+      - "mitsubisi"
 
   suzuki:
     en: ["suzuki"]
@@ -143,6 +156,7 @@ brands:
   # =========================
   # USA
   # =========================
+
   ford:
     en: ["ford"]
     ru: ["форд"]
@@ -157,7 +171,7 @@ brands:
 
   gmc:
     en: ["gmc"]
-    ru: ["джиэмси", "джи-эм-си"]
+    ru: ["джиэмси"]
 
   jeep:
     en: ["jeep"]
@@ -183,9 +197,18 @@ brands:
     en: ["buick"]
     ru: ["бьюик"]
 
+  ram:
+    en: ["ram"]
+    ru: ["рам"]
+
+  hummer:
+    en: ["hummer"]
+    ru: ["хаммер"]
+
   # =========================
   # CHINA
   # =========================
+
   chery:
     en: ["chery"]
     ru: ["чери"]
@@ -266,12 +289,24 @@ brands:
     en: ["lynk & co", "lynk co"]
     ru: ["линк энд ко"]
 
+  nio:
+    en: ["nio"]
+    ru: ["нио"]
+
+  xpeng:
+    en: ["xpeng"]
+    ru: ["икспенг"]
+
   # =========================
   # KOREA
   # =========================
+
   hyundai:
     en: ["hyundai"]
-    ru: ["хендай", "хундай"]
+    ru: ["хендай", "хьюндай"]
+    aliases:
+      - "hyunday"
+      - "hyandai"
 
   kia:
     en: ["kia"]
@@ -281,13 +316,17 @@ brands:
     en: ["genesis"]
     ru: ["генезис"]
 
+  daewoo:
+    en: ["daewoo"]
+    ru: ["дэу", "деу"]
+
   ssangyong:
     en: ["ssangyong", "ssang yong"]
     ru: ["сангйонг", "ссангйонг"]
 
-  daewoo:
-    en: ["daewoo"]
-    ru: ["дэу", "деу"]
+  renault_samsung:
+    en: ["renault samsung", "samsung motors"]
+    ru: ["рено самсунг"]
 
   kg_mobility:
     en: ["kg mobility"]

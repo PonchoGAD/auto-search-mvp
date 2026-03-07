@@ -209,10 +209,10 @@ async def run_cycle():
     if saved > 0:
 
         print("[PIPELINE] normalize started", flush=True)
-        run_normalize(limit=500)
+        run_normalize(limit=500, force_rebuild=False)
 
         print("[PIPELINE] chunk started", flush=True)
-        run_chunk(limit=500)
+        run_chunk(limit=500, force_rebuild=False)
 
         print("[PIPELINE] index started", flush=True)
         run_index(limit=1000)

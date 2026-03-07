@@ -100,6 +100,13 @@ class SearchService:
         brand_conf = float(getattr(structured, "brand_confidence", 0.0) or 0.0)
         brand_value = (structured.brand or "").strip().lower() if structured.brand else None
         fuel_value = (structured.fuel or "").strip().lower() if structured.fuel else None
+        model_value = (structured.model or "").strip().lower() if structured.model else None
+
+        strict_brand = bool(brand_value and brand_conf >= 0.9)
+        allow_brandless_debug_fallback = (
+            str(os.getenv("SEARCH_ALLOW_BRANDLESS_DEBUG_FALLBACK", "0")).strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
 
         debug = {
             "applied_filters": [],
@@ -111,68 +118,81 @@ class SearchService:
             "skipped_by_year_null": 0,
             "skipped_by_url_duplicate": 0,
             "fallback_triggered": False,
+            "model_fallback_triggered": False,
+            "brandless_debug_fallback_triggered": False,
+            "search_stage": None,
         }
 
         query_text = self._build_query_text(structured)
         query_vector = embed_text(query_text)
 
-        must_conditions: List[FieldCondition] = []
+        def _build_filter(
+            brand: str = None,
+            model: str = None,
+            fuel: str = None,
+        ) -> Filter:
+            must_conditions: List[FieldCondition] = []
 
-        strict_brand = bool(brand_value and brand_conf >= 0.9)
-        if strict_brand:
-            must_conditions.append(
-                FieldCondition(
-                    key="brand",
-                    match=MatchValue(value=brand_value),
+            if brand:
+                must_conditions.append(
+                    FieldCondition(
+                        key="brand",
+                        match=MatchValue(value=brand),
+                    )
                 )
-            )
-            debug["applied_filters"].append(f"brand=strict({brand_value})")
 
-        if fuel_value:
-            must_conditions.append(
-                FieldCondition(
-                    key="fuel",
-                    match=MatchValue(value=fuel_value),
+            if model:
+                must_conditions.append(
+                    FieldCondition(
+                        key="model",
+                        match=MatchValue(value=model),
+                    )
                 )
-            )
-            debug["applied_filters"].append(f"fuel=strict({fuel_value})")
 
-        model_value = (structured.model or "").strip().lower() if structured.model else None
-
-        if model_value:
-            must_conditions.append(
-                FieldCondition(
-                    key="model",
-                    match=MatchValue(value=model_value),
+            if fuel:
+                must_conditions.append(
+                    FieldCondition(
+                        key="fuel",
+                        match=MatchValue(value=fuel),
+                    )
                 )
-            )
-            debug["applied_filters"].append(f"model=strict({model_value})")
 
-        qdrant_filter = Filter(must=must_conditions) if must_conditions else None
+            return Filter(must=must_conditions) if must_conditions else None
+
+        primary_filter = _build_filter(
+            brand=brand_value,
+            model=model_value,
+            fuel=fuel_value,
+        )
+
+        debug["applied_filters"].append(
+            f"primary(brand={brand_value}, model={model_value}, fuel={fuel_value})"
+        )
+        debug["search_stage"] = "primary"
 
         try:
             hits = self.store.search(
                 vector=query_vector,
                 limit=top_k,
-                query_filter=qdrant_filter,
+                query_filter=primary_filter,
             )
         except Exception as e:
             print(f"[SEARCH][WARN] qdrant unavailable: {e}", flush=True)
             return []
 
-        if strict_brand and not hits:
+        if not hits and model_value:
             debug["fallback_triggered"] = True
+            debug["model_fallback_triggered"] = True
+            debug["search_stage"] = "fallback_without_model"
 
-            fallback_must: List[FieldCondition] = []
-            if fuel_value:
-                fallback_must.append(
-                    FieldCondition(
-                        key="fuel",
-                        match=MatchValue(value=fuel_value),
-                    )
-                )
-
-            fallback_filter = Filter(must=fallback_must) if fallback_must else None
+            fallback_filter = _build_filter(
+                brand=brand_value,
+                model=None,
+                fuel=fuel_value,
+            )
+            debug["applied_filters"].append(
+                f"fallback_without_model(brand={brand_value}, fuel={fuel_value})"
+            )
 
             try:
                 hits = self.store.search(
@@ -181,7 +201,54 @@ class SearchService:
                     query_filter=fallback_filter,
                 )
             except Exception as e:
-                print(f"[SEARCH][WARN] qdrant fallback unavailable: {e}", flush=True)
+                print(f"[SEARCH][WARN] qdrant fallback without model unavailable: {e}", flush=True)
+                return []
+
+        if not hits and strict_brand and allow_brandless_debug_fallback:
+            debug["fallback_triggered"] = True
+            debug["brandless_debug_fallback_triggered"] = True
+            debug["search_stage"] = "brandless_debug_fallback"
+
+            brandless_filter = _build_filter(
+                brand=None,
+                model=None,
+                fuel=fuel_value,
+            )
+            debug["applied_filters"].append(
+                f"brandless_debug_fallback(fuel={fuel_value})"
+            )
+
+            try:
+                hits = self.store.search(
+                    vector=query_vector,
+                    limit=top_k,
+                    query_filter=brandless_filter,
+                )
+            except Exception as e:
+                print(f"[SEARCH][WARN] qdrant brandless debug fallback unavailable: {e}", flush=True)
+                return []
+
+        if not hits and not strict_brand and brand_value:
+            debug["fallback_triggered"] = True
+            debug["search_stage"] = "fuel_only_fallback"
+
+            fuel_only_filter = _build_filter(
+                brand=None,
+                model=None,
+                fuel=fuel_value,
+            )
+            debug["applied_filters"].append(
+                f"fuel_only_fallback(fuel={fuel_value})"
+            )
+
+            try:
+                hits = self.store.search(
+                    vector=query_vector,
+                    limit=top_k,
+                    query_filter=fuel_only_filter,
+                )
+            except Exception as e:
+                print(f"[SEARCH][WARN] qdrant fuel-only fallback unavailable: {e}", flush=True)
                 return []
 
         if not hits:
@@ -209,8 +276,11 @@ class SearchService:
         for url, payload in doc_payloads.items():
             semantic = float(doc_scores.get(url, 0.0) or 0.0)
 
-            if strict_brand and payload.get("brand"):
-                if payload.get("brand") != brand_value:
+            if brand_value:
+                payload_brand = payload.get("brand")
+                if not payload_brand:
+                    continue
+                if payload_brand != brand_value:
                     continue
 
             if is_prod and (payload.get("source") == "dev_seed"):
@@ -258,13 +328,22 @@ class SearchService:
 
             text_score = self._text_score(payload, structured)
 
-            final_score = (
-                semantic * 0.40
-                + text_score * 0.25
-                + recency * 0.20
-                + sale_bonus * 0.10
-                + completeness * 0.05
-            )
+            if brand_value:
+                final_score = (
+                    semantic * 0.25
+                    + text_score * 0.40
+                    + recency * 0.20
+                    + sale_bonus * 0.10
+                    + completeness * 0.05
+                )
+            else:
+                final_score = (
+                    semantic * 0.45
+                    + text_score * 0.20
+                    + recency * 0.20
+                    + sale_bonus * 0.10
+                    + completeness * 0.05
+                )
 
             brand_boost = 0.0
             if brand_value and brand_conf >= 0.5:
@@ -397,6 +476,12 @@ class SearchService:
 
         if payload.get("model"):
             text_parts.append(str(payload["model"]))
+
+        if payload.get("title"):
+            text_parts.append(str(payload["title"]))
+
+        if payload.get("content"):
+            text_parts.append(str(payload["content"][:400]))
 
         text = " ".join(text_parts).lower()
 

@@ -142,9 +142,7 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     brand, confidence = _extract_brand(text)
 
     if brand:
-        confidence = max(confidence, 0.9)
-
-    if brand:
+        confidence = 1.0
         result.brand = brand.lower()
         result.brand_confidence = confidence
 
@@ -264,6 +262,8 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
         "км", "тыс", "руб", "р", "₽",
         "от", "с", "после", "старше", "младше",
         "лет", "год", "года",
+        "бенз", "бензин", "дизель", "диз", "гибрид", "электро",
+        "млн", "миллион", "к", "тысяч", "тысяс", "пробег"
     }
 
     brand_synonyms = set()
@@ -307,10 +307,10 @@ def _extract_brand(text: str) -> Tuple[Optional[str], float]:
     for t in tokens:
         brand = BRAND_TOKEN_INDEX.get(t)
         if brand:
-            return brand, 1.0
+            return brand.lower(), 1.0
 
     for token, brand in BRAND_TOKEN_INDEX.items():
         if token in text:
-            return brand, 0.8
+            return brand.lower(), 0.8
 
     return None, 0.0

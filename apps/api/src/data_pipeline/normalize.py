@@ -170,6 +170,13 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         price = int(m.group(1).replace(" ", ""))
         currency = "RUB"
 
+    if not price:
+        title_text = text[:120]
+        m = re.search(r"(\d[\d\s]{3,})\s*(₽|руб|р)", title_text)
+        if m:
+            price = int(m.group(1).replace(" ", ""))
+            currency = "RUB"
+
     # sanity price
     if price and price < 10000:
         price = None
@@ -264,7 +271,11 @@ def run_normalize(limit: int = 500):
         # =====================================================
         # 🧠 META ENRICHMENT (до normalize)
         # =====================================================
-        brand_key, brand_conf = detect_brand(raw_text)
+        title_text = raw.title or ""
+        brand_key, brand_conf = detect_brand(title_text)
+
+        if not brand_key:
+            brand_key, brand_conf = detect_brand(raw_text)
         sale = is_sale_intent(raw_text)
         source_boost = resolve_source_boost(raw.source or "")
 
@@ -283,12 +294,14 @@ def run_normalize(limit: int = 500):
         meta, content_wo_meta = parse_meta(enriched_content)
         text = clean_text(content_wo_meta)
 
-        # brand: meta → fallback
-        brand = meta.get("brand")
-        if brand and brand != "none":
-            brand = brand.lower()
-        else:
+        # brand: title -> fallback text
+        brand = brand_key
+
+        if not brand:
             brand = extract_brand_fallback(text)
+
+        if brand:
+            brand = brand.lower()
 
         # =====================================================
         # FIELD EXTRACTION

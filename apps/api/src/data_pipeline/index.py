@@ -175,6 +175,10 @@ def index_document_chunks(limit: int = 2000) -> int:
             if not created_at:
                 created_at = now.isoformat()
 
+            currency = getattr(doc, "currency", None)
+            if not currency:
+                currency = "RUB"
+
             payload = {
                 "source": getattr(doc, "source", None),
                 "source_url": getattr(doc, "source_url", None),
@@ -183,7 +187,7 @@ def index_document_chunks(limit: int = 2000) -> int:
                 "brand": brand,
                 "model": model,
                 "price": price,
-                "currency": getattr(doc, "currency", "RUB"),
+                "currency": currency,
                 "mileage": mileage,
                 "year": year,
                 "fuel": fuel,
@@ -207,9 +211,12 @@ def index_document_chunks(limit: int = 2000) -> int:
                 if not vec or len(vec) != VECTOR_SIZE:
                     continue
 
+                point_hash = hashlib.sha1(f"{ch.id}_{vec_type}".encode()).hexdigest()
+                point_id = int(point_hash[:16], 16)
+
                 points.append(
                     PointStruct(
-                        id=int(ch.id),
+                        id=point_id,
                         vector=vec,
                         payload={
                             **payload,

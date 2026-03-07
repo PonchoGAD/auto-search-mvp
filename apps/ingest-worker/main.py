@@ -215,7 +215,7 @@ async def run_cycle():
         run_chunk(limit=500)
 
         print("[PIPELINE] index started", flush=True)
-        index_document_chunks(limit=1000)
+        run_index(limit=1000)
 
         print("[PIPELINE] completed", flush=True)
 

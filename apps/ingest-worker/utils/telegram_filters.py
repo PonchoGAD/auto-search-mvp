@@ -1,5 +1,3 @@
-#  apps\ingest-worker\utils\telegram_filters.py
-
 import re
 import yaml
 from typing import Dict, Tuple, Optional
@@ -87,9 +85,39 @@ SALE_NEGATIVE_WORDS = [
     "repair",
 ]
 
-RE_PRICE = re.compile(r"(\d[\d\s]{1,10})\s*(₽|руб|р\.|тыс|к|k|\$|€)")
+RE_PRICE = re.compile(
+    r"(\d[\d\s]{2,10})\s*(₽|руб|р\.?|тыс|k|к|\$|€|usd|eur)",
+    re.IGNORECASE,
+)
 RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
 RE_MILEAGE = re.compile(r"\d[\d\s]{1,8}\s*км")
+
+RE_PHONE = re.compile(r"\+?\d[\d\-\(\)\s]{8,}")
+
+SPAM_PATTERNS = [
+    "подпишись",
+    "подписывайтесь",
+    "ссылка в био",
+    "мой канал",
+    "перейдите",
+]
+
+CAR_SELL_PATTERNS = [
+    "двигатель",
+    "пробег",
+    "год",
+    "комплектация",
+    "коробка",
+]
+
+COMMON_MODELS = [
+    "camry","rav4","corolla","prado",
+    "x5","x6","x3","x1",
+    "civic","accord","crv",
+    "qashqai","xtrail",
+    "sportage","sorento",
+    "solaris","tucson",
+]
 
 
 # =========================
@@ -113,6 +141,20 @@ def contains_car_entity(text: str) -> bool:
             for alias in group:
                 if alias.lower() in t:
                     return True
+
+    return False
+
+
+def contains_model(text: str) -> bool:
+
+    if not text:
+        return False
+
+    t = text.lower()
+
+    for m in COMMON_MODELS:
+        if m in t:
+            return True
 
     return False
 
@@ -155,7 +197,21 @@ def is_sale_intent(text: str, min_score: int = 2) -> bool:
         if w in t:
             score -= 2
 
-    return score >= min_score
+    if RE_PHONE.search(t):
+        score += 1
+
+    for p in CAR_SELL_PATTERNS:
+        if p in t:
+            score += 0.5
+
+    if score >= min_score:
+        return True
+
+    # fallback if price + brand
+    if has_price(t) and contains_car_entity(t):
+        return True
+
+    return False
 
 
 # =========================
@@ -184,6 +240,21 @@ def is_valid_telegram_post(text: str) -> Tuple[bool, Optional[str]]:
         "skipped_by_no_price_and_short": 0,
     }
 
+    emoji_count = sum(1 for c in t if ord(c) > 10000)
+
+    if emoji_count > 20:
+        return False, "emoji_spam"
+
+    if t.count("@") > 5:
+        return False, "mention_spam"
+
+    if t.count("http") > 3:
+        return False, "link_spam"
+
+    for s in SPAM_PATTERNS:
+        if s in t:
+            return False, "spam"
+
     # 1️⃣ минимальная длина
     if len(t) < MIN_TEXT_LEN:
         stats["skipped_by_len"] += 1
@@ -201,9 +272,10 @@ def is_valid_telegram_post(text: str) -> Tuple[bool, Optional[str]]:
     # Документ сохраняется если есть хотя бы:
     # (brand AND price) ИЛИ (brand AND content_length>=N)
     brand_ok = contains_car_entity(t)
+    model_ok = contains_model(t)
     price_ok = has_price(t)
 
-    if not brand_ok:
+    if not brand_ok and not model_ok:
         stats["skipped_by_no_brand"] += 1
         print(f"[TG_FILTER] skip reason=no_brand stats={stats}", flush=True)
         return False, "no_brand"

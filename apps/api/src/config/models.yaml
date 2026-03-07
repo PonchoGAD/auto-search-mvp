@@ -84,3 +84,19 @@ honda:
   cr_v: ["cr v", "rd", "re", "rm", "rw"]
   civic: ["fd", "fk", "fe"]
   pilot: ["yb", "yf"]
+
+land_rover:
+
+  range_rover:
+    - range rover
+
+  evoque:
+    - evoque
+    - range rover evoque
+
+  velar:
+    - velar
+
+  discovery:
+    - discovery
+    - discovery sport

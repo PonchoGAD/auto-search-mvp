@@ -102,11 +102,14 @@ def strip_drom_noise(text: str) -> str:
         "О проекте Помощь Правила Для СМИ",
     ]
 
+    min_keep_len = 300
     cleaned = text
+
     for marker in cut_markers:
         idx = cleaned.find(marker)
-        if idx != -1:
+        if idx != -1 and idx >= min_keep_len:
             cleaned = cleaned[:idx].strip()
+            break
 
     return cleaned
 
@@ -357,7 +360,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         # =====================================================
         # FIELD EXTRACTION
         # =====================================================
-        fields = extract_fields(text)
+        fields = extract_fields(f"{title_text}\n{text}")
 
         model = extract_model(title_text.lower(), brand)
 

@@ -1,0 +1,86 @@
+toyota:
+  camry: ["xv40", "xv50", "xv55", "xv70", "xv75", "camry 40", "camry 50", "camry 70"]
+  land cruiser: ["lc100", "lc200", "lc300", "land cruiser 200", "land cruiser 300"]
+  rav4: ["rav 4", "xa30", "xa40", "xa50"]
+  corolla: ["e120", "e140", "e150", "e170", "e180", "e210"]
+  prado: ["lc120", "lc150", "land cruiser prado", "prado 120", "prado 150"]
+
+bmw:
+  "3": ["3 series", "f30", "g20", "320", "320d", "320i", "328", "330", "330d", "330i"]
+  "5": ["5 series", "f10", "g30", "520", "520d", "520i", "530", "530d", "530i", "540"]
+  x3: ["f25", "g01"]
+  x5: ["e70", "f15", "g05"]
+  x6: ["e71", "f16", "g06"]
+  x7: ["g07"]
+  m3: ["e90", "f80", "g80"]
+  m5: ["e60", "f90", "g90"]
+
+mercedes:
+  c_class: ["c class", "w204", "w205", "w206", "c180", "c200", "c250", "c300"]
+  e_class: ["e class", "w212", "w213", "w214", "e200", "e220", "e300", "e350"]
+  s_class: ["s class", "w221", "w222", "w223", "s350", "s400", "s500"]
+  gle: ["w166", "v167", "gle coupe"]
+  gls: ["x166", "x167"]
+  g_class: ["g class", "gelandewagen", "g63", "g500", "w463"]
+
+audi:
+  a4: ["b7", "b8", "b9"]
+  a5: ["8t", "f5"]
+  a6: ["c6", "c7", "c8"]
+  q3: ["8u", "f3"]
+  q5: ["8r", "fy"]
+  q7: ["4l", "4m"]
+  q8: ["4mn"]
+
+volkswagen:
+  tiguan: ["tiguan 1", "tiguan 2", "nf"]
+  touareg: ["7l", "7p", "cr"]
+  passat: ["b6", "b7", "b8", "cc"]
+  polo: ["sedan", "liftback"]
+
+hyundai:
+  solaris: ["solaris 1", "solaris 2", "rb", "hc"]
+  sonata: ["nf", "yf", "lf", "dn8"]
+  elantra: ["md", "ad", "cn7"]
+  santa fe: ["cm", "dm", "tm", "mx5"]
+  tucson: ["ix35", "tl", "nx4"]
+  creta: ["gs", "su2", "creta 1", "creta 2"]
+  palisade: ["lx2"]
+  starex: ["h1", "grand starex"]
+
+kia:
+  rio: ["rio 3", "rio 4", "qb", "fb"]
+  ceed: ["ceed", "cee'd", "jd", "cd", "pro_cee'd", "pro ceed"]
+  cerato: ["forte", "yd", "bd"]
+  sportage: ["sl", "ql", "nq5"]
+  sorento: ["xm", "um", "mq4"]
+  k5: ["optima", "jf", "dl3"]
+  carnival: ["yp", "ka4"]
+
+lexus:
+  rx: ["rx270", "rx300", "rx330", "rx350", "rx400h", "rx450h", "al10", "al20"]
+  nx: ["nx200", "nx200t", "nx250", "nx300", "nx350", "az10", "az20"]
+  lx: ["lx470", "lx570", "lx600", "j200", "j300"]
+  es: ["es250", "es300", "es350"]
+  is: ["is200", "is250", "is300", "is350"]
+
+nissan:
+  qashqai: ["j10", "j11", "j12", "dual is"]
+  x_trail: ["x trail", "t31", "t32", "t33"]
+  teana: ["j31", "j32", "l33"]
+  patrol: ["y61", "y62"]
+  note: ["e11", "e12", "e13"]
+  maxima: ["a32", "a33", "a34", "a35", "qx"]
+
+mazda:
+  mazda3: ["axela", "bk", "bl", "bm", "bp"]
+  mazda6: ["gh", "gj", "atenza"]
+  cx_5: ["ke", "kf"]
+  cx_50: ["va"]
+  cx_60: ["kh"]
+
+honda:
+  accord: ["7", "8", "9", "cp", "cu", "cr"]
+  cr_v: ["cr v", "rd", "re", "rm", "rw"]
+  civic: ["fd", "fk", "fe"]
+  pilot: ["yb", "yf"]

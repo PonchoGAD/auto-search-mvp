@@ -13,6 +13,7 @@ from sentence_transformers import CrossEncoder
 
 from integrations.vector_db.qdrant import QdrantStore
 from services.query_parser import StructuredQuery
+from services.query_router import route_query
 
 from db.session import SessionLocal
 from db.models import SearchHistory
@@ -116,6 +117,8 @@ class SearchService:
         fuel_value = (structured.fuel or "").strip().lower() if structured.fuel else None
         model_value = (structured.model or "").strip().lower() if structured.model else None
 
+        route = route_query(structured)
+
         strict_brand = bool(brand_value and brand_conf >= 0.9)
         allow_brandless_debug_fallback = (
             str(os.getenv("SEARCH_ALLOW_BRANDLESS_DEBUG_FALLBACK", "0")).strip().lower()
@@ -173,11 +176,24 @@ class SearchService:
 
             return Filter(must=must_conditions) if must_conditions else None
 
-        primary_filter = _build_filter(
-            brand=brand_value,
-            model=model_value,
-            fuel=fuel_value,
-        )
+        if route == "structured":
+            primary_filter = _build_filter(
+                brand=brand_value,
+                model=model_value,
+                fuel=fuel_value,
+            )
+        elif route == "brand_only":
+            primary_filter = _build_filter(
+                brand=brand_value,
+                model=model_value,
+                fuel=None,
+            )
+        else:
+            primary_filter = _build_filter(
+                brand=None,
+                model=None,
+                fuel=fuel_value,
+            )
 
         debug["applied_filters"].append(
             f"primary(brand={brand_value}, model={model_value}, fuel={fuel_value})"
@@ -290,11 +306,9 @@ class SearchService:
         for url, payload in doc_payloads.items():
             semantic = float(doc_scores.get(url, 0.0) or 0.0)
 
-            if brand_value:
+            if route in {"structured", "brand_only"} and brand_value:
                 payload_brand = payload.get("brand")
-                if not payload_brand:
-                    continue
-                if payload_brand != brand_value:
+                if not payload_brand or payload_brand != brand_value:
                     continue
 
             if is_prod and (payload.get("source") == "dev_seed"):
@@ -303,38 +317,38 @@ class SearchService:
             if structured.price_max is not None:
                 if payload.get("price") is None:
                     debug["skipped_by_price_null"] += 1
-                    continue
-                try:
-                    if payload["price"] > structured.price_max:
+                else:
+                    try:
+                        if payload["price"] > structured.price_max:
+                            debug["skipped_by_price"] += 1
+                            continue
+                    except Exception:
                         debug["skipped_by_price"] += 1
                         continue
-                except Exception:
-                    debug["skipped_by_price"] += 1
-                    continue
 
             if structured.mileage_max is not None:
                 if payload.get("mileage") is None:
                     debug["skipped_by_mileage_null"] += 1
-                    continue
-                try:
-                    if payload["mileage"] > structured.mileage_max:
+                else:
+                    try:
+                        if payload["mileage"] > structured.mileage_max:
+                            debug["skipped_by_mileage"] += 1
+                            continue
+                    except Exception:
                         debug["skipped_by_mileage"] += 1
                         continue
-                except Exception:
-                    debug["skipped_by_mileage"] += 1
-                    continue
 
             if structured.year_min is not None:
                 if payload.get("year") is None:
                     debug["skipped_by_year_null"] += 1
-                    continue
-                try:
-                    if payload["year"] < structured.year_min:
+                else:
+                    try:
+                        if payload["year"] < structured.year_min:
+                            debug["skipped_by_year"] += 1
+                            continue
+                    except Exception:
                         debug["skipped_by_year"] += 1
                         continue
-                except Exception:
-                    debug["skipped_by_year"] += 1
-                    continue
 
             recency = self._recency_score(payload)
             sale_bonus = self._sale_bonus(payload)
@@ -374,6 +388,18 @@ class SearchService:
 
             final_score = final_score + model_boost
 
+            vector_type = payload.get("vector_type")
+            vector_boost = 0.0
+
+            if vector_type == "title_boost":
+                vector_boost = 0.10
+            elif vector_type == "title":
+                vector_boost = 0.07
+            elif vector_type == "structured":
+                vector_boost = 0.05
+
+            final_score = final_score + vector_boost
+
             reasons = [
                 f"semantic={round(semantic, 4)}",
                 f"text={round(text_score,4)}",
@@ -382,6 +408,7 @@ class SearchService:
                 f"complete={round(completeness, 4)}",
                 f"brand_boost={round(brand_boost, 4)}",
                 f"model_boost={round(model_boost,4)}",
+                f"vector_boost={round(vector_boost,4)}",
                 f"final={round(final_score, 4)}",
             ]
 
@@ -485,39 +512,33 @@ class SearchService:
     # =====================================================
 
     def _text_score(self, payload: Dict[str, Any], structured: StructuredQuery) -> float:
-        """
-        Simple lexical match scoring (BM25-lite).
-        Improves precision for brand/model queries.
-        """
-
         text_parts = []
 
-        if payload.get("brand"):
-            text_parts.append(str(payload["brand"]))
-
-        if payload.get("model"):
-            text_parts.append(str(payload["model"]))
-
-        if payload.get("title"):
-            text_parts.append(str(payload["title"]))
-
-        if payload.get("content"):
-            text_parts.append(str(payload["content"][:400]))
+        for key in ("brand", "model", "title", "title_text", "content"):
+            value = payload.get(key)
+            if value:
+                if key == "content":
+                    text_parts.append(str(value)[:600])
+                else:
+                    text_parts.append(str(value))
 
         text = " ".join(text_parts).lower()
-
         score = 0.0
 
         if structured.brand and structured.brand.lower() in text:
-            score += 1.0
+            score += 1.5
 
         if structured.model and structured.model.lower() in text:
             score += 1.5
 
-        if structured.fuel and structured.fuel.lower() == payload.get("fuel"):
+        if structured.fuel and payload.get("fuel") and structured.fuel.lower() == str(payload.get("fuel")).lower():
             score += 0.5
 
-        return min(score / 3.0, 1.0)
+        for kw in getattr(structured, "keywords", []) or []:
+            if kw and kw.lower() in text:
+                score += 0.25
+
+        return min(score / 4.0, 1.0)
 
     # =====================================================
     # CROSS ENCODER RERANK

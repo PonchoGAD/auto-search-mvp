@@ -18,6 +18,9 @@ from services.ingest_quality import (
     apply_meta_prefix,
 )
 
+from services.model_resolver import resolve_model
+
+
 # =========================
 # META PARSING
 # =========================
@@ -184,10 +187,18 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
 
     # пробег
     mileage = None
+
     m = re.search(r"(\d[\d\s]{1,8})\s*(км|тыс)\b", lower)
     if m:
         num = int(m.group(1).replace(" ", ""))
         mileage = num * 1000 if m.group(2) == "тыс" else num
+
+    m = re.search(r'(\d[\d\s]{3,6})\s*(км|km)', text.lower())
+    if m:
+        try:
+            mileage = int(re.sub(r"\D", "", m.group(1)))
+        except:
+            mileage = None
 
     # цена
     price = None
@@ -228,13 +239,17 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
 
     # топливо
     fuel = None
-    if "бенз" in lower:
-        fuel = "petrol"
-    elif "диз" in lower:
+
+    if re.search(r'\bдизел', text.lower()):
         fuel = "diesel"
-    elif "гибрид" in lower:
+
+    elif re.search(r'\bбенз', text.lower()):
+        fuel = "petrol"
+
+    elif re.search(r'\bгибрид', text.lower()):
         fuel = "hybrid"
-    elif "электро" in lower:
+
+    elif re.search(r'\bэлектро', text.lower()):
         fuel = "electric"
 
     # состояние окраса
@@ -366,10 +381,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         # =====================================================
         fields = extract_fields(f"{title_text}\n{text}")
 
-        model = extract_model(title_text.lower(), brand)
-
-        if not model:
-            model = extract_model(text.lower(), brand)
+        model = resolve_model(brand, title_text + " " + text)
 
         doc = NormalizedDocument(
             raw_id=raw.id,

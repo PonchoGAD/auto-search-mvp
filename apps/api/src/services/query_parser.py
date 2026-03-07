@@ -5,6 +5,7 @@ import yaml
 from pathlib import Path
 from datetime import datetime
 from domain.query_schema import StructuredQuery
+from services.query_normalizer import normalize_query
 
 
 # =========================
@@ -56,6 +57,27 @@ for brand, cfg in BRANDS_CONFIG.items():
         BRAND_TOKEN_INDEX[t.lower()] = brand.lower()
 
 
+# =========================
+# LOAD MODELS CONFIG
+# =========================
+
+def load_models() -> Dict[str, Dict[str, List[str]]]:
+    try:
+        base_dir = Path(__file__).resolve().parent.parent
+        models_path = base_dir / "config" / "models.yaml"
+
+        with open(models_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+
+        return data
+    except Exception as e:
+        print(f"[QUERY][WARN] failed to load models.yaml: {e}")
+        return {}
+
+
+MODELS_CONFIG = load_models()
+
+
 MODEL_EXPANSION = {
     "bmw": {
         "3": ["3 series", "f30", "320", "328", "330"],
@@ -79,18 +101,19 @@ MODEL_EXPANSION = {
 
 def parse_query(raw_text: str) -> StructuredQuery:
     raw_text = (raw_text or "").strip()
+    normalized_raw_text = normalize_query(raw_text)
 
     if not raw_text:
         return StructuredQuery(raw_query=raw_text)
 
     try:
-        llm_result = _parse_with_llm(raw_text)
+        llm_result = _parse_with_llm(normalized_raw_text)
         sq = StructuredQuery(**llm_result)
         sq.raw_query = raw_text
         return sq
 
     except Exception:
-        return _parse_with_fallback(raw_text)
+        return _parse_with_fallback(normalized_raw_text)
 
 
 # =========================
@@ -107,18 +130,18 @@ def expand_query_keywords(query: StructuredQuery):
         return
 
     brand = query.brand.lower()
-
-    if brand not in MODEL_EXPANSION:
-        return
+    brand_models = MODELS_CONFIG.get(brand, {})
 
     expanded = []
 
-    for key, values in MODEL_EXPANSION[brand].items():
+    if query.model:
+        model_key = query.model.lower()
+        if model_key in brand_models:
+            expanded.extend(brand_models[model_key])
 
-        if query.model and key in query.model:
-            expanded.extend(values)
-
-        if key in query.raw_query.lower():
+    raw_lower = (query.raw_query or "").lower()
+    for model_key, values in brand_models.items():
+        if model_key in raw_lower:
             expanded.extend(values)
 
     for v in expanded:
@@ -306,25 +329,21 @@ def _extract_brand(text: str) -> Tuple[Optional[str], float]:
         return None, 0.0
 
     text = text.lower()
-
-    # 1️⃣ exact token
-    tokens = re.findall(r"[a-zа-я0-9]+", text)
+    tokens = re.findall(r"[a-zа-я0-9&\-]+", text)
 
     for t in tokens:
         brand = BRAND_TOKEN_INDEX.get(t)
         if brand:
             return brand.lower(), 1.0
 
-    # 2️⃣ phrase match
+    joined = " ".join(tokens)
+
     for token, brand in BRAND_TOKEN_INDEX.items():
+        if " " in token and token in joined:
+            return brand.lower(), 0.95
 
-        if " " in token and token in text:
-            return brand.lower(), 0.9
-
-    # 3️⃣ substring fallback
     for token, brand in BRAND_TOKEN_INDEX.items():
-
         if token in text:
-            return brand.lower(), 0.7
+            return brand.lower(), 0.8
 
     return None, 0.0

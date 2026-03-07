@@ -222,32 +222,35 @@ def compute_quality_score(text: str) -> float:
 # =========================
 
 def detect_brand(text: str) -> Tuple[Optional[str], float]:
-    """
-    Canonical brand detection
-    returns lowercase canonical brand
-    """
 
     if not text:
         return None, 0.0
 
     text = text.lower()
+
     brands = _load_brands()
 
+    tokens = re.findall(r"[a-zа-я0-9]+", text)
+
+    # 1️⃣ exact token match
+    for token in tokens:
+        for brand_key, cfg in brands.items():
+
+            if token in [v.lower() for v in cfg.get("en", [])]:
+                return brand_key.lower(), 1.0
+
+            if token in [v.lower() for v in cfg.get("ru", [])]:
+                return brand_key.lower(), 1.0
+
+            if token in [v.lower() for v in cfg.get("aliases", [])]:
+                return brand_key.lower(), 0.9
+
+    # 2️⃣ phrase match
     for brand_key, cfg in brands.items():
 
-        # exact en
-        for v in cfg.get("en", []):
-            if re.search(rf"\b{re.escape(v.lower())}\b", text):
-                return brand_key.lower(), 1.0
+        for v in cfg.get("en", []) + cfg.get("ru", []) + cfg.get("aliases", []):
 
-        # exact ru
-        for v in cfg.get("ru", []):
-            if re.search(rf"\b{re.escape(v.lower())}\b", text):
-                return brand_key.lower(), 1.0
-
-        # alias
-        for v in cfg.get("aliases", []):
-            if re.search(rf"\b{re.escape(v.lower())}\b", text):
+            if v.lower() in text:
                 return brand_key.lower(), 0.8
 
     return None, 0.0
@@ -366,7 +369,7 @@ def should_skip_doc(
         meta["quality_score"] = quality_score
 
         # 🔒 QUALITY GATE
-        if not sale or quality_score == 0:
+        if not sale and quality_score == 0:
             meta["reason"] = "low_quality_or_not_sale"
             if stats:
                 stats.add(True, "low_quality_or_not_sale")
@@ -423,6 +426,7 @@ def enrich_text_with_meta(
     content = f"{meta_prefix}\n{raw_text}"
     return content, meta
 
+
 # =====================================================
 # META PREFIX BUILDER
 # =====================================================
@@ -467,6 +471,7 @@ try:
     print("[INGEST][QUALITY] brands loaded", flush=True)
 except Exception as e:
     print(f"[INGEST][QUALITY][WARN] brands load failed: {e}", flush=True)
+
 
 # =====================================================
 # APPLY META PREFIX

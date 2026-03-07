@@ -42,6 +42,10 @@ class QdrantStore:
                     size=vector_size,
                     distance=Distance.COSINE,
                 ),
+                hnsw_config={
+                    "m": 32,
+                    "ef_construct": 256
+                }
             )
             print(f"[QDRANT] collection created: {COLLECTION_NAME}")
 

@@ -2,6 +2,7 @@ from typing import List, Optional, Dict, Tuple
 from pydantic import BaseModel, Field
 import re
 import yaml
+from services.brand_detector import detect_brand
 from pathlib import Path
 from datetime import datetime
 from domain.query_schema import StructuredQuery
@@ -162,7 +163,7 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     # -------------------------
     # BRAND (yaml-driven)
     # -------------------------
-    brand, confidence = _extract_brand(text)
+    brand, confidence = detect_brand(title=text, text=text)
 
     if brand:
         confidence = 1.0
@@ -317,33 +318,3 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     expand_query_keywords(result)
 
     return result
-
-
-# =========================
-# BRAND EXTRACTION LOGIC
-# =========================
-
-def _extract_brand(text: str) -> Tuple[Optional[str], float]:
-
-    if not text:
-        return None, 0.0
-
-    text = text.lower()
-    tokens = re.findall(r"[a-zа-я0-9&\-]+", text)
-
-    for t in tokens:
-        brand = BRAND_TOKEN_INDEX.get(t)
-        if brand:
-            return brand.lower(), 1.0
-
-    joined = " ".join(tokens)
-
-    for token, brand in BRAND_TOKEN_INDEX.items():
-        if " " in token and token in joined:
-            return brand.lower(), 0.95
-
-    for token, brand in BRAND_TOKEN_INDEX.items():
-        if token in text:
-            return brand.lower(), 0.8
-
-    return None, 0.0

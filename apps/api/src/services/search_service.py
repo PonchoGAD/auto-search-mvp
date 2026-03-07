@@ -14,6 +14,8 @@ from sentence_transformers import CrossEncoder
 from integrations.vector_db.qdrant import QdrantStore
 from services.query_parser import StructuredQuery
 from services.query_router import route_query
+from services.car_intent_classifier import detect_car_intent
+from services.query_expander import expand_query
 
 from db.session import SessionLocal
 from db.models import SearchHistory
@@ -90,6 +92,10 @@ class SearchService:
         top_k: int = None,
     ) -> List[Dict[str, Any]]:
 
+        intent = detect_car_intent(structured.raw_query)
+
+        expanded_queries = expand_query(structured.raw_query)
+
         cache_key = f"search:{structured.raw_query}"
 
         # redis get
@@ -143,6 +149,13 @@ class SearchService:
         query_text = self._build_query_text(structured)
         query_vector = embed_text(query_text)
 
+        extra_vectors = []
+        for q in expanded_queries:
+            try:
+                extra_vectors.append(embed_text(q))
+            except Exception:
+                pass
+
         def _build_filter(
             brand: str = None,
             model: str = None,
@@ -180,19 +193,20 @@ class SearchService:
             primary_filter = _build_filter(
                 brand=brand_value,
                 model=model_value,
-                fuel=fuel_value,
+                fuel=fuel_value
             )
+
         elif route == "brand_only":
             primary_filter = _build_filter(
                 brand=brand_value,
-                model=model_value,
-                fuel=None,
+                model=model_value
             )
+
         else:
             primary_filter = _build_filter(
                 brand=None,
                 model=None,
-                fuel=fuel_value,
+                fuel=fuel_value
             )
 
         debug["applied_filters"].append(
@@ -480,10 +494,6 @@ class SearchService:
             except Exception:
                 pass
 
-        # =====================================================
-        # CROSS ENCODER RERANK (FINAL STAGE)
-        # =====================================================
-
         try:
 
             query_text = structured.raw_query
@@ -506,10 +516,6 @@ class SearchService:
             pass
 
         return results
-
-    # =====================================================
-    # TEXT SCORE (BM25-lite)
-    # =====================================================
 
     def _text_score(self, payload: Dict[str, Any], structured: StructuredQuery) -> float:
         text_parts = []
@@ -539,10 +545,6 @@ class SearchService:
                 score += 0.25
 
         return min(score / 4.0, 1.0)
-
-    # =====================================================
-    # CROSS ENCODER RERANK
-    # =====================================================
 
     def _rerank_results(
         self,
@@ -587,10 +589,6 @@ class SearchService:
         )
 
         return results[:top_k]
-
-    # =====================================================
-    # RANKING HELPERS (V2)
-    # =====================================================
 
     def _recency_score(self, payload: Dict[str, Any]) -> float:
         ts = payload.get("created_at_ts")
@@ -641,10 +639,6 @@ class SearchService:
         denom = 5_000_000.0
         return max(0.0, 1.0 - (price_val / denom))
 
-    # =====================================================
-    # HELPERS
-    # =====================================================
-
     def _build_query_text(self, structured: StructuredQuery) -> str:
         parts: List[str] = []
 
@@ -665,10 +659,6 @@ class SearchService:
             parts.extend(structured.keywords)
 
         return " ".join(parts).strip()
-
-    # =====================================================
-    # SCORING (legacy)
-    # =====================================================
 
     def _score_hit(
         self,

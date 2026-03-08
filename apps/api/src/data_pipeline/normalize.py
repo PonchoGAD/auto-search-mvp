@@ -1,5 +1,3 @@
-#  apps\api\src\data_pipeline\normalize.py
-
 import re
 from typing import Optional, Dict, Tuple
 from pathlib import Path
@@ -30,6 +28,15 @@ META_PREFIX_RE = re.compile(
     r"^__meta__:\s*(.+?)(?:\n|$)",
     re.IGNORECASE,
 )
+
+RE_MILEAGE = re.compile(r"(\d[\d\s]{2,7})\s*км", re.IGNORECASE)
+
+RE_FUEL = re.compile(
+    r"\b(бензин|diesel|дизель|petrol|gasoline|hybrid|гибрид|электро|electric)\b",
+    re.IGNORECASE,
+)
+
+RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
 
 def parse_meta(text: str) -> Tuple[Dict[str, str], str]:
@@ -184,15 +191,8 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     # YEAR
     # =========================
 
-    year = None
-
-    m = re.search(r"\b(19\d{2}|20\d{2})\b", lower)
-
-    if m:
-        try:
-            year = int(m.group(1))
-        except:
-            year = None
+    year_match = RE_YEAR.search(text)
+    year = int(year_match.group(1)) if year_match else None
 
     current_year = 2026
 
@@ -206,21 +206,15 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     # MILEAGE
     # =========================
 
-    mileage = None
+    mileage_match = RE_MILEAGE.search(text)
 
-    m = re.search(r"(\d[\d\s,]{3,7})\s*(км|km)", lower)
-
-    if m:
-
-        raw = m.group(1)
-
-        raw = raw.replace(",", "")
-        raw = raw.replace(" ", "")
-
+    if mileage_match:
         try:
-            mileage = int(raw)
+            mileage = int(mileage_match.group(1).replace(" ", ""))
         except:
             mileage = None
+    else:
+        mileage = None
 
     # тыс км
     m = re.search(r"(\d{1,3})\s*тыс\s*(км)?", lower)
@@ -282,19 +276,21 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     # FUEL
     # =========================
 
-    fuel = None
+    fuel_match = RE_FUEL.search(text)
 
-    if "дизел" in lower:
-        fuel = "diesel"
+    if fuel_match:
+        fuel_raw = fuel_match.group(1).lower()
 
-    elif "бенз" in lower:
-        fuel = "petrol"
-
-    elif "гибрид" in lower:
-        fuel = "hybrid"
-
-    elif "электр" in lower:
-        fuel = "electric"
+        if fuel_raw in ["дизель", "diesel"]:
+            fuel = "diesel"
+        elif fuel_raw in ["гибрид", "hybrid"]:
+            fuel = "hybrid"
+        elif fuel_raw in ["электро", "electric"]:
+            fuel = "electric"
+        else:
+            fuel = "petrol"
+    else:
+        fuel = None
 
     # =========================
     # PAINT

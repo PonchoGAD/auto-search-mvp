@@ -332,91 +332,110 @@ brands:
     en: ["kg mobility"]
     ru: ["кг мобилити"]
 
-  acura: ["acura"]
-  alfa_romeo: ["alfa romeo", "alfaromeo"]
-  alpina: ["alpina"]
-  aston_martin: ["aston martin", "astonmartin"]
-  audi: ["audi"]
-  bentley: ["bentley"]
-  bmw: ["bmw", "бмв"]
-  bugatti: ["bugatti"]
-  buick: ["buick"]
-  byd: ["byd"]
-  cadillac: ["cadillac"]
-  chery: ["chery"]
-  changan: ["changan"]
-  chevrolet: ["chevrolet", "chevy"]
-  chrysler: ["chrysler"]
-  citroen: ["citroen"]
-  cupra: ["cupra"]
-  dacia: ["dacia"]
-  daewoo: ["daewoo"]
-  daihatsu: ["daihatsu"]
-  dodge: ["dodge"]
-  dongfeng: ["dongfeng"]
-  ferrari: ["ferrari"]
-  fiat: ["fiat"]
-  ford: ["ford"]
-  gac: ["gac"]
-  geely: ["geely"]
-  genesis: ["genesis"]
-  gmc: ["gmc"]
-  great_wall: ["great wall", "greatwall"]
-  haval: ["haval"]
-  honda: ["honda"]
-  hongqi: ["hongqi"]
-  hyundai: ["hyundai"]
-  infiniti: ["infiniti"]
-  isuzu: ["isuzu"]
-  jac: ["jac"]
-  jaguar: ["jaguar"]
-  jeep: ["jeep"]
-  jetour: ["jetour"]
-  kia: ["kia"]
-  koenigsegg: ["koenigsegg"]
-  lamborghini: ["lamborghini"]
-  lancia: ["lancia"]
-  land_rover: ["land rover", "landrover"]
-  lexus: ["lexus"]
-  lincoln: ["lincoln"]
-  lotus: ["lotus"]
-  lucid: ["lucid"]
-  mahindra: ["mahindra"]
-  maserati: ["maserati"]
-  mazda: ["mazda"]
-  mclaren: ["mclaren"]
-  mercedes: ["mercedes", "mercedes-benz", "benz"]
-  mini: ["mini"]
-  mitsubishi: ["mitsubishi"]
-  nissan: ["nissan"]
-  nio: ["nio"]
-  opel: ["opel"]
-  peugeot: ["peugeot"]
-  polestar: ["polestar"]
-  pontiac: ["pontiac"]
-  porsche: ["porsche"]
-  ram: ["ram"]
-  renault: ["renault"]
-  rolls_royce: ["rolls royce", "rolls-royce"]
-  rover: ["rover"]
-  saab: ["saab"]
-  saturn: ["saturn"]
-  scion: ["scion"]
-  seat: ["seat"]
-  skoda: ["skoda"]
-  smart: ["smart"]
-  ssangyong: ["ssangyong"]
-  subaru: ["subaru"]
-  suzuki: ["suzuki"]
-  tata: ["tata"]
-  tesla: ["tesla"]
-  toyota: ["toyota"]
-  vauxhall: ["vauxhall"]
-  volkswagen: ["volkswagen", "vw"]
-  volvo: ["volvo"]
-  xpeng: ["xpeng"]
-  zeekr: ["zeekr"]
-  москвич: ["москвич"]
-  ваз: ["ваз", "lada", "лада"]
-  газ: ["газ"]
-  уаз: ["уаз"]
+  # =========================
+  # EXTRA / GLOBAL
+  # =========================
+
+  acura:
+    en: ["acura"]
+    ru: ["акура"]
+
+  aston_martin:
+    en: ["aston martin"]
+    ru: ["астон мартин"]
+
+  bugatti:
+    en: ["bugatti"]
+    ru: ["бугатти"]
+
+  cupra:
+    en: ["cupra"]
+    ru: ["купра"]
+
+  dacia:
+    en: ["dacia"]
+    ru: ["дачия"]
+
+  fiat:
+    en: ["fiat"]
+    ru: ["фиат"]
+
+  jetour:
+    en: ["jetour"]
+    ru: ["джетур"]
+
+  koenigsegg:
+    en: ["koenigsegg"]
+    ru: ["кёнигсегг"]
+
+  lancia:
+    en: ["lancia"]
+    ru: ["ланча"]
+
+  lotus:
+    en: ["lotus"]
+    ru: ["лотус"]
+
+  lucid:
+    en: ["lucid"]
+    ru: ["люсид"]
+
+  mahindra:
+    en: ["mahindra"]
+    ru: ["махиндра"]
+
+  mclaren:
+    en: ["mclaren"]
+    ru: ["макларен"]
+
+  polestar:
+    en: ["polestar"]
+    ru: ["полестар"]
+
+  pontiac:
+    en: ["pontiac"]
+    ru: ["понтиак"]
+
+  rover:
+    en: ["rover"]
+    ru: ["ровер"]
+
+  saab:
+    en: ["saab"]
+    ru: ["сааб"]
+
+  saturn:
+    en: ["saturn"]
+    ru: ["сатурн"]
+
+  scion:
+    en: ["scion"]
+    ru: ["сайон"]
+
+  smart:
+    en: ["smart"]
+    ru: ["смарт"]
+
+  tata:
+    en: ["tata"]
+    ru: ["тата"]
+
+  vauxhall:
+    en: ["vauxhall"]
+    ru: ["воксхолл"]
+
+  москвич:
+    en: ["moskvich"]
+    ru: ["москвич"]
+
+  ваз:
+    en: ["lada", "vaz"]
+    ru: ["ваз", "лада"]
+
+  газ:
+    en: ["gaz"]
+    ru: ["газ"]
+
+  уаз:
+    en: ["uaz"]
+    ru: ["уаз"]

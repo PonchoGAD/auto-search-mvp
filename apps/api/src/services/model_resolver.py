@@ -38,4 +38,15 @@ def resolve_model(brand, text):
             if re.search(r"\b" + re.escape(a) + r"\b", text):
                 return model
 
-    return None
+    matches = []
+
+    for m in brand_models:
+        if m in text:
+            matches.append(m)
+
+    if not matches:
+        return None
+
+    matches.sort(key=len, reverse=True)
+
+    return matches[0]

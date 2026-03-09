@@ -183,28 +183,26 @@ class SearchService:
 
             if fuel:
 
-                # exact match
-                should_conditions.append(
-                    FieldCondition(
-                        key="fuel",
-                        match=MatchValue(value=fuel),
-                    )
+                fuel_match = FieldCondition(
+                    key="fuel",
+                    match=MatchValue(value=fuel),
                 )
 
-                # allow missing fuel
-                should_conditions.append(
-                    FieldCondition(
-                        key="fuel",
-                        match=MatchValue(value=None),
-                    )
+                fuel_null = FieldCondition(
+                    key="fuel",
+                    match=MatchValue(value=None),
                 )
 
-            if not must_conditions and not should_conditions:
+                return Filter(
+                    should=[fuel_match, fuel_null],
+                    must=must_conditions
+                )
+
+            if not must_conditions:
                 return None
 
             return Filter(
                 must=must_conditions,
-                should=should_conditions if should_conditions else None,
             )
 
         if route == "structured":
@@ -254,6 +252,28 @@ class SearchService:
         except Exception as e:
             print(f"[SEARCH][WARN] qdrant unavailable: {e}", flush=True)
             return []
+
+        # PATCH 3 — fallback если фильтр убил результаты
+        if not hits and fuel_value:
+
+            debug["fallback_triggered"] = True
+            debug["search_stage"] = "fuel_fallback_removed"
+
+            fallback_filter = _build_filter(
+                brand=brand_value,
+                model=model_value,
+                fuel=None
+            )
+
+            try:
+                hits = self.store.search(
+                    vector=query_vector,
+                    limit=top_k,
+                    query_filter=fallback_filter
+                )
+            except Exception as e:
+                print(f"[SEARCH][WARN] qdrant fuel fallback unavailable: {e}", flush=True)
+                return []
 
         if not hits and model_value:
             debug["fallback_triggered"] = True
@@ -400,7 +420,6 @@ class SearchService:
 
                 if mileage_val is None:
 
-                    # allow missing mileage but penalize later
                     debug["skipped_by_mileage_null"] += 1
 
                 else:
@@ -475,7 +494,6 @@ class SearchService:
 
             final_score = final_score + vector_boost
 
-            # diversity bonus
             if payload.get("brand") and payload.get("model"):
                 final_score += 0.05
 

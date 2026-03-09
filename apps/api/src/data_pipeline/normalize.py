@@ -373,6 +373,9 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         title_text = title_text.replace("₽", " ₽ ")
         title_text = re.sub(r"\s+", " ", title_text)
 
+        # PATCH 4 — улучшить normalize
+        title_text = re.sub(r'(\d{4})([А-ЯA-Z])', r'\1 \2', title_text)
+
         body_text = strip_drom_noise((raw.content or "").strip())
 
         raw_text = f"{title_text}\n{body_text}".strip()

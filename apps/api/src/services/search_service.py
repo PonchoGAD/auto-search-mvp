@@ -195,14 +195,14 @@ class SearchService:
 
                 return Filter(
                     should=[fuel_match, fuel_null],
-                    should=must_conditions
+                    must=must_conditions
                 )
 
             if not must_conditions:
                 return None
 
             return Filter(
-                should=must_conditions,
+                must=must_conditions,
             )
 
         if route == "structured":

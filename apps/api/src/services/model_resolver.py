@@ -30,18 +30,23 @@ def resolve_model(brand, text):
         reverse=True
     ):
 
-        if re.search(r"\b" + re.escape(model) + r"\b", text):
+        pattern = r"\b" + re.escape(model) + r"\b"
+
+        if re.search(pattern, text):
             return model
 
         for a in aliases:
 
-            if re.search(r"\b" + re.escape(a) + r"\b", text):
+            pattern = r"\b" + re.escape(a) + r"\b"
+
+            if re.search(pattern, text):
                 return model
 
     matches = []
 
     for m in brand_models:
-        if m in text:
+        pattern = r"\b" + re.escape(m) + r"\b"
+        if re.search(pattern, text):
             matches.append(m)
 
     if not matches:

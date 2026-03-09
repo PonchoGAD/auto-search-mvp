@@ -29,14 +29,77 @@ META_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
-RE_MILEAGE = re.compile(r"(\d[\d\s]{2,7})\s*км", re.IGNORECASE)
+# =====================================================
+# PRODUCTION EXTRACTION REGEX
+# =====================================================
 
-RE_FUEL = re.compile(
-    r"\b(бензин|diesel|дизель|petrol|gasoline|hybrid|гибрид|электро|electric)\b",
-    re.IGNORECASE,
+RE_YEAR = re.compile(
+    r"\b(19\d{2}|20\d{2})\b"
 )
 
-RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
+RE_PRICE = re.compile(
+    r"(\d{3,9})\s*(₽|руб|р)",
+    re.IGNORECASE
+)
+
+RE_PRICE_FALLBACK = re.compile(
+    r"\b(\d{5,8})\b"
+)
+
+RE_MILEAGE = re.compile(
+    r"(\d{1,3}[\s]?\d{0,3})\s*(км|km)",
+    re.IGNORECASE
+)
+
+RE_MILEAGE_K = re.compile(
+    r"(\d{1,3})\s*(тыс|k)",
+    re.IGNORECASE
+)
+
+RE_FUEL = re.compile(
+    r"\b("
+    r"бензин|бенз|petrol|gasoline|"
+    r"дизель|diesel|"
+    r"гибрид|hybrid|"
+    r"электро|electric"
+    r")\b",
+    re.IGNORECASE
+)
+
+FUEL_MAP = {
+
+    "бензин": "petrol",
+    "бенз": "petrol",
+    "petrol": "petrol",
+    "gasoline": "petrol",
+
+    "дизель": "diesel",
+    "diesel": "diesel",
+
+    "гибрид": "hybrid",
+    "hybrid": "hybrid",
+
+    "электро": "electric",
+    "electric": "electric"
+}
+
+
+def normalize_title_format(text: str) -> str:
+
+    if not text:
+        return ""
+
+    text = text.replace("₽", " ₽ ")
+
+    # 2012Москва → 2012 Москва
+    text = re.sub(r'(\d{4})([А-ЯA-Z])', r'\1 \2', text)
+
+    # 799000₽Insignia → 799000 ₽ Insignia
+    text = re.sub(r'(₽)([A-Za-zА-Яа-я])', r'\1 \2', text)
+
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
 
 
 def parse_meta(text: str) -> Tuple[Dict[str, str], str]:
@@ -187,130 +250,177 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
 
     lower = text.lower()
 
-    # =========================
+    # =====================================================
     # YEAR
-    # =========================
+    # =====================================================
 
-    year_match = RE_YEAR.search(text)
-    year = int(year_match.group(1)) if year_match else None
+    year = None
 
-    current_year = 2026
+    year_matches = RE_YEAR.findall(text)
 
-    if year and year < 1980:
-        year = None
+    if year_matches:
 
-    if year and year > current_year + 1:
-        year = None
+        for y in year_matches:
 
-    # =========================
-    # MILEAGE
-    # =========================
+            try:
 
-    mileage_match = RE_MILEAGE.search(text)
+                y = int(y)
 
-    if mileage_match:
-        try:
-            mileage = int(mileage_match.group(1).replace(" ", ""))
-        except:
-            mileage = None
-    else:
-        mileage = None
+                if 1985 <= y <= 2026:
 
-    # тыс км
-    m = re.search(r"(\d{1,3})\s*тыс\s*(км)?", lower)
+                    year = y
 
-    if m and not mileage:
-        try:
-            mileage = int(m.group(1)) * 1000
-        except:
-            mileage = None
+                    break
 
-    # =========================
+            except:
+                pass
+
+    # =====================================================
     # PRICE
-    # =========================
+    # =====================================================
 
     price = None
     currency = None
 
-    m = re.search(r"(\d[\d\s\u00A0]{3,})\s*(₽|руб|р)", lower)
+    m = RE_PRICE.search(text)
 
     if m:
 
-        raw = m.group(1)
-
-        raw = raw.replace(" ", "")
-        raw = raw.replace("\u00A0", "")
-
         try:
-            price = int(raw)
-            currency = "RUB"
-        except:
-            price = None
-            currency = None
 
-    # title fallback
+            price = int(m.group(1))
+            currency = "RUB"
+
+        except:
+            pass
+
     if not price:
 
         title_part = text[:120]
 
-        m = re.search(r"(\d[\d\s]{3,})\s*(₽|руб|р)", title_part)
+        m = RE_PRICE_FALLBACK.search(title_part)
 
         if m:
 
-            raw = re.sub(r"\D", "", m.group(1))
-
             try:
-                price = int(raw)
-                currency = "RUB"
+
+                val = int(m.group(1))
+
+                if 100000 < val < 20000000:
+
+                    price = val
+                    currency = "RUB"
+
             except:
                 pass
 
-    # sanity
+    if not price:
+
+        m = re.search(r"(\d{3,7})", text)
+
+        if m:
+
+            try:
+
+                val = int(m.group(1))
+
+                if 100000 < val < 20000000:
+                    price = val
+                    currency = "RUB"
+
+            except:
+                pass
+
     if price and price < 10000:
+
         price = None
 
     if price and price > 200000000:
+
         price = None
 
-    # =========================
+    # =====================================================
+    # MILEAGE
+    # =====================================================
+
+    mileage = None
+
+    m = RE_MILEAGE.search(text)
+
+    if m:
+
+        try:
+
+            mileage = int(m.group(1).replace(" ", ""))
+
+        except:
+
+            mileage = None
+
+    if not mileage:
+
+        m = RE_MILEAGE_K.search(lower)
+
+        if m:
+
+            try:
+
+                mileage = int(m.group(1)) * 1000
+
+            except:
+
+                mileage = None
+
+    m = re.search(r"(\d{1,3})\s*(тыс|k)", lower)
+
+    if m and not mileage:
+        mileage = int(m.group(1)) * 1000
+
+    if mileage and mileage > 500000:
+
+        mileage = None
+
+    # =====================================================
     # FUEL
-    # =========================
+    # =====================================================
 
-    fuel_match = RE_FUEL.search(text)
+    fuel = None
 
-    if fuel_match:
-        fuel_raw = fuel_match.group(1).lower()
+    m = RE_FUEL.search(lower)
 
-        if fuel_raw in ["дизель", "diesel"]:
-            fuel = "diesel"
-        elif fuel_raw in ["гибрид", "hybrid"]:
-            fuel = "hybrid"
-        elif fuel_raw in ["электро", "electric"]:
-            fuel = "electric"
-        else:
-            fuel = "petrol"
-    else:
-        fuel = None
+    if m:
 
-    # =========================
-    # PAINT
-    # =========================
+        raw = m.group(1).lower()
+
+        fuel = FUEL_MAP.get(raw)
+
+    # =====================================================
+    # PAINT CONDITION
+    # =====================================================
 
     paint_condition = None
 
     if "без окрас" in lower or "не бит" in lower:
+
         paint_condition = "original"
 
     elif "крашен" in lower or "бит" in lower:
+
         paint_condition = "repainted"
 
     return {
+
         "year": year,
+
         "mileage": mileage,
+
         "price": price,
+
         "currency": currency,
+
         "fuel": fuel,
-        "paint_condition": paint_condition,
+
+        "paint_condition": paint_condition
     }
 
 
@@ -367,18 +477,13 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             session.delete(exists)
             session.flush()
 
-        title_text = (raw.title or "").strip()
-
-        # normalize title spacing
-        title_text = title_text.replace("₽", " ₽ ")
-        title_text = re.sub(r"\s+", " ", title_text)
-
-        # PATCH 4 — улучшить normalize
-        title_text = re.sub(r'(\d{4})([А-ЯA-Z])', r'\1 \2', title_text)
+        title_text = normalize_title_format((raw.title or "").strip())
 
         body_text = strip_drom_noise((raw.content or "").strip())
 
         raw_text = f"{title_text}\n{body_text}".strip()
+
+        raw_text = raw_text.replace("₽", " ₽ ")
 
         # =====================================================
         # 🧹 ANTI-NOISE (до индексации)
@@ -437,11 +542,15 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         # FIELD EXTRACTION
         # =====================================================
 
-        parse_text = f"{title_text} {text}"
+        parse_text = f"{title_text}\n{text}"
 
         fields = extract_fields(parse_text)
 
-        model = resolve_model(brand, title_text + " " + text)
+        model = resolve_model(brand, title_text)
+
+        if not model:
+
+            model = resolve_model(brand, text)
 
         doc = NormalizedDocument(
             raw_id=raw.id,

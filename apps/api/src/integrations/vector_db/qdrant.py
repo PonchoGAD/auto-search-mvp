@@ -219,6 +219,7 @@ class QdrantStore:
         vector: List[float],
         limit: int = 20,
         query_filter: dict | None = None,
+        query_text: Optional[str] = None,
     ):
         if query_filter:
             response = self.client.query_points(
@@ -234,9 +235,30 @@ class QdrantStore:
                 limit=limit,
             )
 
+        hits = response.points
+
+        # =====================================================
+        # BM25 / TEXT FALLBACK
+        # =====================================================
+
+        if not hits and query_text:
+
+            try:
+
+                response = self.client.query_points(
+                    collection_name=COLLECTION_NAME,
+                    query=query_text,
+                    limit=limit
+                )
+
+                hits = response.points
+
+            except Exception:
+                pass
+
         # 🔒 READ-SIDE NORMALIZATION (safety)
 
-        for p in response.points:
+        for p in hits:
 
             payload = p.payload or {}
 
@@ -249,7 +271,7 @@ class QdrantStore:
             if "fuel" in payload and isinstance(payload["fuel"], str):
                 payload["fuel"] = payload["fuel"].lower()
 
-        return response.points
+        return hits
 
 
 # =====================================================

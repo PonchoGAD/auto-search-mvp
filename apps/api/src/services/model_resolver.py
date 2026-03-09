@@ -50,6 +50,13 @@ def resolve_model(brand, text):
             matches.append(m)
 
     if not matches:
+        lower = text.lower()
+
+        for model in brand_models.keys():
+
+            if model in lower:
+                return model
+
         return None
 
     matches.sort(key=len, reverse=True)

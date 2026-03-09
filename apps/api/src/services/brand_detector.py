@@ -1,5 +1,3 @@
-# apps/api/src/services/brand_detector.py
-
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -14,8 +12,9 @@ def load_brands() -> Dict[str, Dict[str, List[str]]]:
 
         with open(brands_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
+            brands = data.get("brands", {})
+            return brands if isinstance(brands, dict) else {}
 
-        return data.get("brands", {})
     except Exception as e:
         print(f"[BRAND][WARN] brands.yaml load failed: {e}", flush=True)
         return {}
@@ -24,62 +23,170 @@ def load_brands() -> Dict[str, Dict[str, List[str]]]:
 BRANDS = load_brands()
 
 
+MODEL_BRAND_MAP = {
+    "camry": "toyota",
+    "corolla": "toyota",
+    "rav4": "toyota",
+    "rav 4": "toyota",
+    "prado": "toyota",
+    "land cruiser": "toyota",
+
+    "x1": "bmw",
+    "x2": "bmw",
+    "x3": "bmw",
+    "x4": "bmw",
+    "x5": "bmw",
+    "x6": "bmw",
+    "x7": "bmw",
+    "3 series": "bmw",
+    "5 series": "bmw",
+
+    "c class": "mercedes",
+    "e class": "mercedes",
+    "s class": "mercedes",
+    "glc": "mercedes",
+    "gle": "mercedes",
+    "gls": "mercedes",
+    "g class": "mercedes",
+
+    "a4": "audi",
+    "a6": "audi",
+    "q3": "audi",
+    "q5": "audi",
+    "q7": "audi",
+    "q8": "audi",
+
+    "solaris": "hyundai",
+    "elantra": "hyundai",
+    "sonata": "hyundai",
+    "tucson": "hyundai",
+    "santa fe": "hyundai",
+    "creta": "hyundai",
+
+    "rio": "kia",
+    "cerato": "kia",
+    "ceed": "kia",
+    "k5": "kia",
+    "optima": "kia",
+    "sportage": "kia",
+    "sorento": "kia",
+
+    "civic": "honda",
+    "accord": "honda",
+    "cr v": "honda",
+    "cr-v": "honda",
+    "pilot": "honda",
+
+    "mazda 3": "mazda",
+    "mazda3": "mazda",
+    "mazda 6": "mazda",
+    "mazda6": "mazda",
+    "cx 5": "mazda",
+    "cx-5": "mazda",
+
+    "qashqai": "nissan",
+    "x trail": "nissan",
+    "x-trail": "nissan",
+    "teana": "nissan",
+    "patrol": "nissan",
+
+    "rx": "lexus",
+    "rx350": "lexus",
+    "nx": "lexus",
+    "lx": "lexus",
+
+    "range rover": "land_rover",
+    "range rover sport": "land_rover",
+    "evoque": "land_rover",
+    "velar": "land_rover",
+    "discovery": "land_rover",
+}
+
+
+def _normalize_text(text: str) -> str:
+    text = text or ""
+    text = text.replace("\u00A0", " ")
+    text = re.sub(r"[-_/]+", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip().lower()
+
+
 def _build_candidates(cfg: Dict[str, List[str]]) -> List[str]:
     values: List[str] = []
+
+    if not isinstance(cfg, dict):
+        return values
+
     for key in ("en", "ru", "aliases"):
-        for v in cfg.get(key, []):
+        items = cfg.get(key, [])
+        if not isinstance(items, list):
+            continue
+        for v in items:
             if isinstance(v, str) and v.strip():
-                values.append(v.strip().lower())
+                values.append(_normalize_text(v))
+
     return list(dict.fromkeys(values))
+
+
+def _contains_phrase(text: str, phrase: str) -> bool:
+    if not phrase:
+        return False
+
+    pattern = r"\b" + r"\s+".join(re.escape(p) for p in phrase.split()) + r"\b"
+    return bool(re.search(pattern, text, re.IGNORECASE))
 
 
 def _match_brand(text: str) -> Tuple[Optional[str], float]:
     if not text:
         return None, 0.0
 
-    text = text.lower()
-    tokens = re.findall(r"[a-zа-я0-9&\-]+", text)
+    text_norm = _normalize_text(text)
 
-    # 1. exact token/phrase
+    # 1. exact phrase / token from brands.yaml
+    best_brand = None
+    best_score = 0.0
+    best_len = 0
+
     for brand_key, cfg in BRANDS.items():
         candidates = _build_candidates(cfg)
 
         for candidate in candidates:
-            candidate_tokens = re.findall(r"[a-zа-я0-9&\-]+", candidate)
+            if _contains_phrase(text_norm, candidate):
+                score = 1.0 if candidate in [_normalize_text(x) for x in cfg.get("en", []) + cfg.get("ru", [])] else 0.9
+                clen = len(candidate)
 
-            if not candidate_tokens:
-                continue
+                if clen > best_len or (clen == best_len and score > best_score):
+                    best_brand = str(brand_key).lower()
+                    best_score = score
+                    best_len = clen
 
-            if len(candidate_tokens) == 1:
-                if candidate_tokens[0] in tokens:
-                    if candidate in cfg.get("en", []) or candidate in cfg.get("ru", []):
-                        return brand_key.lower(), 1.0
-                    return brand_key.lower(), 0.9
-            else:
-                phrase = " ".join(candidate_tokens)
-                if phrase in " ".join(tokens):
-                    if candidate in cfg.get("en", []) or candidate in cfg.get("ru", []):
-                        return brand_key.lower(), 0.98
-                    return brand_key.lower(), 0.88
+    if best_brand:
+        return best_brand, best_score
 
-    # 2. soft substring fallback
-    for brand_key, cfg in BRANDS.items():
-        candidates = _build_candidates(cfg)
-        for candidate in candidates:
-            if candidate and candidate in text:
-                if candidate in cfg.get("en", []) or candidate in cfg.get("ru", []):
-                    return brand_key.lower(), 0.8
-                return brand_key.lower(), 0.7
+    # 2. fallback by strong model tokens
+    best_model_brand = None
+    best_model_len = 0
+
+    for model_token, brand in MODEL_BRAND_MAP.items():
+        token_norm = _normalize_text(model_token)
+        if _contains_phrase(text_norm, token_norm):
+            if len(token_norm) > best_model_len:
+                best_model_brand = brand
+                best_model_len = len(token_norm)
+
+    if best_model_brand:
+        return best_model_brand, 0.82
 
     return None, 0.0
 
 
 def detect_brand(title: str = "", text: str = "") -> Tuple[Optional[str], float]:
     """
-    Production brand detection:
+    Production brand detection priority:
     1) title exact/phrase
-    2) title soft
-    3) full text fallback
+    2) full text exact/phrase
+    3) title model fallback
+    4) text model fallback
     """
     title = (title or "").strip()
     text = (text or "").strip()
@@ -90,45 +197,6 @@ def detect_brand(title: str = "", text: str = "") -> Tuple[Optional[str], float]
 
     brand, conf = _match_brand(text)
     if brand:
-        return brand, min(conf, 0.85)
-
-    for model, brand in MODEL_BRAND_MAP.items():
-        if model in text.lower():
-            return brand, 0.8
-
-    lower = text.lower()
-
-    for model, brand in MODEL_BRAND_MAP.items():
-        if model in lower:
-            return brand, 0.8
+        return brand, min(conf, 0.9)
 
     return None, 0.0
-
-
-MODEL_BRAND_MAP = {
-
-    "camry": "toyota",
-    "corolla": "toyota",
-    "rav4": "toyota",
-    "land cruiser": "toyota",
-
-    "x5": "bmw",
-    "x6": "bmw",
-    "x3": "bmw",
-
-    "c200": "mercedes",
-    "e200": "mercedes",
-    "gle": "mercedes",
-
-    "solaris": "hyundai",
-    "elantra": "hyundai",
-
-    "sportage": "kia",
-    "sorento": "kia",
-
-    "insignia": "opel",
-    "astra": "opel",
-
-    "q5": "audi",
-    "q7": "audi",
-}

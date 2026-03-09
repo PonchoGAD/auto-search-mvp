@@ -33,54 +33,55 @@ META_PREFIX_RE = re.compile(
 # PRODUCTION EXTRACTION REGEX
 # =====================================================
 
-RE_YEAR = re.compile(
-    r"\b(19\d{2}|20\d{2})\b"
-)
+RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
 RE_PRICE = re.compile(
-    r"(\d{3,9})\s*(₽|руб|р)",
-    re.IGNORECASE
+    r"(\d[\d\s\u00A0]{3,12})\s*(₽|руб(?:\.|лей)?|р(?:\.|уб)?\b)",
+    re.IGNORECASE,
 )
 
-RE_PRICE_FALLBACK = re.compile(
-    r"\b(\d{5,8})\b"
+RE_PRICE_TITLE_GLUE = re.compile(
+    r"(\d[\d\s\u00A0]{3,12})(?:₽|руб(?:\.|лей)?|р(?:\.|уб)?)(?=[A-Za-zА-Яа-я])",
+    re.IGNORECASE,
 )
 
 RE_MILEAGE = re.compile(
-    r"(\d{1,3}[\s]?\d{0,3})\s*(км|km)",
-    re.IGNORECASE
+    r"(\d[\d\s,\u00A0]{2,10})\s*(км|km)\b",
+    re.IGNORECASE,
 )
 
 RE_MILEAGE_K = re.compile(
-    r"(\d{1,3})\s*(тыс|k)",
-    re.IGNORECASE
+    r"(\d{1,3}(?:[.,]\d)?)\s*(тыс\.?|т\.км|k)\b",
+    re.IGNORECASE,
 )
 
 RE_FUEL = re.compile(
     r"\b("
     r"бензин|бенз|petrol|gasoline|"
-    r"дизель|diesel|"
+    r"дизель|диз|diesel|"
     r"гибрид|hybrid|"
-    r"электро|electric"
+    r"электро|электр|electric|ev"
     r")\b",
-    re.IGNORECASE
+    re.IGNORECASE,
 )
 
 FUEL_MAP = {
-
     "бензин": "petrol",
     "бенз": "petrol",
     "petrol": "petrol",
     "gasoline": "petrol",
 
     "дизель": "diesel",
+    "диз": "diesel",
     "diesel": "diesel",
 
     "гибрид": "hybrid",
     "hybrid": "hybrid",
 
     "электро": "electric",
-    "electric": "electric"
+    "электр": "electric",
+    "electric": "electric",
+    "ev": "electric",
 }
 
 
@@ -89,17 +90,30 @@ def normalize_title_format(text: str) -> str:
     if not text:
         return ""
 
+    text = text.replace("\u00A0", " ")
     text = text.replace("₽", " ₽ ")
 
-    # 2012Москва → 2012 Москва
-    text = re.sub(r'(\d{4})([А-ЯA-Z])', r'\1 \2', text)
+    # 2012Москва -> 2012 Москва
+    text = re.sub(r"(\d{4})([А-ЯA-Z])", r"\1 \2", text)
 
-    # 799000₽Insignia → 799000 ₽ Insignia
-    text = re.sub(r'(₽)([A-Za-zА-Яа-я])', r'\1 \2', text)
+    # 799000₽Insignia -> 799000 ₽ Insignia
+    text = re.sub(r"(₽)([A-Za-zА-Яа-я])", r"\1 \2", text)
+
+    # Camry,2019 -> Camry, 2019
+    text = re.sub(r",(\d{4})", r", \1", text)
+
+    # Q30,2019Москва -> Q30, 2019 Москва
+    text = re.sub(r"(\d{4})([А-ЯA-Z])", r"\1 \2", text)
 
     text = re.sub(r"\s+", " ", text)
 
     return text.strip()
+
+
+def _digits_only(value: str) -> str:
+    if not value:
+        return ""
+    return re.sub(r"[^\d]", "", value)
 
 
 def parse_meta(text: str) -> Tuple[Dict[str, str], str]:
@@ -248,6 +262,7 @@ def extract_model(text: str, brand: Optional[str]) -> Optional[str]:
 
 def extract_fields(text: str) -> Dict[str, Optional[object]]:
 
+    text = text or ""
     lower = text.lower()
 
     # =====================================================
@@ -256,24 +271,14 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
 
     year = None
 
-    year_matches = RE_YEAR.findall(text)
-
-    if year_matches:
-
-        for y in year_matches:
-
-            try:
-
-                y = int(y)
-
-                if 1985 <= y <= 2026:
-
-                    year = y
-
-                    break
-
-            except:
-                pass
+    for y in RE_YEAR.findall(text):
+        try:
+            y_int = int(y)
+            if 1985 <= y_int <= 2026:
+                year = y_int
+                break
+        except Exception:
+            pass
 
     # =====================================================
     # PRICE
@@ -285,59 +290,41 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     m = RE_PRICE.search(text)
 
     if m:
-
+        raw = _digits_only(m.group(1))
         try:
-
-            price = int(m.group(1))
-            currency = "RUB"
-
-        except:
+            val = int(raw)
+            if 10_000 <= val <= 200_000_000:
+                price = val
+                currency = "RUB"
+        except Exception:
             pass
 
-    if not price:
-
-        title_part = text[:120]
-
-        m = RE_PRICE_FALLBACK.search(title_part)
-
+    if price is None:
+        title_part = text[:140]
+        m = RE_PRICE_TITLE_GLUE.search(title_part)
         if m:
-
+            raw = _digits_only(m.group(1))
             try:
-
-                val = int(m.group(1))
-
-                if 100000 < val < 20000000:
-
+                val = int(raw)
+                if 10_000 <= val <= 200_000_000:
                     price = val
                     currency = "RUB"
-
-            except:
+            except Exception:
                 pass
 
-    if not price:
-
-        m = re.search(r"(\d{3,7})", text)
-
+    # fallback только для title, чтобы не ловить случайные годы / пробеги из body
+    if price is None:
+        title_part = text[:140]
+        m = re.search(r"^\D{0,15}(\d[\d\s\u00A0]{4,12})", title_part)
         if m:
-
+            raw = _digits_only(m.group(1))
             try:
-
-                val = int(m.group(1))
-
-                if 100000 < val < 20000000:
+                val = int(raw)
+                if 100_000 <= val <= 200_000_000:
                     price = val
                     currency = "RUB"
-
-            except:
+            except Exception:
                 pass
-
-    if price and price < 10000:
-
-        price = None
-
-    if price and price > 200000000:
-
-        price = None
 
     # =====================================================
     # MILEAGE
@@ -346,39 +333,38 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     mileage = None
 
     m = RE_MILEAGE.search(text)
-
     if m:
-
+        raw = _digits_only(m.group(1))
         try:
+            val = int(raw)
+            if 0 <= val <= 500_000:
+                mileage = val
+        except Exception:
+            pass
 
-            mileage = int(m.group(1).replace(" ", ""))
-
-        except:
-
-            mileage = None
-
-    if not mileage:
-
+    if mileage is None:
         m = RE_MILEAGE_K.search(lower)
-
         if m:
-
+            raw = m.group(1).replace(",", ".")
             try:
+                val = float(raw) * 1000
+                val = int(val)
+                if 0 <= val <= 500_000:
+                    mileage = val
+            except Exception:
+                pass
 
-                mileage = int(m.group(1)) * 1000
-
-            except:
-
-                mileage = None
-
-    m = re.search(r"(\d{1,3})\s*(тыс|k)", lower)
-
-    if m and not mileage:
-        mileage = int(m.group(1)) * 1000
-
-    if mileage and mileage > 500000:
-
-        mileage = None
+    # дополнительный fallback: "пробег 120000"
+    if mileage is None:
+        m = re.search(r"пробег[:\s]+(\d[\d\s\u00A0]{2,10})\b", lower, re.IGNORECASE)
+        if m:
+            raw = _digits_only(m.group(1))
+            try:
+                val = int(raw)
+                if 0 <= val <= 500_000:
+                    mileage = val
+            except Exception:
+                pass
 
     # =====================================================
     # FUEL
@@ -387,11 +373,8 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     fuel = None
 
     m = RE_FUEL.search(lower)
-
     if m:
-
         raw = m.group(1).lower()
-
         fuel = FUEL_MAP.get(raw)
 
     # =====================================================
@@ -400,27 +383,30 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
 
     paint_condition = None
 
-    if "без окрас" in lower or "не бит" in lower:
-
+    if (
+        "без окрас" in lower
+        or "без окраса" in lower
+        or "не бит" in lower
+        or "не крашен" in lower
+        or "не крашена" in lower
+    ):
         paint_condition = "original"
 
-    elif "крашен" in lower or "бит" in lower:
-
+    elif (
+        "крашен" in lower
+        or "крашена" in lower
+        or "бит" in lower
+        or "окрас" in lower
+    ):
         paint_condition = "repainted"
 
     return {
-
         "year": year,
-
         "mileage": mileage,
-
         "price": price,
-
         "currency": currency,
-
         "fuel": fuel,
-
-        "paint_condition": paint_condition
+        "paint_condition": paint_condition,
     }
 
 
@@ -532,8 +518,11 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         if not brand:
             brand = extract_brand_fallback(text)
 
+        if not brand:
+            brand = extract_brand_fallback(parse_meta(enriched_content)[1])
+
         if brand:
-            brand = brand.lower()
+            brand = brand.lower().strip()
 
         if not brand:
             brand = "unknown"
@@ -546,11 +535,12 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
 
         fields = extract_fields(parse_text)
 
+        parse_text = f"{title_text}\n{text}"
+
         model = resolve_model(brand, title_text)
 
         if not model:
-
-            model = resolve_model(brand, text)
+            model = resolve_model(brand, parse_text)
 
         doc = NormalizedDocument(
             raw_id=raw.id,

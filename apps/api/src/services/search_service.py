@@ -334,10 +334,33 @@ class SearchService:
                 print(f"[SEARCH][WARN] qdrant fuel-only fallback unavailable: {e}", flush=True)
                 return []
 
+        # =====================================================
+        # FINAL VECTOR FALLBACK
+        # =====================================================
+
         if not hits:
-            print(f"[DEBUG] filters={debug['applied_filters']}", flush=True)
-            print(f"[DEBUG] stats={debug}", flush=True)
-            return []
+
+            print("[SEARCH] vector fallback triggered", flush=True)
+
+            try:
+
+                hits = self.store.search(
+                    vector=query_vector,
+                    limit=top_k,
+                    query_filter=None
+                )
+
+                debug["fallback_triggered"] = True
+                debug["search_stage"] = "vector_fallback"
+
+            except Exception as e:
+
+                print(f"[SEARCH][ERROR] vector fallback failed: {e}")
+
+                print(f"[DEBUG] filters={debug['applied_filters']}", flush=True)
+                print(f"[DEBUG] stats={debug}", flush=True)
+
+                return []
 
         seen_point_ids = set()
 
@@ -442,19 +465,19 @@ class SearchService:
 
             if brand_value:
                 final_score = (
-                    semantic * 0.45
-                    + text_score * 0.30
+                    semantic * 0.50
+                    + text_score * 0.25
                     + recency * 0.15
                     + sale_bonus * 0.10
-                    + completeness * 0.10
+                    + completeness * 0.20
                 )
             else:
                 final_score = (
-                    semantic * 0.65
+                    semantic * 0.60
                     + text_score * 0.20
-                    + recency * 0.20
-                    + sale_bonus * 0.10
-                    + completeness * 0.05
+                    + recency * 0.15
+                    + sale_bonus * 0.05
+                    + completeness * 0.15
                 )
 
             if price_score > 0:
@@ -748,9 +771,11 @@ class SearchService:
 
         if structured.brand:
             parts.append(structured.brand)
+            parts.append(f"{structured.brand} car")
 
         if structured.model:
             parts.append(structured.model)
+            parts.append(f"{structured.brand} {structured.model}")
 
         if structured.fuel:
             parts.append(structured.fuel)

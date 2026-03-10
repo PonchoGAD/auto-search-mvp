@@ -185,6 +185,10 @@ def index_document_chunks(
                 fuel = None
 
             price = _norm_int(getattr(doc, "price", None))
+
+            if price is not None and price <= 0:
+                price = None
+
             mileage = _norm_int(getattr(doc, "mileage", None))
             year = _norm_int(getattr(doc, "year", None))
 
@@ -193,9 +197,8 @@ def index_document_chunks(
                 brand = None
 
             # allow partial documents
-            if price is None and mileage is None and year is None:
-                # keep document but mark low completeness
-                pass
+            if price is None and mileage is None and year is None and fuel is None:
+                continue
 
             created_at_ts = getattr(doc, "created_at_ts", None)
             if created_at_ts is None:

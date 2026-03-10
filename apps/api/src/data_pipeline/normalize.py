@@ -19,6 +19,8 @@ from services.ingest_quality import (
 
 from services.model_resolver import resolve_model
 
+from services.car_entity_extractor import extract_car_entities
+
 
 # =========================
 # META PARSING
@@ -165,7 +167,7 @@ BRANDS_CONFIG = load_brands()
 # TEXT HELPERS
 # =========================
 
-def clean_text(text: str) -> str:
+def clean_text(text: str):
 
     if not text:
         return ""
@@ -177,7 +179,7 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def strip_drom_noise(text: str) -> str:
+def strip_drom_noise(text: str):
     if not text:
         return ""
 
@@ -472,9 +474,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
 
         raw_text = raw_text.replace("₽", " ₽ ")
 
-        # =====================================================
-        # 🧹 ANTI-NOISE (до индексации)
-        # =====================================================
         skip, skip_meta = should_skip_doc(
             text=raw_text,
             source=raw.source or "",
@@ -483,10 +482,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         if skip:
             skipped += 1
             continue
-
-        # =====================================================
-        # 🧠 META ENRICHMENT (до normalize)
-        # =====================================================
 
         brand_key, brand_conf = detect_brand(title_text)
 
@@ -505,17 +500,21 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
 
         enriched_content = apply_meta_prefix(raw_text, meta_prefix)
 
-        # =====================================================
-        # META PARSE
-        # =====================================================
         meta, content_wo_meta = parse_meta(enriched_content)
         text = clean_text(content_wo_meta)
         full_text = f"{title_text}\n{text}".strip()
 
-        brand = brand_key
+        entities = extract_car_entities(title_text, full_text)
+
+        brand = entities.get("brand")
+        model = entities.get("model")
+        price = entities.get("price")
+        mileage = entities.get("mileage")
+        fuel = entities.get("fuel")
+        year = entities.get("year")
 
         if not brand:
-            brand, _ = detect_brand(full_text)
+            brand = brand_key
 
         if not brand:
             brand = extract_brand_fallback(title_text)
@@ -528,16 +527,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         else:
             brand = "unknown"
 
-        # =====================================================
-        # FIELD EXTRACTION
-        # =====================================================
-
         fields = extract_fields(full_text)
-
-        model = resolve_model(brand, title_text)
-
-        if not model:
-            model = resolve_model(brand, full_text)
 
         doc = NormalizedDocument(
             raw_id=raw.id,
@@ -547,11 +537,11 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             normalized_text=text,
             brand=brand,
             model=model,
-            year=fields["year"] if isinstance(fields["year"], int) else None,
-            mileage=fields["mileage"] if isinstance(fields["mileage"], int) else None,
-            price=fields["price"] if isinstance(fields["price"], int) else None,
-            currency=fields["currency"],
-            fuel=fields["fuel"] if isinstance(fields["fuel"], str) else None,
+            year=year if isinstance(year, int) else fields["year"],
+            mileage=mileage if isinstance(mileage, int) else fields["mileage"],
+            price=price if isinstance(price, int) else fields["price"],
+            currency="RUB" if isinstance(price, int) else fields["currency"],
+            fuel=fuel if isinstance(fuel, str) else fields["fuel"],
             paint_condition=fields["paint_condition"],
         )
 

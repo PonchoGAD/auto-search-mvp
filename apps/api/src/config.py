@@ -46,9 +46,9 @@ class Settings(BaseSettings):
     # QUALITY FILTERS
     # =========================
     MIN_TEXT_LEN: int = 80
-    MIN_PRICE_RUB: int = 150_000
-    MAX_PRICE_RUB: int = 20_000_000
-    MIN_YEAR: int = 1995
+    MIN_PRICE_RUB: int = 10_000
+    MAX_PRICE_RUB: int = 200_000_000
+    MIN_YEAR: int = 1990
     MAX_MILEAGE_KM: int = 400_000
 
     BLACKLIST_WORDS: List[str] = [

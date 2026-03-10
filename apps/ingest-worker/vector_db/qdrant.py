@@ -1,7 +1,7 @@
 import os
 from datetime import datetime, timezone
 from typing import List, Optional
-from uuid import uuid4
+import hashlib
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct
@@ -282,8 +282,14 @@ class QdrantStore:
         if os.getenv("DEBUG_QDRANT_PAYLOAD") == "1":
             print("[QDRANT][PAYLOAD]", payload)
 
+        point_hash = hashlib.sha1(
+            f"{document.id}_{chunk_text[:50]}".encode()
+        ).hexdigest()
+
+        point_id = int(point_hash[:16], 16)
+
         return PointStruct(
-            id=str(uuid4()),
+            id=point_id,
             vector=vector,
             payload=payload,
         )

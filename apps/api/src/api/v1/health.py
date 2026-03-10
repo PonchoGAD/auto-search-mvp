@@ -29,7 +29,7 @@ def health():
     return {
         "status": "ok",
         "service": "auto-search-api",
-        "env": settings.env,
+        "env": settings.ENV,
     }
 
 
@@ -73,7 +73,7 @@ def readiness():
     # -------------------------
     start = time.time()
     try:
-        r = redis.from_url(settings.redis_url, socket_timeout=2)
+        r = redis.from_url(settings.REDIS_URL, socket_timeout=2)
         r.ping()
         checks["redis"] = "ok"
     except Exception as e:
@@ -87,7 +87,7 @@ def readiness():
     # -------------------------
     start = time.time()
     try:
-        qdrant_client.get_collections()
+        qdrant_client.get_collections(timeout=2)
         checks["qdrant"] = "ok"
     except Exception as e:
         checks["qdrant"] = "error"
@@ -123,6 +123,7 @@ def readiness():
 
     return Response(
         content=json.dumps({
+            "service": "auto-search-api",
             "status": "ready" if is_ready else "not_ready",
             "checks": checks,
             "timings": timings,

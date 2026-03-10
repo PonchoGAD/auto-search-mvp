@@ -91,6 +91,8 @@ def search(request: SearchRequest):
     structured: Optional[StructuredQuery] = None
     results: List[dict] = []
     answer: Optional[str] = None
+
+    # temporary proxy for result count after retrieval
     vector_hits = 0
 
     try:
@@ -99,6 +101,16 @@ def search(request: SearchRequest):
         # -------------------------
         structured = parse_query(request.query)
 
+        # safe serialization for pydantic v1/v2
+        if structured:
+            structured_payload = (
+                structured.model_dump()
+                if hasattr(structured, "model_dump")
+                else structured.dict()
+            )
+        else:
+            structured_payload = {}
+
         # -------------------------
         # SEARCH (SAFE FOR DEMO)
         # -------------------------
@@ -106,6 +118,8 @@ def search(request: SearchRequest):
 
         try:
             results = service.search(structured)
+
+            # temporary proxy for result count after retrieval
             vector_hits = len(results)
 
             print(
@@ -118,7 +132,7 @@ def search(request: SearchRequest):
         except Exception as e:
             # 🔥 КЛЮЧЕВОЕ ДЛЯ SMOKE DEMO
             # Qdrant пуст / коллекции нет / index не запускался
-            print(f"[SEARCH][DEMO][WARN] search skipped: {e}")
+            print(f"[SEARCH][DEMO][WARN] search skipped: {repr(e)}")
             results = []
             vector_hits = 0
 
@@ -137,8 +151,16 @@ def search(request: SearchRequest):
 
         print(f"[SEARCH][ERROR] {e}")
 
+        structured_payload = (
+            structured.model_dump()
+            if structured and hasattr(structured, "model_dump")
+            else structured.dict()
+            if structured
+            else {}
+        )
+
         return {
-            "structuredQuery": structured.model_dump() if structured else {},
+            "structuredQuery": structured_payload,
             "results": [],
             "sources": [],
             "answer": None,
@@ -173,7 +195,7 @@ def search(request: SearchRequest):
         metrics = MetricsService()
         metrics.log_search(
             raw_query=request.query,
-            structured_query=structured.model_dump() if structured else {},
+            structured_query=structured_payload,
             results_count=len(results),
             latency_ms=latency_ms,
             results=results,
@@ -182,7 +204,7 @@ def search(request: SearchRequest):
         pass
 
     return {
-        "structuredQuery": structured.model_dump() if structured else {},
+        "structuredQuery": structured_payload,
         "results": results,
         "sources": sources,
         "answer": answer,

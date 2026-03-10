@@ -47,7 +47,7 @@ from services.ingest_quality import (
 # INDEXING (QDRANT)
 # =========================
 
-from data_pipeline.index import index_raw_documents
+from data_pipeline.index import run_index
 
 # =========================
 # ENV CONFIG
@@ -269,7 +269,7 @@ def run_ingest() -> Dict[str, int]:
         # -------------------------
         # INDEX → QDRANT
         # -------------------------
-        indexed = index_raw_documents(saved_docs)
+        indexed = run_index(limit=len(saved_docs))
 
         print(
             f"[INGEST] saved={len(saved_docs)}, "

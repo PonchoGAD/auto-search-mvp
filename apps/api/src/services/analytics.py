@@ -160,7 +160,6 @@ class AnalyticsService:
         - empty_queries
         - noise_ratio
         """
-        # source может быть None/пустой — нормализуем
         rows = (
             self.session.query(
                 SearchHistory.source.label("source"),
@@ -193,7 +192,6 @@ class AnalyticsService:
                 }
             )
 
-        # Чтобы UI стабильно показывал сначала “хуже”:
         result.sort(key=lambda x: x["noise_ratio"], reverse=True)
         return result
 
@@ -224,17 +222,12 @@ class AnalyticsService:
     def brand_gap(self, limit: int = 10) -> List[Dict[str, Any]]:
         """
         "Спрос есть, предложения нет": бренды, которые ищут, но которых нет в NormalizedDocument.
-
-        Важно:
-        - structured_query хранится как JSON. В Postgres это JSONB.
-        - Используем ->> (as_string) чтобы достать строку.
         """
         limit = min(max(int(limit), 1), 50)
 
-        # В некоторых MVP structured_query может быть None или не содержать brand.
         searched = (
             self.session.query(
-                SearchHistory.structured_query["brand"].as_string().label("brand"),
+                SearchHistory.structured_query["brand"].astext.label("brand"),
                 func.count(SearchHistory.id).label("count"),
             )
             .filter(SearchHistory.structured_query.isnot(None))
@@ -246,7 +239,7 @@ class AnalyticsService:
         )
 
         existing_brands = {
-            r[0]
+            (r[0] or "").lower().strip()
             for r in self.session.query(NormalizedDocument.brand)
             .filter(NormalizedDocument.brand.isnot(None))
             .distinct()
@@ -255,7 +248,8 @@ class AnalyticsService:
 
         gaps: List[Dict[str, Any]] = []
         for r in searched:
-            brand = r.brand
+            brand = (r.brand or "").lower().strip()
+
             if not brand:
                 continue
 
@@ -275,8 +269,6 @@ class AnalyticsService:
         """
         "Шумный источник" = в raw много, в normalized мало.
         quality_ratio = normalized / raw
-
-        quality_threshold по умолчанию 0.5 (если < 0.5 — источник подозрительный)
         """
         try:
             thr = float(quality_threshold)
@@ -320,7 +312,6 @@ class AnalyticsService:
                     }
                 )
 
-        # сначала самые “плохие”
         result.sort(key=lambda x: x["quality_ratio"])
         return result
 
@@ -341,5 +332,11 @@ class AnalyticsService:
     def close(self) -> None:
         try:
             self.session.close()
+        except Exception:
+            pass
+
+    def __del__(self):
+        try:
+            self.close()
         except Exception:
             pass

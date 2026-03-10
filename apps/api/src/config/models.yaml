@@ -10,6 +10,12 @@ toyota:
   avalon: ["avalon"]
   c_hr: ["chr", "c-hr"]
   venza: ["venza"]
+  isis: ["isis"]
+  ipsum: ["ipsum"]
+  vista: ["vista"]
+  hilux: ["hilux"]
+  tacoma: ["tacoma"]
+  corolla_fielder: ["corolla fielder"]
 
 bmw:
   "1": ["1 series", "f20", "f40"]
@@ -83,6 +89,9 @@ hyundai:
   palisade: ["palisade"]
   kona: ["kona"]
   i30: ["i30"]
+  grand_santa_fe: ["grand santa fe"]
+  i40: ["i40"]
+  getz: ["getz"]
 
 kia:
   rio: ["rio"]
@@ -92,15 +101,22 @@ kia:
   sportage: ["sportage"]
   sorento: ["sorento"]
   carnival: ["carnival"]
+  tasman: ["tasman"]
+  pegas: ["pegas"]
+
+genesis:
+  gv70: ["gv70"]
+  gv80: ["gv80"]
 
 nissan:
   qashqai: ["qashqai"]
-  x_trail: ["x trail", "xtrail"]
+  x_trail: ["x trail", "x-trail", "xtrail"]
   patrol: ["patrol"]
   note: ["note"]
   juke: ["juke"]
   murano: ["murano"]
   maxima: ["maxima"]
+  teana: ["teana"]
 
 honda:
   civic: ["civic"]
@@ -109,6 +125,7 @@ honda:
   hr_v: ["hrv"]
   pilot: ["pilot"]
   insight: ["insight"]
+  stream: ["stream"]
 
 mazda:
   mazda2: ["mazda2"]
@@ -118,6 +135,7 @@ mazda:
   cx_5: ["cx5"]
   cx_9: ["cx9"]
   mx_5: ["mx5", "miata"]
+  cx_60: ["cx60", "cx 60", "cx-60"]
 
 subaru:
   impreza: ["impreza"]
@@ -157,3 +175,10 @@ lada:
   largus: ["largus"]
   niva: ["niva"]
   xray: ["xray"]
+
+li_auto:
+  l7: ["l7"]
+  l9: ["l9"]
+
+ram:
+  "1500": ["1500"]

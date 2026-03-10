@@ -102,12 +102,16 @@ class QdrantStore:
         Ensures fields always exist and are normalized.
         """
 
+        allowed_fuels = {"petrol", "diesel", "hybrid", "electric"}
+        current_year = datetime.now(tz=timezone.utc).year
+
         # -------------------------
         # brand
         # -------------------------
         brand = payload.get("brand")
         if isinstance(brand, str):
-            payload["brand"] = brand.lower().strip()
+            brand = brand.lower().strip()
+            payload["brand"] = brand if brand else None
         else:
             payload["brand"] = None
 
@@ -116,7 +120,8 @@ class QdrantStore:
         # -------------------------
         model = payload.get("model")
         if isinstance(model, str):
-            payload["model"] = model.lower().strip()
+            model = model.lower().strip()
+            payload["model"] = model if model else None
         else:
             payload["model"] = None
 
@@ -125,7 +130,11 @@ class QdrantStore:
         # -------------------------
         fuel = payload.get("fuel")
         if isinstance(fuel, str):
-            payload["fuel"] = fuel.lower().strip()
+            fuel = fuel.lower().strip()
+            if not fuel or fuel not in allowed_fuels:
+                payload["fuel"] = None
+            else:
+                payload["fuel"] = fuel
         else:
             payload["fuel"] = None
 
@@ -136,11 +145,19 @@ class QdrantStore:
 
         try:
             if isinstance(price, str):
-                price = int(price.replace(" ", ""))
+                price = price.replace(" ", "").replace("\u00A0", "").replace("\xa0", "")
+                price = int(price)
             elif isinstance(price, float):
                 price = int(price)
+            elif isinstance(price, int):
+                price = price
+            else:
+                raise ValueError("invalid price type")
 
-            payload["price"] = price
+            if price <= 0 or price < 10000 or price > 200000000:
+                payload["price"] = None
+            else:
+                payload["price"] = price
         except Exception:
             payload["price"] = None
 
@@ -151,11 +168,19 @@ class QdrantStore:
 
         try:
             if isinstance(mileage, str):
-                mileage = int(mileage.replace(" ", ""))
+                mileage = mileage.replace(" ", "").replace("\u00A0", "").replace("\xa0", "")
+                mileage = int(mileage)
             elif isinstance(mileage, float):
                 mileage = int(mileage)
+            elif isinstance(mileage, int):
+                mileage = mileage
+            else:
+                raise ValueError("invalid mileage type")
 
-            payload["mileage"] = mileage
+            if mileage < 0 or mileage > 500000:
+                payload["mileage"] = None
+            else:
+                payload["mileage"] = mileage
         except Exception:
             payload["mileage"] = None
 
@@ -165,7 +190,11 @@ class QdrantStore:
         year = payload.get("year")
 
         try:
-            payload["year"] = int(year)
+            year = int(year)
+            if year < 1985 or year > current_year + 1:
+                payload["year"] = None
+            else:
+                payload["year"] = year
         except Exception:
             payload["year"] = None
 
@@ -244,7 +273,6 @@ class QdrantStore:
         if not hits and query_text:
 
             try:
-
                 response = self.client.query_points(
                     collection_name=COLLECTION_NAME,
                     query=query_text,
@@ -258,18 +286,73 @@ class QdrantStore:
 
         # 🔒 READ-SIDE NORMALIZATION (safety)
 
+        current_year = datetime.now(tz=timezone.utc).year
+
         for p in hits:
 
             payload = p.payload or {}
 
             if "brand" in payload and isinstance(payload["brand"], str):
-                payload["brand"] = payload["brand"].lower()
+                payload["brand"] = payload["brand"].lower().strip()
 
             if "model" in payload and isinstance(payload["model"], str):
-                payload["model"] = payload["model"].lower()
+                model = payload["model"].lower().strip()
+                payload["model"] = model or None
 
             if "fuel" in payload and isinstance(payload["fuel"], str):
-                payload["fuel"] = payload["fuel"].lower()
+                fuel = payload["fuel"].lower().strip()
+                payload["fuel"] = fuel if fuel in {"petrol", "diesel", "hybrid", "electric"} else None
+
+            # -------------------------
+            # price
+            # -------------------------
+            price = payload.get("price")
+            try:
+                if isinstance(price, str):
+                    price = int(price.replace(" ", "").replace("\u00A0", "").replace("\xa0", ""))
+                elif isinstance(price, float):
+                    price = int(price)
+                elif not isinstance(price, int):
+                    raise ValueError("invalid price type")
+
+                if price <= 0 or price < 10000 or price > 200000000:
+                    payload["price"] = None
+                else:
+                    payload["price"] = price
+            except Exception:
+                payload["price"] = None
+
+            # -------------------------
+            # mileage
+            # -------------------------
+            mileage = payload.get("mileage")
+            try:
+                if isinstance(mileage, str):
+                    mileage = int(mileage.replace(" ", "").replace("\u00A0", "").replace("\xa0", ""))
+                elif isinstance(mileage, float):
+                    mileage = int(mileage)
+                elif not isinstance(mileage, int):
+                    raise ValueError("invalid mileage type")
+
+                if mileage <= 0 or mileage > 500000:
+                    payload["mileage"] = None
+                else:
+                    payload["mileage"] = mileage
+            except Exception:
+                payload["mileage"] = None
+
+            # -------------------------
+            # year
+            # -------------------------
+            year = payload.get("year")
+            try:
+                year = int(year)
+                if year < 1985 or year > current_year + 1:
+                    payload["year"] = None
+                else:
+                    payload["year"] = year
+            except Exception:
+                payload["year"] = None
 
         return hits
 

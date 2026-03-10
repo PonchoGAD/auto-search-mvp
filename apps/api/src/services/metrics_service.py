@@ -38,13 +38,23 @@ def _precision_at_k(structured: Dict[str, Any], results: List[Dict[str, Any]], k
     def ok_price(r: Dict[str, Any]) -> bool:
         if price_max is None:
             return True
+
         p = r.get("price")
+
+        if p is None:
+            return True
+
         return isinstance(p, int) and p <= price_max
 
     def ok_mileage(r: Dict[str, Any]) -> bool:
         if mileage_max is None:
             return True
+
         m = r.get("mileage")
+
+        if m is None:
+            return True
+
         return isinstance(m, int) and m <= mileage_max
 
     def ok_year(r: Dict[str, Any]) -> bool:

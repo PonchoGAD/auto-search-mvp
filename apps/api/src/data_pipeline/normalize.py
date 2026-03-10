@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from typing import Optional, Dict, Tuple
 from pathlib import Path
 import yaml
@@ -86,25 +87,19 @@ FUEL_MAP = {
 
 
 def normalize_title_format(text: str) -> str:
-
     if not text:
         return ""
 
     text = text.replace("\u00A0", " ")
+    text = text.replace("\xa0", " ")
+    text = text.replace("\t", " ")
+    text = text.replace("\r", " ")
+    text = text.replace("\n", " ")
     text = text.replace("₽", " ₽ ")
 
-    # 2012Москва -> 2012 Москва
-    text = re.sub(r"(\d{4})([А-ЯA-Z])", r"\1 \2", text)
-
-    # 799000₽Insignia -> 799000 ₽ Insignia
     text = re.sub(r"(₽)([A-Za-zА-Яа-я])", r"\1 \2", text)
-
-    # Camry,2019 -> Camry, 2019
     text = re.sub(r",(\d{4})", r", \1", text)
-
-    # Q30,2019Москва -> Q30, 2019 Москва
-    text = re.sub(r"(\d{4})([А-ЯA-Z])", r"\1 \2", text)
-
+    text = re.sub(r"(\d{4})([А-ЯA-ZА-Яа-я])", r"\1 \2", text)
     text = re.sub(r"\s+", " ", text)
 
     return text.strip()
@@ -239,23 +234,6 @@ def extract_brand_fallback(text: str) -> Optional[str]:
     return None
 
 
-def extract_model(text: str, brand: Optional[str]) -> Optional[str]:
-    """
-    Простое извлечение модели рядом с брендом
-    """
-
-    if not brand:
-        return None
-
-    pattern = rf"\b{brand}\b\s+([a-z0-9\-]+)"
-
-    m = re.search(pattern, text.lower())
-    if m:
-        return m.group(1)
-
-    return None
-
-
 # =========================
 # FIELD EXTRACTION
 # =========================
@@ -263,129 +241,152 @@ def extract_model(text: str, brand: Optional[str]) -> Optional[str]:
 def extract_fields(text: str) -> Dict[str, Optional[object]]:
 
     text = text or ""
+    text = text.replace("\u00A0", " ").replace("\xa0", " ")
     lower = text.lower()
+    current_year = datetime.utcnow().year
 
-    # =====================================================
-    # YEAR
-    # =====================================================
+    title_part = text[:140]
 
-    year = None
+    def _valid_year(value: int) -> bool:
+        return 1985 <= value <= current_year + 1
 
-    for y in RE_YEAR.findall(text):
-        try:
-            y_int = int(y)
-            if 1985 <= y_int <= 2026:
-                year = y_int
-                break
-        except Exception:
-            pass
+    def _valid_price(value: int) -> bool:
+        return 10_000 <= value <= 200_000_000
 
-    # =====================================================
-    # PRICE
-    # =====================================================
+    def _valid_mileage(value: int) -> bool:
+        return 0 <= value <= 500_000
 
-    price = None
-    currency = None
+    def _extract_year(source_text: str) -> Optional[int]:
+        for y in RE_YEAR.findall(source_text or ""):
+            try:
+                y_int = int(y)
+                if _valid_year(y_int):
+                    return y_int
+            except Exception:
+                pass
+        return None
 
-    m = RE_PRICE.search(text)
-
-    if m:
-        raw = _digits_only(m.group(1))
-        try:
-            val = int(raw)
-            if 10_000 <= val <= 200_000_000:
-                price = val
-                currency = "RUB"
-        except Exception:
-            pass
-
-    if price is None:
-        title_part = text[:140]
-        m = RE_PRICE_TITLE_GLUE.search(title_part)
+    def _extract_price(source_text: str) -> Optional[int]:
+        m = RE_PRICE.search(source_text)
         if m:
             raw = _digits_only(m.group(1))
             try:
                 val = int(raw)
-                if 10_000 <= val <= 200_000_000:
-                    price = val
-                    currency = "RUB"
+                if _valid_price(val):
+                    return val
             except Exception:
                 pass
 
-    # fallback только для title, чтобы не ловить случайные годы / пробеги из body
-    if price is None:
-        title_part = text[:140]
-        m = re.search(r"^\D{0,15}(\d[\d\s\u00A0]{4,12})", title_part)
+        m = RE_PRICE_TITLE_GLUE.search(source_text)
         if m:
             raw = _digits_only(m.group(1))
             try:
                 val = int(raw)
-                if 100_000 <= val <= 200_000_000:
-                    price = val
-                    currency = "RUB"
+                if _valid_price(val):
+                    return val
             except Exception:
                 pass
 
-    # =====================================================
-    # MILEAGE
-    # =====================================================
+        return None
 
-    mileage = None
+    def _extract_title_fallback_price(source_text: str) -> Optional[int]:
+        m = re.search(r"^\D{0,15}(\d[\d\s\u00A0]{4,12})", source_text)
+        if not m:
+            return None
 
-    m = RE_MILEAGE.search(text)
-    if m:
         raw = _digits_only(m.group(1))
+        if not raw:
+            return None
+
         try:
             val = int(raw)
-            if 0 <= val <= 500_000:
-                mileage = val
         except Exception:
-            pass
+            return None
 
-    if mileage is None:
-        m = RE_MILEAGE_K.search(lower)
+        if _valid_year(val):
+            return None
+
+        if val < 100_000:
+            return None
+
+        if _valid_mileage(val):
+            prefix = source_text[:m.start(1)].lower()
+            nearby = source_text[max(0, m.start(1) - 20):m.end(1) + 20].lower()
+            if (
+                "км" in nearby
+                or "km" in nearby
+                or "тыс" in nearby
+                or "т.км" in nearby
+                or "пробег" in prefix
+            ):
+                return None
+
+        if _valid_price(val):
+            return val
+
+        return None
+
+    def _extract_mileage(source_text: str) -> Optional[int]:
+        m = RE_MILEAGE.search(source_text)
+        if m:
+            raw = _digits_only(m.group(1))
+            try:
+                val = int(raw)
+                if _valid_mileage(val):
+                    return val
+            except Exception:
+                pass
+
+        m = RE_MILEAGE_K.search(source_text.lower())
         if m:
             raw = m.group(1).replace(",", ".")
             try:
-                val = float(raw) * 1000
-                val = int(val)
-                if 0 <= val <= 500_000:
-                    mileage = val
+                val = int(float(raw) * 1000)
+                if _valid_mileage(val):
+                    return val
             except Exception:
                 pass
 
-    # дополнительный fallback: "пробег 120000"
-    if mileage is None:
-        m = re.search(r"пробег[:\s]+(\d[\d\s\u00A0]{2,10})\b", lower, re.IGNORECASE)
+        m = re.search(r"пробег[:\s]+(\d[\d\s\u00A0]{2,10})\b", source_text.lower(), re.IGNORECASE)
         if m:
             raw = _digits_only(m.group(1))
             try:
                 val = int(raw)
-                if 0 <= val <= 500_000:
-                    mileage = val
+                if _valid_mileage(val):
+                    return val
             except Exception:
                 pass
 
-    # =====================================================
-    # FUEL
-    # =====================================================
+        return None
+
+    year = _extract_year(title_part)
+    if year is None:
+        year = _extract_year(text)
+
+    price = _extract_price(title_part)
+    if price is None:
+        price = _extract_price(text)
+    if price is None:
+        price = _extract_title_fallback_price(title_part)
+
+    mileage = _extract_mileage(title_part)
+    if mileage is None:
+        mileage = _extract_mileage(text)
 
     fuel = None
-
     m = RE_FUEL.search(lower)
     if m:
         raw = m.group(1).lower()
-        fuel = FUEL_MAP.get(raw)
-
-    # =====================================================
-    # PAINT CONDITION
-    # =====================================================
+        normalized_fuel = FUEL_MAP.get(raw)
+        if normalized_fuel in {"petrol", "diesel", "hybrid", "electric"}:
+            fuel = normalized_fuel
 
     paint_condition = None
 
     if (
-        "без окрас" in lower
-        or "без окраса" in lower
+        "без окраса" in lower
+        or "без окрасов" in lower
+        or "без окрас" in lower
         or "не бит" in lower
         or "не крашен" in lower
         or "не крашена" in lower
@@ -395,17 +396,17 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     elif (
         "крашен" in lower
         or "крашена" in lower
-        or "бит" in lower
         or "окрас" in lower
+        or "бит" in lower
     ):
         paint_condition = "repainted"
 
     return {
-        "year": year,
-        "mileage": mileage,
-        "price": price,
-        "currency": currency,
-        "fuel": fuel,
+        "year": year if isinstance(year, int) else None,
+        "mileage": mileage if isinstance(mileage, int) else None,
+        "price": price if isinstance(price, int) else None,
+        "currency": "RUB" if isinstance(price, int) else None,
+        "fuel": fuel if isinstance(fuel, str) else None,
         "paint_condition": paint_condition,
     }
 
@@ -509,38 +510,34 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         # =====================================================
         meta, content_wo_meta = parse_meta(enriched_content)
         text = clean_text(content_wo_meta)
+        full_text = f"{title_text}\n{text}".strip()
 
         brand = brand_key
+
+        if not brand:
+            brand, _ = detect_brand(full_text)
 
         if not brand:
             brand = extract_brand_fallback(title_text)
 
         if not brand:
-            brand = extract_brand_fallback(text)
-
-        if not brand:
-            brand = extract_brand_fallback(parse_meta(enriched_content)[1])
+            brand = extract_brand_fallback(full_text)
 
         if brand:
             brand = brand.lower().strip()
-
-        if not brand:
+        else:
             brand = "unknown"
 
         # =====================================================
         # FIELD EXTRACTION
         # =====================================================
 
-        parse_text = f"{title_text}\n{text}"
-
-        fields = extract_fields(parse_text)
-
-        parse_text = f"{title_text}\n{text}"
+        fields = extract_fields(full_text)
 
         model = resolve_model(brand, title_text)
 
         if not model:
-            model = resolve_model(brand, parse_text)
+            model = resolve_model(brand, full_text)
 
         doc = NormalizedDocument(
             raw_id=raw.id,
@@ -550,11 +547,11 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             normalized_text=text,
             brand=brand,
             model=model,
-            year=fields["year"],
-            mileage=fields["mileage"],
-            price=fields["price"],
+            year=fields["year"] if isinstance(fields["year"], int) else None,
+            mileage=fields["mileage"] if isinstance(fields["mileage"], int) else None,
+            price=fields["price"] if isinstance(fields["price"], int) else None,
             currency=fields["currency"],
-            fuel=fields["fuel"],
+            fuel=fields["fuel"] if isinstance(fields["fuel"], str) else None,
             paint_condition=fields["paint_condition"],
         )
 

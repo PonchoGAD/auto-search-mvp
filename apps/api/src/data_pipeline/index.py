@@ -100,7 +100,10 @@ def build_structured_text(doc: NormalizedDocument) -> str:
 
 VECTOR_SIZE = 768
 
-def index_document_chunks(limit: int = 2000) -> int:
+def index_document_chunks(
+    limit: int = 2000,
+    force_rebuild: bool = False
+) -> int:
     """
     Index pipeline v2 (production):
     NormalizedDocument -> DocumentChunk -> embedding(chunk_text) -> Qdrant payload
@@ -114,6 +117,16 @@ def index_document_chunks(limit: int = 2000) -> int:
 
     try:
         store = QdrantStore()
+
+        if force_rebuild:
+            try:
+                print("[INDEX] force rebuild: clearing collection")
+                store.client.delete_collection("auto_search_chunks")
+            except Exception:
+                pass
+
+            store.create_collection(VECTOR_SIZE)
+
         store.create_collection(VECTOR_SIZE)
 
         chunks = (
@@ -131,15 +144,20 @@ def index_document_chunks(limit: int = 2000) -> int:
         points: List[PointStruct] = []
         now = datetime.now(tz=timezone.utc)
 
+        skipped_empty_text = 0
+        skipped_missing_url = 0
+
         for ch, doc in chunks:
             chunk_text = (ch.chunk_text or "").strip()
             if not chunk_text:
+                skipped_empty_text += 1
                 continue
 
             source_url = getattr(doc, "source_url", None)
             title_text = (getattr(doc, "title", "") or "").strip()
 
             if not source_url or not title_text:
+                skipped_missing_url += 1
                 continue
 
             # =====================================================
@@ -170,11 +188,14 @@ def index_document_chunks(limit: int = 2000) -> int:
             mileage = _norm_int(getattr(doc, "mileage", None))
             year = _norm_int(getattr(doc, "year", None))
 
+            # allow brandless documents (important for recall)
             if brand is None:
-                continue
+                brand = None
 
+            # allow partial documents
             if price is None and mileage is None and year is None:
-                continue
+                # keep document but mark low completeness
+                pass
 
             created_at_ts = getattr(doc, "created_at_ts", None)
             if created_at_ts is None:
@@ -200,8 +221,11 @@ def index_document_chunks(limit: int = 2000) -> int:
                 "mileage": mileage,
                 "year": year,
                 "fuel": fuel,
-                "region": getattr(doc, "region", None),
+                "region": _norm_str(getattr(doc, "region", None)),
                 "paint_condition": getattr(doc, "paint_condition", None),
+
+                "sale_intent": getattr(doc, "sale_intent", None),
+                "quality_score": getattr(doc, "quality_score", None),
 
                 "doc_id": getattr(doc, "id", None),
                 "normalized_id": getattr(doc, "id", None),
@@ -240,6 +264,13 @@ def index_document_chunks(limit: int = 2000) -> int:
 
         store.upsert(points)
         print(f"[INDEX] indexed chunks: {len(points)}")
+
+        print(
+            f"[INDEX][DEBUG] skipped_empty_text={skipped_empty_text} "
+            f"skipped_missing_url={skipped_missing_url}",
+            flush=True,
+        )
+
         return len(points)
 
     finally:
@@ -253,6 +284,9 @@ def index_document_chunks(limit: int = 2000) -> int:
 # RUN INDEX
 # =====================================================
 
-def run_index(limit: int = 2000):
+def run_index(limit: int = 2000, force_rebuild: bool = False):
     print("[INDEX] run_index -> index_document_chunks", flush=True)
-    return index_document_chunks(limit=limit)
+    return index_document_chunks(
+        limit=limit,
+        force_rebuild=force_rebuild
+    )

@@ -91,8 +91,15 @@ def save_items(items):
     saved = 0
     skipped = 0
 
+    MAX_SAVE = int(os.getenv("INGEST_MAX_SAVE", "300"))
+
     try:
         for item in items:
+
+            if saved >= MAX_SAVE:
+                print("[DB] save limit reached")
+                break
+
             url = item.get("source_url")
             content = item.get("content")
 
@@ -209,13 +216,20 @@ async def run_cycle():
     if saved > 0:
 
         print("[PIPELINE] normalize started", flush=True)
-        run_normalize(limit=500, force_rebuild=False)
+        normalized = run_normalize(limit=500, force_rebuild=False)
 
         print("[PIPELINE] chunk started", flush=True)
-        run_chunk(limit=500, force_rebuild=False)
+        chunks = run_chunk(limit=500, force_rebuild=False)
 
         print("[PIPELINE] index started", flush=True)
-        run_index(limit=1000)
+
+        if chunks and chunks > 0:
+
+            run_index(limit=1000)
+
+        else:
+
+            print("[PIPELINE] index skipped (no chunks)")
 
         print("[PIPELINE] completed", flush=True)
 

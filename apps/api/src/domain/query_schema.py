@@ -1,5 +1,5 @@
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class StructuredQuery(BaseModel):
@@ -8,6 +8,8 @@ class StructuredQuery(BaseModel):
 
     query_parser → StructuredQuery → search_service → vector_db
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     # raw input
     raw_query: Optional[str] = None
@@ -35,6 +37,3 @@ class StructuredQuery(BaseModel):
 
     # negative filters
     exclusions: List[str] = Field(default_factory=list)
-
-    class Config:
-        extra = "forbid"

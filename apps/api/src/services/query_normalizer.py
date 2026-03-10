@@ -5,6 +5,7 @@ import re
 
 QUERY_REPLACEMENTS = {
     r"\bбмв\b": "bmw",
+    r"\bфв\b": "volkswagen",
     r"\bмерс\b": "mercedes",
     r"\bмерседес\b": "mercedes",
     r"\bтойота\b": "toyota",
@@ -46,6 +47,7 @@ QUERY_REPLACEMENTS = {
     r"\bчанган\b": "changan",
     r"\bхендай\b": "hyundai",
     r"\bхьюндай\b": "hyundai",
+    r"\bхундай\b": "hyundai",
     r"\bкиа\b": "kia",
     r"\bгенезис\b": "genesis",
     r"\bдэу\b": "daewoo",

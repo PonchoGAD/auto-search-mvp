@@ -1,5 +1,7 @@
 #  apps\api\src\data_pipeline\chunk.py
 
+import re
+
 from db.session import SessionLocal, engine
 from db.models import Base, NormalizedDocument, DocumentChunk
 
@@ -10,30 +12,37 @@ def clean_text(text: str) -> str:
     return " ".join(text.split())
 
 
-def chunk_text_by_chars(text: str, size: int = 1500) -> list[str]:
-    """
-    Production chunker.
-
-    - очищает текст
-    - режет по символам
-    - убирает слишком короткие куски
-    """
-
-    text = clean_text(text)
-
+def chunk_text_by_chars(text: str, size: int = 1200, overlap: int = 200) -> list[str]:
     if not text:
         return []
 
-    chunks = [
-        text[i:i + size]
-        for i in range(0, len(text), size)
-        if text[i:i + size]
-    ]
+    text = clean_text(text)
+    if not text:
+        return []
 
-    # фильтр слишком маленьких чанков
-    filtered = [c for c in chunks if len(c) > 50]
+    sentences = re.split(r'(?<=[.!?])\s+', text)
 
-    return filtered
+    chunks = []
+    current = ""
+
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+
+        if len(current) + len(sentence) + 1 <= size:
+            current = f"{current} {sentence}".strip()
+        else:
+            if current:
+                chunks.append(current)
+
+            tail = current[-overlap:] if current else ""
+            current = f"{tail} {sentence}".strip()
+
+    if current:
+        chunks.append(current)
+
+    return [c for c in chunks if len(c) >= 80]
 
 
 def run_chunk(limit: int = 500, force_rebuild: bool = False):

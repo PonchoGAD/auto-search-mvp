@@ -24,13 +24,47 @@ BRANDS = load_brands()
 
 
 MODEL_BRAND_MAP = {
+    # =========================
+    # TOYOTA
+    # =========================
     "camry": "toyota",
     "corolla": "toyota",
+    "corolla fielder": "toyota",
     "rav4": "toyota",
     "rav 4": "toyota",
     "prado": "toyota",
     "land cruiser": "toyota",
+    "land cruiser prado": "toyota",
+    "highlander": "toyota",
+    "hilux": "toyota",
+    "tacoma": "toyota",
+    "vista": "toyota",
+    "ipsum": "toyota",
+    "isis": "toyota",
 
+    # =========================
+    # MERCEDES
+    # =========================
+    "e class": "mercedes",
+    "c class": "mercedes",
+    "s class": "mercedes",
+    "glc": "mercedes",
+    "glc class": "mercedes",
+    "gle": "mercedes",
+    "gls": "mercedes",
+    "cla": "mercedes",
+    "cls": "mercedes",
+    "gla": "mercedes",
+    "glb": "mercedes",
+    "g class": "mercedes",
+    "e200": "mercedes",
+    "e300": "mercedes",
+    "c200": "mercedes",
+    "c300": "mercedes",
+
+    # =========================
+    # BMW
+    # =========================
     "x1": "bmw",
     "x2": "bmw",
     "x3": "bmw",
@@ -38,74 +72,151 @@ MODEL_BRAND_MAP = {
     "x5": "bmw",
     "x6": "bmw",
     "x7": "bmw",
+    "1 series": "bmw",
+    "2 series": "bmw",
     "3 series": "bmw",
+    "4 series": "bmw",
     "5 series": "bmw",
+    "6 series": "bmw",
+    "7 series": "bmw",
+    "320": "bmw",
+    "330": "bmw",
+    "520": "bmw",
+    "530": "bmw",
 
-    "c class": "mercedes",
-    "e class": "mercedes",
-    "s class": "mercedes",
-    "glc": "mercedes",
-    "gle": "mercedes",
-    "gls": "mercedes",
-    "g class": "mercedes",
-
+    # =========================
+    # AUDI
+    # =========================
+    "a3": "audi",
     "a4": "audi",
     "a6": "audi",
+    "a8": "audi",
     "q3": "audi",
     "q5": "audi",
     "q7": "audi",
     "q8": "audi",
 
+    # =========================
+    # NISSAN
+    # =========================
+    "x trail": "nissan",
+    "x-trail": "nissan",
+    "qashqai": "nissan",
+    "patrol": "nissan",
+    "teana": "nissan",
+    "note": "nissan",
+    "murano": "nissan",
+    "maxima": "nissan",
+
+    # =========================
+    # HYUNDAI
+    # =========================
     "solaris": "hyundai",
-    "elantra": "hyundai",
     "sonata": "hyundai",
+    "elantra": "hyundai",
     "tucson": "hyundai",
     "santa fe": "hyundai",
+    "grand santa fe": "hyundai",
     "creta": "hyundai",
+    "palisade": "hyundai",
+    "i40": "hyundai",
+    "getz": "hyundai",
 
+    # =========================
+    # KIA
+    # =========================
     "rio": "kia",
     "cerato": "kia",
-    "ceed": "kia",
     "k5": "kia",
     "optima": "kia",
     "sportage": "kia",
     "sorento": "kia",
+    "carnival": "kia",
+    "tasman": "kia",
+    "pegas": "kia",
+    "ceed": "kia",
 
+    # =========================
+    # HONDA
+    # =========================
     "civic": "honda",
     "accord": "honda",
     "cr v": "honda",
     "cr-v": "honda",
+    "stream": "honda",
     "pilot": "honda",
 
-    "mazda 3": "mazda",
-    "mazda3": "mazda",
-    "mazda 6": "mazda",
-    "mazda6": "mazda",
+    # =========================
+    # MAZDA
+    # =========================
     "cx 5": "mazda",
     "cx-5": "mazda",
+    "cx 60": "mazda",
+    "cx-60": "mazda",
+    "mazda3": "mazda",
+    "mazda 3": "mazda",
+    "mazda6": "mazda",
+    "mazda 6": "mazda",
 
-    "qashqai": "nissan",
-    "x trail": "nissan",
-    "x-trail": "nissan",
-    "teana": "nissan",
-    "patrol": "nissan",
+    # =========================
+    # LAND ROVER
+    # =========================
+    "range rover": "land_rover",
+    "range rover sport": "land_rover",
+    "discovery": "land_rover",
+    "discovery sport": "land_rover",
+    "evoque": "land_rover",
+    "velar": "land_rover",
 
+    # =========================
+    # LEXUS
+    # =========================
     "rx": "lexus",
     "rx350": "lexus",
     "nx": "lexus",
     "lx": "lexus",
 
-    "range rover": "land_rover",
-    "range rover sport": "land_rover",
-    "evoque": "land_rover",
-    "velar": "land_rover",
-    "discovery": "land_rover",
+    # =========================
+    # GEELY
+    # =========================
+    "monjaro": "geely",
+
+    # =========================
+    # CHEVROLET
+    # =========================
+    "cruze": "chevrolet",
+
+    # =========================
+    # GENESIS
+    # =========================
+    "gv70": "genesis",
+    "gv80": "genesis",
+
+    # =========================
+    # LI AUTO
+    # =========================
+    "l7": "li_auto",
+    "l9": "li_auto",
+
+    # =========================
+    # RAM
+    # =========================
+    "1500": "ram",
+
+    # =========================
+    # LADA / ВАЗ
+    # =========================
+    "vesta": "lada",
+    "granta": "lada",
+    "niva": "lada",
+    "largus": "lada",
 }
 
 
 def _normalize_text(text: str) -> str:
     text = text or ""
     text = text.replace("\u00A0", " ")
+    text = text.replace("\xa0", " ")
     text = re.sub(r"[-_/]+", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip().lower()
@@ -137,14 +248,19 @@ def _contains_phrase(text: str, phrase: str) -> bool:
 
 
 def _match_brand(text: str) -> Tuple[Optional[str], float]:
+    """
+    Phase A: direct brand match from brands.yaml
+    Phase B: model -> brand fallback
+    """
     if not text:
         return None, 0.0
 
     text_norm = _normalize_text(text)
 
-    # 1. exact phrase / token from brands.yaml
+    # =====================================
+    # PHASE A — direct yaml brand match
+    # =====================================
     best_brand = None
-    best_score = 0.0
     best_len = 0
 
     for brand_key, cfg in BRANDS.items():
@@ -152,30 +268,39 @@ def _match_brand(text: str) -> Tuple[Optional[str], float]:
 
         for candidate in candidates:
             if _contains_phrase(text_norm, candidate):
-                score = 1.0 if candidate in [_normalize_text(x) for x in cfg.get("en", []) + cfg.get("ru", [])] else 0.9
                 clen = len(candidate)
 
-                if clen > best_len or (clen == best_len and score > best_score):
+                if clen > best_len:
                     best_brand = str(brand_key).lower()
-                    best_score = score
                     best_len = clen
 
     if best_brand:
-        return best_brand, best_score
+        confidence = 0.95 + min(0.05, best_len / 50)
+        if confidence > 1.0:
+            confidence = 1.0
+        return best_brand, confidence
 
-    # 2. fallback by strong model tokens
+    # =====================================
+    # PHASE B — model -> brand fallback
+    # =====================================
     best_model_brand = None
     best_model_len = 0
 
     for model_token, brand in MODEL_BRAND_MAP.items():
         token_norm = _normalize_text(model_token)
+
         if _contains_phrase(text_norm, token_norm):
-            if len(token_norm) > best_model_len:
+            tlen = len(token_norm)
+
+            if tlen > best_model_len:
                 best_model_brand = brand
-                best_model_len = len(token_norm)
+                best_model_len = tlen
 
     if best_model_brand:
-        return best_model_brand, 0.82
+        confidence = 0.82 + min(0.06, best_model_len / 40)
+        if confidence > 0.88:
+            confidence = 0.88
+        return best_model_brand, confidence
 
     return None, 0.0
 
@@ -183,20 +308,34 @@ def _match_brand(text: str) -> Tuple[Optional[str], float]:
 def detect_brand(title: str = "", text: str = "") -> Tuple[Optional[str], float]:
     """
     Production brand detection priority:
-    1) title exact/phrase
-    2) full text exact/phrase
-    3) title model fallback
-    4) text model fallback
+    1) title direct yaml match
+    2) title phrase yaml match
+    3) full text direct yaml match
+    4) title model->brand fallback
+    5) full text model->brand fallback
     """
+
     title = (title or "").strip()
     text = (text or "").strip()
 
+    # 1–2 title yaml match
     brand, conf = _match_brand(title)
-    if brand:
+    if brand and conf >= 0.95:
         return brand, conf
 
+    # 3 full text yaml match
     brand, conf = _match_brand(text)
-    if brand:
-        return brand, min(conf, 0.9)
+    if brand and conf >= 0.95:
+        return brand, conf
+
+    # 4 title model fallback
+    brand, conf = _match_brand(title)
+    if brand and 0.82 <= conf <= 0.88:
+        return brand, conf
+
+    # 5 text model fallback
+    brand, conf = _match_brand(text)
+    if brand and 0.82 <= conf <= 0.88:
+        return brand, conf
 
     return None, 0.0

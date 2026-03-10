@@ -29,7 +29,7 @@ def health():
     return {
         "status": "ok",
         "service": "auto-search-api",
-        "env": settings.ENV,
+        "env": getattr(settings, "ENV", None) or "dev",
     }
 
 

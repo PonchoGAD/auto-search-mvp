@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 import re
 import yaml
 from services.brand_detector import detect_brand
+from services.model_resolver import resolve_model
 from pathlib import Path
 from datetime import datetime
 from domain.query_schema import StructuredQuery
@@ -96,6 +97,76 @@ MODEL_EXPANSION = {
 }
 
 
+def _parse_price_value(num_str: str, unit: str | None) -> Optional[int]:
+    if not num_str:
+        return None
+
+    raw = str(num_str).strip().replace(" ", "").replace(",", ".")
+    if not raw:
+        return None
+
+    try:
+        value = float(raw)
+    except Exception:
+        return None
+
+    unit_norm = (unit or "").strip().lower()
+
+    if unit_norm in {"млн", "миллион", "m"}:
+        value *= 1_000_000
+    elif unit_norm in {"тыс", "к", "k"}:
+        value *= 1_000
+    elif unit_norm in {"₽", "руб", "р", "р."}:
+        pass
+    elif unit is None:
+        pass
+    else:
+        return None
+
+    try:
+        int_value = int(value)
+    except Exception:
+        return None
+
+    if 10_000 <= int_value <= 200_000_000:
+        return int_value
+
+    return None
+
+
+def _parse_mileage_value(num_str: str, unit: str | None) -> Optional[int]:
+    if not num_str:
+        return None
+
+    raw = str(num_str).strip().replace(" ", "").replace(",", ".")
+    if not raw:
+        return None
+
+    try:
+        value = float(raw)
+    except Exception:
+        return None
+
+    unit_norm = (unit or "").strip().lower()
+
+    if unit_norm in {"тыс", "т.км", "k"}:
+        value *= 1_000
+    elif unit_norm in {"км", ""}:
+        pass
+    else:
+        return None
+
+    try:
+        int_value = int(value)
+    except Exception:
+        return None
+
+    if 0 <= int_value <= 500_000:
+        return int_value
+
+    return None
+
+
 # =========================
 # MAIN ENTRY
 # =========================
@@ -166,62 +237,68 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     brand, confidence = detect_brand(title=text, text=text)
 
     if brand:
-        confidence = 1.0
         result.brand = brand.lower()
         result.brand_confidence = confidence
 
     # -------------------------
-    # MODEL (basic extraction)
+    # MODEL (resolver-based)
     # -------------------------
 
     if result.brand:
-
-        MODEL_PATTERNS = {
-            "bmw": ["x5", "x6", "x3", "m5", "m3"],
-            "toyota": ["camry", "corolla", "land cruiser", "rav4"],
-            "mercedes": ["c200", "e200", "e300", "gle", "gls"],
-            "volkswagen": ["tiguan", "touareg", "polo", "passat"],
-        }
-
-        brand_models = MODEL_PATTERNS.get(result.brand, [])
-
-        for m in brand_models:
-            if m in text:
-                result.model = m
-                break
+        model = resolve_model(result.brand, text)
+        if model:
+            result.model = model
 
     # -------------------------
     # PRICE (max)
     # -------------------------
-    price_patterns = [
-        r"(до|<=|<)?\s*(\d+[\d\s]*)\s*(млн|миллион|m)",
-        r"(до|<=|<)?\s*(\d+[\d\s]*)\s*(тыс|к)",
-        r"(до|<=|<)?\s*(\d+[\d\s]*)\s*(₽|руб|р\.|\$|€)",
+    price_patterns_with_limit = [
+        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(млн|миллион|m)\b",
+        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(тыс|к|k)\b",
+        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(₽|руб|р\.?|р)\b",
+        r"\bдо\s*(\d[\d\s]{4,})\b",
     ]
 
-    for p in price_patterns:
-        m = re.search(p, text)
+    for p in price_patterns_with_limit:
+        m = re.search(p, text, re.IGNORECASE)
         if m:
-            value = int(m.group(2).replace(" ", ""))
-            unit = m.group(3)
+            unit = m.group(2) if len(m.groups()) > 1 else None
+            value = _parse_price_value(m.group(1), unit)
+            if value is not None:
+                result.price_max = value
+                break
 
-            if unit in ["млн", "миллион", "m"]:
-                value *= 1_000_000
-            elif unit in ["тыс", "к"]:
-                value *= 1_000
+    if result.price_max is None:
+        price_patterns_soft = [
+            r"\b(\d+(?:[\s.,]\d+)?)\s*(млн|миллион|m)\b",
+            r"\b(\d+(?:[\s.,]\d+)?)\s*(тыс|к|k)\b",
+            r"\b(\d+(?:[\s.,]\d+)?)\s*(₽|руб|р\.?|р)\b",
+        ]
 
-            result.price_max = value
-            break
+        for p in price_patterns_soft:
+            m = re.search(p, text, re.IGNORECASE)
+            if m:
+                value = _parse_price_value(m.group(1), m.group(2))
+                if value is not None:
+                    result.price_max = value
+                    break
 
     # -------------------------
     # MILEAGE (max)
     # -------------------------
-    m = re.search(r"до\s*(\d+[\d\s]*)\s*(км|тыс)", text)
-    if m:
-        mileage = int(m.group(1).replace(" ", ""))
-        if m.group(2) == "тыс":
-            mileage *= 1_000
-        result.mileage_max = mileage
+    mileage_patterns = [
+        r"\bпробег\s*до\s*(\d+(?:[\s.,]\d+)?)\s*(тыс|т\.км|k|км)?\b",
+        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(тыс|т\.км|k|км)\b",
+        r"\b(\d+(?:[\s.,]\d+)?)\s*(т\.км)\b",
+    ]
+
+    for p in mileage_patterns:
+        m = re.search(p, text, re.IGNORECASE)
+        if m:
+            value = _parse_mileage_value(m.group(1), m.group(2))
+            if value is not None:
+                result.mileage_max = value
+                break
 
     # -------------------------
     # YEAR_MIN (новое)
@@ -239,17 +316,17 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     # -------------------------
     # FUEL (strict lowercase normalization)
     # -------------------------
-    if "бенз" in text:
-        result.fuel = "petrol"
-    elif "диз" in text:
-        result.fuel = "diesel"
-    elif "гибрид" in text:
-        result.fuel = "hybrid"
-    elif "электро" in text or "электр" in text:
-        result.fuel = "electric"
+    fuel_patterns = [
+        (r"\b(бенз|бензин|petrol|gasoline)\b", "petrol"),
+        (r"\b(диз|дизель|diesel)\b", "diesel"),
+        (r"\b(гибрид|hybrid)\b", "hybrid"),
+        (r"\b(электро|электр|electric|ev)\b", "electric"),
+    ]
 
-    if result.fuel:
-        result.fuel = result.fuel.lower()
+    for pattern, fuel_value in fuel_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            result.fuel = fuel_value
+            break
 
     # -------------------------
     # PAINT CONDITION
@@ -283,10 +360,13 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     STOP_TOKENS = {
         "до", "без", "и", "или", "не",
         "бит", "крашен",
-        "км", "тыс", "руб", "р", "₽",
+        "км", "тыс", "руб", "р", "₽", "k", "m",
         "от", "с", "после", "старше", "младше",
         "лет", "год", "года",
-        "бенз", "бензин", "дизель", "диз", "гибрид", "электро",
+        "бенз", "бензин", "petrol", "gasoline",
+        "дизель", "диз", "diesel",
+        "гибрид", "hybrid",
+        "электро", "электр", "electric", "ev",
         "млн", "миллион", "к", "тысяч", "тысяс", "пробег"
     }
 
@@ -294,7 +374,19 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     if result.brand and result.brand in BRANDS_CONFIG:
         cfg = BRANDS_CONFIG[result.brand]
         for w in cfg.get("en", []) + cfg.get("ru", []) + cfg.get("aliases", []):
-            brand_synonyms.add(w.lower())
+            if isinstance(w, str) and w.strip():
+                brand_synonyms.add(w.lower())
+
+    model_synonyms = set()
+    if result.brand and result.brand in MODELS_CONFIG:
+        brand_models = MODELS_CONFIG.get(result.brand, {})
+        for model_name, aliases in brand_models.items():
+            if isinstance(model_name, str) and model_name.strip():
+                model_synonyms.add(model_name.lower())
+            if isinstance(aliases, list):
+                for alias in aliases:
+                    if isinstance(alias, str) and alias.strip():
+                        model_synonyms.add(alias.lower())
 
     for t in tokens:
 
@@ -310,8 +402,18 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
         if t in brand_synonyms:
             continue
 
+        if t in model_synonyms:
+            continue
+
         if t.startswith("не") and len(t) > 2:
-            result.exclusions.append(t[1:])
+            exclusion = t[1:]
+            if (
+                exclusion not in STOP_TOKENS
+                and exclusion not in brand_synonyms
+                and exclusion not in model_synonyms
+                and exclusion not in result.exclusions
+            ):
+                result.exclusions.append(exclusion)
         elif t not in STOP_TOKENS and t not in result.keywords:
             result.keywords.append(t)
 

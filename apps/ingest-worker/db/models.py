@@ -69,6 +69,10 @@ class NormalizedDocument(Base):
     paint_condition = Column(String, nullable=True)
     condition = Column(String, nullable=True)
 
+    sale_intent = Column(Integer, nullable=True)
+    quality_score = Column(Float, nullable=True)
+    created_at_ts = Column(Integer, nullable=True)
+
     fetched_at = Column(DateTime, default=datetime.utcnow)
 
 

@@ -20,21 +20,41 @@ def route_query(structured: StructuredQuery) -> RouteType:
 
     has_brand = bool(getattr(structured, "brand", None))
     has_model = bool(getattr(structured, "model", None))
+
     has_numeric = any([
         getattr(structured, "price_max", None) is not None,
         getattr(structured, "mileage_max", None) is not None,
         getattr(structured, "year_min", None) is not None,
     ])
-    has_fuel = bool(getattr(structured, "fuel", None))
-    has_keywords = bool(getattr(structured, "keywords", []))
 
+    has_fuel = bool(getattr(structured, "fuel", None))
+
+    keywords = getattr(structured, "keywords", []) or []
+    has_keywords = bool(keywords)
+
+    # simple heuristic for model/generation hints
+    generation_hints = ("xv", "e", "f", "g", "w", "xa", "lc")
+
+    keywords_only_generation = False
+    if keywords:
+        keywords_only_generation = all(
+            any(h in k.lower() for h in generation_hints) for k in keywords
+        )
+
+    # -------------------------
+    # STRUCTURED
+    # -------------------------
     if has_brand and (has_model or has_numeric or has_fuel):
         return "structured"
 
-    if has_brand and not has_numeric and not has_fuel and not has_keywords:
-        return "brand_only"
-
+    # -------------------------
+    # BRAND ONLY
+    # -------------------------
     if has_brand and not has_numeric and not has_fuel:
-        return "brand_only"
+        if not has_keywords or keywords_only_generation:
+            return "brand_only"
 
+    # -------------------------
+    # SEMANTIC
+    # -------------------------
     return "semantic"

@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from db.session import SessionLocal
 from db.models import RawDocument, NormalizedDocument
 from integrations.vector_db.qdrant import qdrant_client
+from core.settings import settings
 
 router = APIRouter()
 
@@ -9,11 +10,14 @@ router = APIRouter()
 def get_metrics():
     db = SessionLocal()
 
-    total_raw = db.query(RawDocument).count()
-    total_normalized = db.query(NormalizedDocument).count()
+    try:
+        total_raw = db.query(RawDocument).count()
+        total_normalized = db.query(NormalizedDocument).count()
+    finally:
+        db.close()
 
     try:
-        collection_info = qdrant_client.get_collection("auto_search_chunks")
+        collection_info = qdrant_client.get_collection(settings.QDRANT_COLLECTION)
         total_chunks = collection_info.points_count
     except Exception:
         total_chunks = 0

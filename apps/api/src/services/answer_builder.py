@@ -32,7 +32,8 @@ class AnswerBuilder:
                 if brand.lower() == structured.brand.lower():
                     filtered.append(r)
 
-            if filtered:
+            # применяем только если сохраняется >=1 результата
+            if len(filtered) >= 1:
                 results = filtered
 
         # 🔒 MODEL GUARD
@@ -51,7 +52,8 @@ class AnswerBuilder:
                 if model.lower() == structured.model.lower():
                     filtered.append(r)
 
-            if filtered:
+            # model фильтр более строгий
+            if len(filtered) >= 2:
                 results = filtered
 
         if not results:

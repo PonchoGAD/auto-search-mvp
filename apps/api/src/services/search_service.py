@@ -6,7 +6,11 @@ from urllib.parse import urlparse
 import os
 import json
 
-from qdrant_client.models import Filter, FieldCondition, MatchValue
+try:
+    from qdrant_client.models import Filter, FieldCondition, MatchValue, IsNullCondition
+except ImportError:
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    IsNullCondition = None
 
 from shared.embeddings.provider import embed_text
 from sentence_transformers import CrossEncoder
@@ -101,7 +105,12 @@ class SearchService:
         # redis get
         try:
             from redis import Redis
-            redis = Redis(host="redis", port=6379)
+            redis = Redis(
+                host="redis",
+                port=6379,
+                socket_timeout=1,
+                socket_connect_timeout=1
+            )
             cached = redis.get(cache_key)
 
             if cached:
@@ -142,6 +151,7 @@ class SearchService:
             "skipped_by_url_duplicate": 0,
             "fallback_triggered": False,
             "model_fallback_triggered": False,
+            "fuel_fallback_triggered": False,
             "brandless_debug_fallback_triggered": False,
             "search_stage": None,
         }
@@ -163,7 +173,6 @@ class SearchService:
         ) -> Filter:
 
             must_conditions: List[FieldCondition] = []
-            should_conditions: List[FieldCondition] = []
 
             if brand:
                 must_conditions.append(
@@ -182,20 +191,11 @@ class SearchService:
                 )
 
             if fuel:
-
-                fuel_match = FieldCondition(
-                    key="fuel",
-                    match=MatchValue(value=fuel),
-                )
-
-                fuel_null = FieldCondition(
-                    key="fuel",
-                    match=MatchValue(value=None),
-                )
-
-                return Filter(
-                    should=[fuel_match, fuel_null],
-                    must=must_conditions
+                must_conditions.append(
+                    FieldCondition(
+                        key="fuel",
+                        match=MatchValue(value=fuel),
+                    )
                 )
 
             if not must_conditions:
@@ -204,6 +204,23 @@ class SearchService:
             return Filter(
                 must=must_conditions,
             )
+
+        def _search_vectors(query_filter: Filter) -> List[Any]:
+            all_hits = []
+            vectors = [query_vector] + extra_vectors
+
+            for vec in vectors:
+                try:
+                    sub_hits = self.store.search(
+                        vector=vec,
+                        limit=top_k,
+                        query_filter=query_filter,
+                    )
+                    all_hits.extend(sub_hits)
+                except Exception:
+                    pass
+
+            return all_hits
 
         if route == "structured":
             primary_filter = _build_filter(
@@ -231,49 +248,10 @@ class SearchService:
         debug["search_stage"] = "primary"
 
         try:
-            hits = []
-
-            vectors = [query_vector] + extra_vectors
-
-            for vec in vectors:
-
-                try:
-
-                    sub_hits = self.store.search(
-                        vector=vec,
-                        limit=top_k,
-                        query_filter=primary_filter,
-                    )
-
-                    hits.extend(sub_hits)
-
-                except Exception:
-                    pass
+            hits = _search_vectors(primary_filter)
         except Exception as e:
             print(f"[SEARCH][WARN] qdrant unavailable: {e}", flush=True)
             return []
-
-        # PATCH 3 — fallback если фильтр убил результаты
-        if not hits and fuel_value:
-
-            debug["fallback_triggered"] = True
-            debug["search_stage"] = "fuel_fallback_removed"
-
-            fallback_filter = _build_filter(
-                brand=brand_value,
-                model=model_value,
-                fuel=None
-            )
-
-            try:
-                hits = self.store.search(
-                    vector=query_vector,
-                    limit=top_k,
-                    query_filter=fallback_filter
-                )
-            except Exception as e:
-                print(f"[SEARCH][WARN] qdrant fuel fallback unavailable: {e}", flush=True)
-                return []
 
         if not hits and model_value:
             debug["fallback_triggered"] = True
@@ -290,13 +268,31 @@ class SearchService:
             )
 
             try:
-                hits = self.store.search(
-                    vector=query_vector,
-                    limit=top_k,
-                    query_filter=fallback_filter,
-                )
+                hits = _search_vectors(fallback_filter)
             except Exception as e:
                 print(f"[SEARCH][WARN] qdrant fallback without model unavailable: {e}", flush=True)
+                return []
+
+        if not hits and fuel_value:
+            debug["fallback_triggered"] = True
+            debug["fuel_fallback_triggered"] = True
+            debug["search_stage"] = "fallback_without_fuel"
+
+            fallback_model = None if debug["model_fallback_triggered"] else model_value
+
+            fallback_filter = _build_filter(
+                brand=brand_value,
+                model=fallback_model,
+                fuel=None
+            )
+            debug["applied_filters"].append(
+                f"fallback_without_fuel(brand={brand_value}, model={fallback_model})"
+            )
+
+            try:
+                hits = _search_vectors(fallback_filter)
+            except Exception as e:
+                print(f"[SEARCH][WARN] qdrant fuel fallback unavailable: {e}", flush=True)
                 return []
 
         if not hits and strict_brand and allow_brandless_debug_fallback:
@@ -314,11 +310,7 @@ class SearchService:
             )
 
             try:
-                hits = self.store.search(
-                    vector=query_vector,
-                    limit=top_k,
-                    query_filter=brandless_filter,
-                )
+                hits = _search_vectors(brandless_filter)
             except Exception as e:
                 print(f"[SEARCH][WARN] qdrant brandless debug fallback unavailable: {e}", flush=True)
                 return []
@@ -337,11 +329,7 @@ class SearchService:
             )
 
             try:
-                hits = self.store.search(
-                    vector=query_vector,
-                    limit=top_k,
-                    query_filter=fuel_only_filter,
-                )
+                hits = _search_vectors(fuel_only_filter)
             except Exception as e:
                 print(f"[SEARCH][WARN] qdrant fuel-only fallback unavailable: {e}", flush=True)
                 return []
@@ -433,11 +421,12 @@ class SearchService:
                         continue
 
             if structured.year_min is not None:
-                if payload.get("year") is None:
+                year_val = payload.get("year")
+                if year_val is None:
                     debug["skipped_by_year_null"] += 1
                 else:
                     try:
-                        if payload["year"] < structured.year_min:
+                        if year_val < structured.year_min:
                             debug["skipped_by_year"] += 1
                             continue
                     except Exception:
@@ -447,25 +436,32 @@ class SearchService:
             recency = self._recency_score(payload)
             sale_bonus = self._sale_bonus(payload)
             completeness = self._completeness_score(payload)
+            price_score = self._price_score(payload, structured)
 
             text_score = self._text_score(payload, structured)
 
             if brand_value:
                 final_score = (
-                    semantic * 0.35
-                    + text_score * 0.35
-                    + recency * 0.20
-                    + sale_bonus * 0.15
-                    + completeness * 0.15
+                    semantic * 0.45
+                    + text_score * 0.30
+                    + recency * 0.15
+                    + sale_bonus * 0.10
+                    + completeness * 0.10
                 )
             else:
                 final_score = (
-                    semantic * 0.55
+                    semantic * 0.65
                     + text_score * 0.20
                     + recency * 0.20
                     + sale_bonus * 0.10
                     + completeness * 0.05
                 )
+
+            if price_score > 0:
+                final_score += price_score * 0.15
+
+            if structured.price_max is not None:
+                final_score += price_score * 0.10
 
             brand_boost = 0.0
             if brand_value and brand_conf >= 0.5:
@@ -503,6 +499,7 @@ class SearchService:
                 f"recency={round(recency, 4)}",
                 f"sale={round(sale_bonus, 4)}",
                 f"complete={round(completeness, 4)}",
+                f"price_score={round(price_score, 4)}",
                 f"brand_boost={round(brand_boost, 4)}",
                 f"model_boost={round(model_boost,4)}",
                 f"vector_boost={round(vector_boost,4)}",
@@ -562,7 +559,7 @@ class SearchService:
             session = SessionLocal()
             history = SearchHistory(
                 raw_query=structured.raw_query,
-                structured_query=structured.dict(),
+                structured_query=structured.model_dump(),
                 results_count=len(results),
                 empty_result=len(results) == 0,
                 source="search_api",
@@ -593,8 +590,17 @@ class SearchService:
 
         try:
             from redis import Redis
-            redis = Redis(host="redis", port=6379)
-            redis.set(cache_key, json.dumps(results), ex=60)
+            redis = Redis(
+                host="redis",
+                port=6379,
+                socket_timeout=1,
+                socket_connect_timeout=1
+            )
+            redis.set(
+                cache_key,
+                json.dumps(results, ensure_ascii=False),
+                ex=60
+            )
         except:
             pass
 
@@ -668,6 +674,8 @@ class SearchService:
                 text += f"{r['mileage']} km "
 
             pairs.append((query, text.strip()))
+
+        pairs = pairs[:50]
 
         try:
             scores = reranker.predict(pairs)

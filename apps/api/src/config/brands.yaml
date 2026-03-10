@@ -24,6 +24,10 @@ brands:
       - "mersedes"
       - "мерседес бенц"
       - "мерс бенц"
+      - "e class"
+      - "c class"
+      - "s class"
+      - "glc class"
 
   volkswagen:
     en: ["volkswagen", "vw"]
@@ -78,6 +82,7 @@ brands:
     aliases:
       - "range rover"
       - "рендж ровер"
+      - "discovery sport"
 
   jaguar:
     en: ["jaguar"]
@@ -272,6 +277,10 @@ brands:
   li_auto:
     en: ["li auto", "lixiang"]
     ru: ["лисян"]
+    aliases:
+      - "li"
+      - "li auto"
+      - "lixiang"
 
   zeekr:
     en: ["zeekr"]
@@ -307,6 +316,7 @@ brands:
     aliases:
       - "hyunday"
       - "hyandai"
+      - "grand santa fe"
 
   kia:
     en: ["kia"]
@@ -431,6 +441,8 @@ brands:
   ваз:
     en: ["lada", "vaz"]
     ru: ["ваз", "лада"]
+    aliases:
+      - "samara"
 
   газ:
     en: ["gaz"]

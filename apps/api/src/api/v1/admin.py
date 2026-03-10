@@ -10,7 +10,6 @@ from integrations.vector_db.qdrant import QdrantStore, COLLECTION_NAME
 from core.settings import settings
 
 
-
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 
@@ -39,10 +38,11 @@ def get_index_stats() -> Dict[str, Any]:
         qdrant_points = collection_info.points_count or 0
         qdrant_vectors = collection_info.vectors_count or 0
         qdrant_status = collection_info.status
-    except Exception:
+    except Exception as e:
         qdrant_points = 0
         qdrant_vectors = 0
-        qdrant_status = "unknown"
+        qdrant_status = "error"
+        qdrant_error = str(e)
 
     # =========================
     # DATABASE STATS
@@ -77,6 +77,7 @@ def get_index_stats() -> Dict[str, Any]:
         "qdrant_points": qdrant_points,
         "qdrant_vectors": qdrant_vectors,
         "qdrant_status": qdrant_status,
+        "qdrant_error": qdrant_error if 'qdrant_error' in locals() else None,
         "db_documents": db_count,
         "last_documents": last_documents,
     }
@@ -93,8 +94,7 @@ def index_stats() -> Dict[str, Any]:
     """
 
     client = QdrantClient(
-        host=settings.qdrant_host,
-        port=settings.qdrant_port,
+        url=settings.QDRANT_URL
     )
 
     collections = client.get_collections().collections

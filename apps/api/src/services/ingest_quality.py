@@ -3,6 +3,9 @@ import yaml
 from typing import Optional, Tuple, Dict, Any
 from pathlib import Path
 
+from services.model_resolver import resolve_model
+from services.brand_detector import detect_brand as detect_brand_main
+
 # =========================
 # CONFIG / DEFAULTS
 # =========================
@@ -204,6 +207,7 @@ def extract_quality_signals(text: str) -> Dict[str, bool]:
 
     return signals
 
+
 # =========================
 # QUALITY SCORE (0..1)
 # =========================
@@ -227,42 +231,15 @@ def compute_quality_score(text: str) -> float:
 
 
 # =========================
-# BRAND DETECTION
+# BRAND DETECTION (ADAPTER)
 # =========================
 
 def detect_brand(text: str) -> Tuple[Optional[str], float]:
-
     if not text:
         return None, 0.0
 
-    text = text.lower()
-
-    brands = _load_brands()
-
-    tokens = re.findall(r"[a-zа-я0-9]+", text)
-
-    # 1️⃣ exact token match
-    for token in tokens:
-        for brand_key, cfg in brands.items():
-
-            if token in [v.lower() for v in cfg.get("en", [])]:
-                return brand_key.lower(), 1.0
-
-            if token in [v.lower() for v in cfg.get("ru", [])]:
-                return brand_key.lower(), 1.0
-
-            if token in [v.lower() for v in cfg.get("aliases", [])]:
-                return brand_key.lower(), 0.9
-
-    # 2️⃣ phrase match
-    for brand_key, cfg in brands.items():
-
-        for v in cfg.get("en", []) + cfg.get("ru", []) + cfg.get("aliases", []):
-
-            if v.lower() in text:
-                return brand_key.lower(), 0.8
-
-    return None, 0.0
+    brand, conf = detect_brand_main(title=text, text=text)
+    return brand, conf
 
 
 def detect_model(text: str, brand: Optional[str]) -> Optional[str]:
@@ -270,16 +247,7 @@ def detect_model(text: str, brand: Optional[str]) -> Optional[str]:
     if not text or not brand:
         return None
 
-    text = text.lower()
-
-    pattern = rf"{brand}\s+([a-z0-9\-]+(?:\s+[a-z0-9\-]+)?)"
-
-    m = re.search(pattern, text)
-
-    if m:
-        return m.group(1).strip()
-
-    return None
+    return resolve_model(brand, text)
 
 
 # =========================
@@ -327,9 +295,9 @@ class SkipStats:
         else:
             self.kept += 1
 
-    def log(self):
+    def log(self, prefix: str = "[INGEST][QUALITY_GATE]"):
         print(
-            f"[INGEST][QUALITY_GATE] total={self.total} "
+            f"{prefix} total={self.total} "
             f"kept={self.kept} skipped={self.skipped} "
             f"reasons={self.by_reason}"
         )
@@ -356,6 +324,12 @@ def should_skip_doc(
 
         lower = text.lower()
 
+        if len(text.strip()) < DEFAULT_MIN_TEXT_LEN and not is_sale_intent(text):
+            meta["reason"] = "too_short"
+            if stats:
+                stats.add(True, "too_short")
+            return True, meta
+
         for w in DEFAULT_BLACKLIST_WORDS:
             if w in lower and not is_sale_intent(text):
                 meta["reason"] = "blacklist_word"
@@ -363,7 +337,6 @@ def should_skip_doc(
                     stats.add(True, "blacklist_word")
                 return True, meta
 
-        # 🆕 HARD REJECT PARTS LISTINGS
         for w in PARTS_BLACKLIST:
             if w in lower:
                 meta["reason"] = "parts_listing"
@@ -377,8 +350,7 @@ def should_skip_doc(
         meta["sale_intent"] = 1 if sale else 0
         meta["quality_score"] = quality_score
 
-        # 🔒 QUALITY GATE
-        if not sale and quality_score == 0:
+        if len(lower) < DEFAULT_MIN_TEXT_LEN and not sale and quality_score == 0:
             meta["reason"] = "low_quality_or_not_sale"
             if stats:
                 stats.add(True, "low_quality_or_not_sale")
@@ -462,7 +434,7 @@ def build_meta_prefix(
     if quality_score is not None:
         parts.append(f"quality_score={quality_score}")
 
-    if source_boost:
+    if source_boost is not None:
         parts.append(f"source_boost={round(source_boost,2)}")
 
     if not parts:

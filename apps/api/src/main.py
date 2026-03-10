@@ -56,4 +56,5 @@ app.include_router(metrics_router, prefix="/api/v1")
 app.include_router(admin_router)
 
 # ⚠️ допустимо для MVP
-Base.metadata.create_all(bind=engine)
+if settings.DEBUG:
+    Base.metadata.create_all(bind=engine)

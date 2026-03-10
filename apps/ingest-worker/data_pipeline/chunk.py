@@ -1,9 +1,27 @@
-def chunk_text(text: str, chunk_size: int = 500):
+import re
+
+
+def chunk_text(text: str, chunk_size: int = 800):
+
     if not text:
         return []
 
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+
     chunks = []
-    for i in range(0, len(text), chunk_size):
-        chunks.append(text[i:i + chunk_size])
+
+    current = ""
+
+    for s in sentences:
+
+        if len(current) + len(s) < chunk_size:
+            current += " " + s
+
+        else:
+            chunks.append(current.strip())
+            current = s
+
+    if current:
+        chunks.append(current.strip())
 
     return chunks

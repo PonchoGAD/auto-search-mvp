@@ -52,7 +52,13 @@ def run_index(limit: int = 200):
 
         for doc in docs:
             # ограничиваем количество чанков (3–5)
-            chunks = chunk_text(doc.content or "")[:5]
+
+            content = doc.content or ""
+
+            if len(content) > 4000:
+                content = content[:4000]
+
+            chunks = chunk_text(content)[:8]
 
             for chunk in chunks:
                 vector = embed_text(chunk)

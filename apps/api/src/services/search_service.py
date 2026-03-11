@@ -122,7 +122,7 @@ class SearchService:
             limit = int(os.getenv("SEARCH_LIMIT", "50"))
 
         if top_k is None:
-            top_k = int(os.getenv("SEARCH_TOP_K", "160"))
+            top_k = int(os.getenv("SEARCH_TOP_K", "300"))
 
         env = (os.getenv("ENV", "") or os.getenv("APP_ENV", "") or "dev").lower()
         is_prod = env == "prod"
@@ -340,7 +340,7 @@ class SearchService:
 
         if not hits:
 
-            print("[SEARCH] vector fallback triggered", flush=True)
+            print("[SEARCH] fallback triggered")
 
             try:
 
@@ -401,7 +401,7 @@ class SearchService:
 
             if route in {"structured", "brand_only"} and brand_value:
                 payload_brand = payload.get("brand")
-                if not payload_brand or payload_brand != brand_value:
+                if payload_brand and payload_brand != brand_value:
                     continue
 
             if is_prod and (payload.get("source") == "dev_seed"):
@@ -418,7 +418,7 @@ class SearchService:
                 else:
 
                     try:
-                        if price_val > structured.price_max:
+                        if price_val is not None and price_val > structured.price_max:
                             debug["skipped_by_price"] += 1
                             continue
                     except Exception:
@@ -436,7 +436,7 @@ class SearchService:
                 else:
 
                     try:
-                        if mileage_val > structured.mileage_max:
+                        if mileage_val is not None and mileage_val > structured.mileage_max:
                             debug["skipped_by_mileage"] += 1
                             continue
                     except Exception:

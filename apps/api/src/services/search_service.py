@@ -852,4 +852,3 @@ class SearchService:
 
         return final_score, reasons
 
-text_score

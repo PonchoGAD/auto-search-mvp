@@ -39,12 +39,12 @@ META_PREFIX_RE = re.compile(
 RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
 RE_PRICE = re.compile(
-    r"(\d{1,3}(?:[\s\u00A0]\d{3}){1,4})\s*(₽|руб(?:\.|лей)?|р(?:\.|уб)?)",
+    r"(\d[\d\s\u00A0]{3,12})\s*(₽|руб|р)\b",
     re.IGNORECASE,
 )
 
 RE_PRICE_TITLE_GLUE = re.compile(
-    r"(\d{1,3}(?:[\s\u00A0]\d{3}){1,4})(?:₽|руб|р)(?=[A-Za-zА-Яа-я])",
+    r"(\d[\d\s\u00A0]{3,12})(?:₽|руб|р)(?=[A-Za-zА-Яа-я])",
     re.IGNORECASE,
 )
 
@@ -60,8 +60,8 @@ RE_MILEAGE_K = re.compile(
 
 RE_FUEL = re.compile(
     r"\b("
-    r"бензин|бенз|petrol|gasoline|"
-    r"дизель|диз|diesel|"
+    r"бензин|бензиновый|бенз|petrol|gasoline|"
+    r"дизель|дизельный|диз|diesel|"
     r"гибрид|hybrid|"
     r"электро|электр|electric|ev"
     r")\b",
@@ -328,6 +328,13 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         return None
 
     def _extract_mileage(source_text: str) -> Optional[int]:
+
+        if "км/ч" in source_text.lower() or "km/h" in source_text.lower():
+            return None
+
+        if "скорость" in source_text.lower():
+            return None
+
         m = RE_MILEAGE.search(source_text)
         if m:
             raw = _digits_only(m.group(1))
@@ -479,6 +486,10 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                     skipped += 1
                     continue
 
+        if "км/ч" in raw_text.lower():
+            skipped += 1
+            continue
+
         if skip:
             skipped += 1
             continue
@@ -517,13 +528,51 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         title = title_text
         content = full_text
 
+        # -----------------------------
+        # BRAND DETECTION
+        # -----------------------------
+
+        brand = brand_key
+
+        if not brand:
+            brand = extract_brand_fallback(title_text)
+
+        if not brand:
+            brand = extract_brand_fallback(full_text)
+
+        # -----------------------------
+        # MODEL RESOLVE
+        # -----------------------------
+
+        model = resolve_model(
+            brand,
+            f"{title_text} {full_text}"
+        )
+
+        # -----------------------------
+        # MODEL → BRAND INFERENCE
+        # -----------------------------
+
+        if (not brand or brand == "unknown") and model:
+
+            from services.brand_detector import MODEL_BRAND_MAP
+
+            if model:
+
+                m = model.lower()
+
+                if m in MODEL_BRAND_MAP:
+                    brand = MODEL_BRAND_MAP[m]
+
+        # -----------------------------
+        # ENTITY EXTRACTOR
+        # -----------------------------
+
         entities = extract_car_entities(
             title or "",
             f"{title or ''} {content or ''}"
         ) or {}
 
-        brand = entities.get("brand")
-        model = entities.get("model")
         price = entities.get("price")
         mileage = entities.get("mileage")
         fuel = entities.get("fuel")
@@ -546,7 +595,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         # MODEL RESOLVER
         # -----------------------------
 
-        if not model and brand:
+        if not model:
             model = resolve_model(
                 brand,
                 f"{title_text} {full_text}"
@@ -556,7 +605,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         # MODEL → BRAND INFERENCE
         # -----------------------------
 
-        if not brand or brand == "unknown":
+        if (not brand or brand == "unknown") and model:
             from services.brand_detector import MODEL_BRAND_MAP
 
             if model:
@@ -583,7 +632,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         mileage = entities.get("mileage") or mileage
         fuel = entities.get("fuel") or fuel
 
-        if not model and brand:
+        if not model:
             model = resolve_model(
                 brand,
                 f"{title_text} {full_text}"

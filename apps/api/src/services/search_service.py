@@ -465,8 +465,8 @@ class SearchService:
 
             if brand_value:
                 final_score = (
-                    semantic * 0.50
-                    + text_score * 0.25
+                    semantic * 0.55
+                    + text_score * 0.20
                     + recency * 0.15
                     + sale_bonus * 0.10
                     + completeness * 0.20
@@ -851,3 +851,5 @@ class SearchService:
         )
 
         return final_score, reasons
+
+text_score

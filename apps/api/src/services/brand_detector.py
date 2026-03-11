@@ -136,6 +136,7 @@ MODEL_BRAND_MAP = {
     "tasman": "kia",
     "pegas": "kia",
     "ceed": "kia",
+    "seltos": "kia",
 
     # =========================
     # HONDA
@@ -217,6 +218,10 @@ MODEL_BRAND_MAP = {
     # =========================
     "antara": "opel",
     "jolion": "haval",
+    "seltos": "kia",
+    "cx 60": "mazda",
+    "cx-60": "mazda",
+    "discovery sport": "land_rover",
 }
 
 

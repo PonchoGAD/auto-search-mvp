@@ -39,12 +39,12 @@ META_PREFIX_RE = re.compile(
 RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
 RE_PRICE = re.compile(
-    r"(\d[\d\s\u00A0]{3,12})\s*(₽|руб(?:\.|лей)?|р(?:\.|уб)?\b)",
+    r"(\d{1,3}(?:[\s\u00A0]\d{3}){1,4})\s*(₽|руб(?:\.|лей)?|р(?:\.|уб)?)",
     re.IGNORECASE,
 )
 
 RE_PRICE_TITLE_GLUE = re.compile(
-    r"(\d[\d\s\u00A0]{3,12})(?:₽|руб(?:\.|лей)?|р(?:\.|уб)?)(?=[A-Za-zА-Яа-я])",
+    r"(\d{1,3}(?:[\s\u00A0]\d{3}){1,4})(?:₽|руб|р)(?=[A-Za-zА-Яа-я])",
     re.IGNORECASE,
 )
 
@@ -73,19 +73,15 @@ FUEL_MAP = {
     "бенз": "petrol",
     "petrol": "petrol",
     "gasoline": "petrol",
-
     "дизель": "diesel",
     "диз": "diesel",
     "diesel": "diesel",
-
     "гибрид": "hybrid",
     "hybrid": "hybrid",
-
     "электро": "electric",
     "электр": "electric",
     "electric": "electric",
     "ev": "electric",
-
     "газ": "gas",
     "lpg": "gas",
     "gbo": "gas",
@@ -473,14 +469,34 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             source=raw.source or "",
         )
 
+        # TELEGRAM NOISE FILTER
+        if raw.source == "telegram":
+
+            if not re.search(r"\d[\d\s]{3,}\s*(₽|руб|р)", raw_text, re.IGNORECASE):
+
+                if not re.search(r"\b(продам|продается|продаю|price|цена)\b", raw_text.lower()):
+
+                    skipped += 1
+                    continue
+
         if skip:
             skipped += 1
             continue
 
-        brand_key, brand_conf = detect_brand(title_text)
+        if "диски" in raw_text.lower() or "резина" in raw_text.lower():
+            skipped += 1
+            continue
+
+        brand_key, brand_conf = detect_brand(
+            title_text,
+            raw_text
+        )
 
         if not brand_key:
-            brand_key, brand_conf = detect_brand(raw_text)
+            brand_key, brand_conf = detect_brand(
+                raw_text,
+                raw_text
+            )
 
         sale = is_sale_intent(raw_text)
         source_boost = resolve_source_boost(raw.source or "")
@@ -504,7 +520,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         entities = extract_car_entities(
             title or "",
             f"{title or ''} {content or ''}"
-        )
+        ) or {}
 
         brand = entities.get("brand")
         model = entities.get("model")
@@ -512,6 +528,10 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         mileage = entities.get("mileage")
         fuel = entities.get("fuel")
         year = entities.get("year")
+
+        # -----------------------------
+        # BRAND FALLBACK
+        # -----------------------------
 
         if not brand:
             brand = brand_key
@@ -521,6 +541,33 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
 
         if not brand:
             brand = extract_brand_fallback(full_text)
+
+        # -----------------------------
+        # MODEL RESOLVER
+        # -----------------------------
+
+        if not model and brand:
+            model = resolve_model(
+                brand,
+                f"{title_text} {full_text}"
+            )
+
+        # -----------------------------
+        # MODEL → BRAND INFERENCE
+        # -----------------------------
+
+        if not brand or brand == "unknown":
+            from services.brand_detector import MODEL_BRAND_MAP
+
+            if model:
+                m = model.lower().strip()
+
+                if m in MODEL_BRAND_MAP:
+                    brand = MODEL_BRAND_MAP[m]
+
+        # -----------------------------
+        # FINAL NORMALIZATION
+        # -----------------------------
 
         if brand:
             brand = brand.lower().strip()
@@ -535,6 +582,15 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         year = entities.get("year") or year
         mileage = entities.get("mileage") or mileage
         fuel = entities.get("fuel") or fuel
+
+        if not model and brand:
+            model = resolve_model(
+                brand,
+                f"{title_text} {full_text}"
+            )
+
+        if price == 0:
+            price = None
 
         doc = NormalizedDocument(
             raw_id=raw.id,

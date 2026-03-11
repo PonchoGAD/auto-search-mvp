@@ -104,6 +104,9 @@ def resolve_model(brand: Optional[str], text: str) -> Optional[str]:
     if not candidates:
         return None
 
-    candidates.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+    candidates.sort(
+        key=lambda x: (x[0] * 100 + x[1] * 10 + x[2]),
+        reverse=True
+    )
 
     return candidates[0][3]

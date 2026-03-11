@@ -61,6 +61,7 @@ MODEL_BRAND_MAP = {
     "e300": "mercedes",
     "c200": "mercedes",
     "c300": "mercedes",
+    "v class": "mercedes",
 
     # =========================
     # BMW
@@ -210,6 +211,12 @@ MODEL_BRAND_MAP = {
     "granta": "lada",
     "niva": "lada",
     "largus": "lada",
+
+    # =========================
+    # ADDITIONAL PATCHED MODELS
+    # =========================
+    "antara": "opel",
+    "jolion": "haval",
 }
 
 

@@ -77,24 +77,39 @@ BRANDS = [
 
 MODEL_TO_BRAND = {
 
-    "camry": "toyota",
-    "prado": "toyota",
-    "land cruiser": "toyota",
-    "rav4": "toyota",
+"camry": "toyota",
+"corolla": "toyota",
+"rav4": "toyota",
+"prado": "toyota",
+"land cruiser": "toyota",
+"hilux": "toyota",
 
-    "x5": "bmw",
-    "x6": "bmw",
-    "x3": "bmw",
+"x1": "bmw",
+"x3": "bmw",
+"x5": "bmw",
+"x6": "bmw",
 
-    "glc": "mercedes",
-    "gle": "mercedes",
-    "g63": "mercedes",
+"glc": "mercedes",
+"gle": "mercedes",
+"g63": "mercedes",
+"v-class": "mercedes",
 
-    "monjaro": "geely",
-    "jolion": "haval",
-    "atlas": "geely",
+"x-trail": "nissan",
 
-    "x-trail": "nissan",
+"monjaro": "geely",
+"atlas": "geely",
+
+"jolion": "haval",
+"h6": "haval",
+
+"seltos": "kia",
+"pegas": "kia",
+
+"cruze": "chevrolet",
+
+"antara": "opel",
+
+"discovery sport": "land rover",
 }
 
 # =========================
@@ -103,29 +118,57 @@ MODEL_TO_BRAND = {
 
 COMMON_MODELS = [
 
-    "camry",
-    "corolla",
-    "rav4",
-    "prado",
-    "land cruiser",
+# Toyota
+"camry",
+"corolla",
+"rav4",
+"prado",
+"land cruiser",
+"land cruiser prado",
+"hilux",
+"isis",
 
-    "x5",
-    "x6",
-    "x3",
+# BMW
+"x1",
+"x3",
+"x5",
+"x6",
+"3 series",
 
-    "glc",
-    "gle",
-    "g63",
+# Mercedes
+"glc",
+"glc-class",
+"gle",
+"g63",
+"v-class",
+"e-class",
+"c-class",
+"s-class",
 
-    "monjaro",
-    "jolion",
-    "atlas",
+# Nissan
+"x-trail",
 
-    "x-trail",
+# Geely
+"monjaro",
+"atlas",
 
-    "e-class",
-    "c-class",
-    "s-class",
+# Haval
+"jolion",
+"h6",
+
+# Kia
+"seltos",
+"pegas",
+
+# Chevrolet
+"cruze",
+
+# Opel
+"antara",
+
+# Land Rover
+"discovery sport",
+
 ]
 
 MODEL_PATTERNS = [
@@ -143,7 +186,7 @@ MODEL_PATTERNS = [
 # BRAND
 # =========================
 
-def extract_brand(text: str):
+def extract_brand(text):
 
     if not text:
         return None
@@ -191,12 +234,35 @@ def extract_model(text: str, brand: str | None):
 # PRICE
 # =========================
 
-import re
-
 def extract_price(text: str):
 
     if not text:
         return None
+
+    # 800k / 1.2m / 🍋 support
+    k_match = re.search(r"(\d+(?:\.\d+)?)\s?[kк]", text.lower())
+    if k_match:
+        try:
+            value = float(k_match.group(1))
+            return int(value * 1000)
+        except:
+            pass
+
+    m_match = re.search(r"(\d+(?:\.\d+)?)\s?[mм]", text.lower())
+    if m_match:
+        try:
+            value = float(m_match.group(1))
+            return int(value * 1000000)
+        except:
+            pass
+
+    lemon_match = re.search(r"(\d+)\s?🍋", text)
+    if lemon_match:
+        try:
+            value = int(lemon_match.group(1))
+            return value * 1000000
+        except:
+            pass
 
     t = text.replace("\xa0", " ")
 

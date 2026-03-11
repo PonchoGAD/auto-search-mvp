@@ -499,15 +499,11 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             continue
 
         brand_key, brand_conf = detect_brand(
-            title_text,
-            raw_text
-        )
+            title_text)
 
         if not brand_key:
             brand_key, brand_conf = detect_brand(
-                raw_text,
-                raw_text
-            )
+                raw_text)
 
         sale = is_sale_intent(raw_text)
         source_boost = resolve_source_boost(raw.source or "")

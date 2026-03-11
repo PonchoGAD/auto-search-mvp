@@ -250,18 +250,30 @@ class QdrantStore:
         query_filter: dict | None = None,
         query_text: Optional[str] = None,
     ):
+        from qdrant_client.models import SearchParams
+
         if query_filter:
+
             response = self.client.query_points(
                 collection_name=COLLECTION_NAME,
                 query=vector,
                 limit=limit,
                 query_filter=query_filter,
+                search_params=SearchParams(
+                    hnsw_ef=128,
+                    exact=False
+                )
             )
         else:
+
             response = self.client.query_points(
                 collection_name=COLLECTION_NAME,
                 query=vector,
                 limit=limit,
+                search_params=SearchParams(
+                    hnsw_ef=128,
+                    exact=False
+                )
             )
 
         hits = response.points

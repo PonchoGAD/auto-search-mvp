@@ -172,7 +172,13 @@ def index_document_chunks(
                 vectors.append(("title", deterministic_embedding(title_text)))
                 vectors.append(("title_boost", deterministic_embedding(title_text)))
 
-            vectors.append(("content", deterministic_embedding(chunk_text)))
+            # улучшенный embedding chunk
+            vectors.append((
+                "content",
+                deterministic_embedding(
+                    f"title: {title_text} content: {chunk_text}"
+                )
+            ))
 
             if structured_text:
                 vectors.append(("structured", deterministic_embedding(structured_text)))
@@ -192,11 +198,9 @@ def index_document_chunks(
             mileage = _norm_int(getattr(doc, "mileage", None))
             year = _norm_int(getattr(doc, "year", None))
 
-            # allow brandless documents (important for recall)
             if brand is None:
                 brand = None
 
-            # allow partial documents
             if price is None and mileage is None and year is None and fuel is None:
                 continue
 

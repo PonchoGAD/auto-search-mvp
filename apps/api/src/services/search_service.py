@@ -72,13 +72,13 @@ WHITELIST_SET = set(BRANDS_WHITELIST.keys())
 # =========================
 # FAIRNESS CONFIG
 # =========================
-MAX_RESULTS_PER_SOURCE: int = 15
+MAX_RESULTS_PER_SOURCE: int = 20
 
 # =========================
 # RECENCY CONFIG
 # =========================
 RECENCY_MAX_DAYS = 180
-RECENCY_WEIGHT = 1.0
+RECENCY_WEIGHT = 1.2
 
 
 class SearchService:
@@ -122,7 +122,7 @@ class SearchService:
             limit = int(os.getenv("SEARCH_LIMIT", "50"))
 
         if top_k is None:
-            top_k = int(os.getenv("SEARCH_TOP_K", "120"))
+            top_k = int(os.getenv("SEARCH_TOP_K", "160"))
 
         env = (os.getenv("ENV", "") or os.getenv("APP_ENV", "") or "dev").lower()
         is_prod = env == "prod"
@@ -487,17 +487,30 @@ class SearchService:
                 final_score += price_score * 0.10
 
             brand_boost = 0.0
-            if brand_value and brand_conf >= 0.5:
-                if payload.get("brand") == brand_value:
+
+            payload_brand = payload.get("brand")
+
+            if brand_value and payload_brand:
+
+                if payload_brand == brand_value:
+                    brand_boost = 0.20
+
+                elif payload_brand.startswith(brand_value):
                     brand_boost = 0.15
 
             final_score = final_score + brand_boost
 
             model_boost = 0.0
 
-            if structured.model and payload.get("model"):
-                if payload.get("model") == structured.model:
-                    model_boost = 0.25
+            payload_model = payload.get("model")
+
+            if structured.model and payload_model:
+
+                if payload_model == structured.model:
+                    model_boost = 0.30
+
+                elif structured.model in payload_model:
+                    model_boost = 0.20
 
             final_score = final_score + model_boost
 
@@ -505,16 +518,18 @@ class SearchService:
             vector_boost = 0.0
 
             if vector_type == "title_boost":
-                vector_boost = 0.10
+                vector_boost = 0.12
+
             elif vector_type == "title":
-                vector_boost = 0.07
+                vector_boost = 0.09
+
             elif vector_type == "structured":
-                vector_boost = 0.05
+                vector_boost = 0.06
 
             final_score = final_score + vector_boost
 
             if payload.get("brand") and payload.get("model"):
-                final_score += 0.05
+                final_score += 0.08
 
             reasons = [
                 f"semantic={round(semantic, 4)}",
@@ -656,7 +671,7 @@ class SearchService:
             if kw and kw.lower() in text:
                 score += 0.25
 
-        return min(score / 4.0, 1.0)
+        return min(score / 3.5, 1.0)
 
     def _rerank_results(
         self,

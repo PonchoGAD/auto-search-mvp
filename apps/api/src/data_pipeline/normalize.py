@@ -218,17 +218,14 @@ def extract_brand_fallback(text: str) -> Optional[str]:
 
     for brand_key, cfg in BRANDS_CONFIG.items():
 
-        # en
         for v in cfg.get("en", []):
             if v.lower() in lower:
                 return brand_key
 
-        # ru
         for v in cfg.get("ru", []):
             if v.lower() in lower:
                 return brand_key
 
-        # aliases
         for v in cfg.get("aliases", []):
             if v.lower() in lower:
                 return brand_key
@@ -418,22 +415,12 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
 # =========================
 
 def run_normalize(limit: int = 500, force_rebuild: bool = False):
-    """
-    Normalize pipeline:
-    - Anti-noise (skip мусор)
-    - build meta (__meta__)
-    - парсит meta
-    - очищает текст
-    - вытаскивает поля
-    - подготавливает данные для ranking
-    """
 
     Base.metadata.create_all(bind=engine)
     session = SessionLocal()
 
     if force_rebuild:
         print("[NORMALIZE] force_rebuild=True → clearing normalized docs", flush=True)
-
         session.query(NormalizedDocument).delete()
         session.commit()
 
@@ -453,6 +440,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
     skipped = 0
 
     for raw in raws:
+
         exists = (
             session.query(NormalizedDocument)
             .filter_by(source_url=raw.source_url)
@@ -504,7 +492,13 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         text = clean_text(content_wo_meta)
         full_text = f"{title_text}\n{text}".strip()
 
-        entities = extract_car_entities(title_text, full_text)
+        title = title_text
+        content = full_text
+
+        entities = extract_car_entities(
+            title or "",
+            f"{title or ''} {content or ''}"
+        )
 
         brand = entities.get("brand")
         model = entities.get("model")
@@ -528,6 +522,13 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             brand = "unknown"
 
         fields = extract_fields(full_text)
+
+        brand = entities.get("brand") or brand
+        model = entities.get("model") or model
+        price = entities.get("price") or price
+        year = entities.get("year") or year
+        mileage = entities.get("mileage") or mileage
+        fuel = entities.get("fuel") or fuel
 
         doc = NormalizedDocument(
             raw_id=raw.id,

@@ -86,6 +86,24 @@ async def _fetch_from_channel(
 
         text = text.strip()
 
+        if len(text) < 40:
+            skipped_invalid += 1
+            continue
+
+        low = text.lower()
+
+        if "обсуждение" in low:
+            skipped_invalid += 1
+            continue
+
+        if "комментарии" in low:
+            skipped_invalid += 1
+            continue
+
+        if "подписывайтесь" in low:
+            skipped_invalid += 1
+            continue
+
         # skip forwarded ads spam
         if getattr(msg, "fwd_from", None):
             skipped_invalid += 1

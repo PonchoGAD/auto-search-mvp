@@ -85,6 +85,12 @@ FUEL_MAP = {
     "электр": "electric",
     "electric": "electric",
     "ev": "electric",
+
+    "газ": "gas",
+    "lpg": "gas",
+    "gbo": "gas",
+    "газ/бензин": "gas_petrol",
+    "газ бензин": "gas_petrol",
 }
 
 
@@ -377,7 +383,7 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     if m:
         raw = m.group(1).lower()
         normalized_fuel = FUEL_MAP.get(raw)
-        if normalized_fuel in {"petrol", "diesel", "hybrid", "electric"}:
+        if normalized_fuel in {"petrol", "diesel", "hybrid", "electric", "gas", "gas_petrol"}:
             fuel = normalized_fuel
 
     paint_condition = None

@@ -102,7 +102,7 @@ class QdrantStore:
         Ensures fields always exist and are normalized.
         """
 
-        allowed_fuels = {"petrol", "diesel", "hybrid", "electric"}
+        allowed_fuels = {"petrol", "diesel", "hybrid", "electric", "gas", "gas_petrol"}
         current_year = datetime.now(tz=timezone.utc).year
 
         # -------------------------
@@ -313,7 +313,7 @@ class QdrantStore:
 
             if "fuel" in payload and isinstance(payload["fuel"], str):
                 fuel = payload["fuel"].lower().strip()
-                payload["fuel"] = fuel if fuel in {"petrol", "diesel", "hybrid", "electric"} else None
+                payload["fuel"] = fuel if fuel in {"petrol", "diesel", "hybrid", "electric", "gas", "gas_petrol"} else None
 
             # -------------------------
             # price

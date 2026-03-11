@@ -29,7 +29,19 @@ RE_YEAR = re.compile(
 # =========================
 
 RE_MILEAGE = re.compile(
-    r'(\d[\d\s]{2,7})\s*(км|km)',
+    r'(\d[\d\s]{2,7})\s*(км|km)\b',
+    re.IGNORECASE
+)
+
+# 120k / 120 тыс / 120тыс
+RE_MILEAGE_K = re.compile(
+    r'(\d{1,3}(?:[.,]\d+)?)\s*(тыс|т\.км|k)\b',
+    re.IGNORECASE
+)
+
+# "пробег 120000"
+RE_MILEAGE_LABEL = re.compile(
+    r'пробег[:\s]+(\d[\d\s]{2,8})',
     re.IGNORECASE
 )
 
@@ -43,19 +55,36 @@ RE_MILEAGE_ALT = re.compile(
 # =========================
 
 FUEL_MAP = {
+
+    # petrol
     "бенз": "petrol",
     "бензин": "petrol",
     "petrol": "petrol",
     "gasoline": "petrol",
 
+    # diesel
     "дизель": "diesel",
+    "диз": "diesel",
     "diesel": "diesel",
 
+    # hybrid
     "гибрид": "hybrid",
     "hybrid": "hybrid",
 
+    # electric
     "электро": "electric",
+    "электр": "electric",
     "electric": "electric",
+    "ev": "electric",
+
+    # gas
+    "газ": "gas",
+    "lpg": "gas",
+    "gbo": "gas",
+
+    # mixed
+    "газ/бензин": "gas_petrol",
+    "газ бензин": "gas_petrol"
 }
 
 # =========================
@@ -327,26 +356,34 @@ def extract_mileage(text):
     if not text:
         return None
 
+    # 120000 км
     m = RE_MILEAGE.search(text)
-
     if m:
         try:
-
-            mileage = int(
-                m.group(1).replace(" ", "")
-            )
-
+            mileage = int(m.group(1).replace(" ", ""))
             if mileage < 1000000:
                 return mileage
-
         except:
             pass
 
-    m = RE_MILEAGE_ALT.search(text)
-
+    # 120k / 120 тыс
+    m = RE_MILEAGE_K.search(text.lower())
     if m:
         try:
-            return int(m.group(1))
+            raw = m.group(1).replace(",", ".")
+            mileage = int(float(raw) * 1000)
+            if mileage < 1000000:
+                return mileage
+        except:
+            pass
+
+    # пробег 120000
+    m = RE_MILEAGE_LABEL.search(text.lower())
+    if m:
+        try:
+            mileage = int(m.group(1).replace(" ", ""))
+            if mileage < 1000000:
+                return mileage
         except:
             pass
 
@@ -364,7 +401,6 @@ def extract_fuel(text):
     t = text.lower()
 
     for k, v in FUEL_MAP.items():
-
         if k in t:
             return v
 

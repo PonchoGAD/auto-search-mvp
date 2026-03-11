@@ -75,15 +75,57 @@ BRANDS = [
     "changan"
 ]
 
+MODEL_TO_BRAND = {
+
+    "camry": "toyota",
+    "prado": "toyota",
+    "land cruiser": "toyota",
+    "rav4": "toyota",
+
+    "x5": "bmw",
+    "x6": "bmw",
+    "x3": "bmw",
+
+    "glc": "mercedes",
+    "gle": "mercedes",
+    "g63": "mercedes",
+
+    "monjaro": "geely",
+    "jolion": "haval",
+    "atlas": "geely",
+
+    "x-trail": "nissan",
+}
+
 # =========================
 # MODELS
 # =========================
 
 COMMON_MODELS = [
-    "camry","prado","corolla","rav4","land cruiser",
-    "x5","x6","x3","x7","x-trail","q5","q7",
-    "glc","gle","g63","c-class","e-class",
-    "monjaro","jolion","atlas","coolray","l7","l9"
+
+    "camry",
+    "corolla",
+    "rav4",
+    "prado",
+    "land cruiser",
+
+    "x5",
+    "x6",
+    "x3",
+
+    "glc",
+    "gle",
+    "g63",
+
+    "monjaro",
+    "jolion",
+    "atlas",
+
+    "x-trail",
+
+    "e-class",
+    "c-class",
+    "s-class",
 ]
 
 MODEL_PATTERNS = [
@@ -101,17 +143,20 @@ MODEL_PATTERNS = [
 # BRAND
 # =========================
 
-def extract_brand(text):
+def extract_brand(text: str):
 
     if not text:
         return None
 
     t = text.lower()
 
-    for b in BRANDS:
+    for brand in BRANDS:
+        if brand in t:
+            return brand
 
-        if b in t:
-            return b
+    for model, brand in MODEL_TO_BRAND.items():
+        if model in t:
+            return brand
 
     return None
 
@@ -146,39 +191,38 @@ def extract_model(text: str, brand: str | None):
 # PRICE
 # =========================
 
-def extract_price(text):
+import re
+
+def extract_price(text: str):
 
     if not text:
         return None
 
-    # основной regex
-    m = RE_PRICE.search(text)
+    t = text.replace("\xa0", " ")
 
-    if m:
-        try:
+    patterns = [
 
-            price = int(
-                m.group(1).replace(" ", "")
-            )
+        r"(\d[\d\s]{4,})\s?₽",
+        r"(\d[\d\s]{4,})\s?руб",
+        r"(\d[\d\s]{4,})\s?rub",
+        r"(\d[\d\s]{4,})\s?р",
+        r"(\d[\d\s]{4,})\s?\$",
+        r"(\d[\d\s]{4,})\s?€",
+    ]
 
-            if 10000 < price < 200000000:
-                return price
+    for p in patterns:
 
-        except:
-            pass
-
-    # fallback паттерны
-    lower = text.lower()
-
-    for p in PRICE_PATTERNS:
-
-        m = re.search(p, lower)
+        m = re.search(p, t, re.I)
 
         if m:
-            try:
-                return int(m.group(1).replace(" ", ""))
-            except:
-                pass
+
+            raw = m.group(1)
+
+            price = int(re.sub(r"\D", "", raw))
+
+            if 10000 < price < 200000000:
+
+                return price
 
     return None
 

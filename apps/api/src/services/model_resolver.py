@@ -55,6 +55,9 @@ def resolve_model(brand: Optional[str], text: str) -> Optional[str]:
 
     text_norm = _normalize_spaces(text)
 
+    # normalize class naming
+    text_norm = text_norm.replace("class", "")
+
     candidates: List[Tuple[int, int, int, str]] = []
 
     for model, aliases in brand_models.items():

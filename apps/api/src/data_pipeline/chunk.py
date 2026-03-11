@@ -20,6 +20,12 @@ def chunk_text_by_chars(text: str, size: int = 1200, overlap: int = 200) -> list
     if not text:
         return []
 
+    if "форум" in text.lower():
+        text = text[:800]
+
+    if "каталог" in text.lower():
+        text = text[:800]
+
     sentences = re.split(r'(?<=[.!?])\s+', text)
 
     chunks = []

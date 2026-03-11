@@ -356,6 +356,34 @@ def should_skip_doc(
                 stats.add(True, "low_quality_or_not_sale")
             return True, meta
 
+        signals = extract_quality_signals(text)
+
+        signals_count = sum([
+            1 if signals.get("has_price") else 0,
+            1 if signals.get("has_year") else 0,
+            1 if signals.get("has_mileage") else 0,
+        ])
+
+        brand, _ = detect_brand(text)
+
+        model = None
+        if brand:
+            model = resolve_model(brand, text)
+
+        entity_signals = 0
+
+        if brand:
+            entity_signals += 1
+
+        if model:
+            entity_signals += 1
+
+        if signals_count + entity_signals < 2:
+            meta["reason"] = "low_entity_signal"
+            if stats:
+                stats.add(True, "low_entity_signal")
+            return True, meta
+
         meta["reason"] = "ok"
         if stats:
             stats.add(False, "ok")

@@ -29,19 +29,22 @@ RE_YEAR = re.compile(
 # =========================
 
 RE_MILEAGE = re.compile(
-    r'(\d[\d\s]{2,7})\s*(км|km)\b',
+    r'\b(\d{2,7})\s*(?:км|km)\b',
     re.IGNORECASE
 )
 
-# 120k / 120 тыс / 120тыс
 RE_MILEAGE_K = re.compile(
-    r'(\d{1,3}(?:[.,]\d+)?)\s*(тыс|т\.км|k)\b',
+    r'\b(\d{1,3}(?:[.,]\d+)?)\s*(?:тыс\.?|т\.км|k|ткм)\b',
     re.IGNORECASE
 )
 
-# "пробег 120000"
 RE_MILEAGE_LABEL = re.compile(
-    r'пробег[:\s]+(\d[\d\s]{2,8})',
+    r'\b(?:пробег|mileage)\s*[:\-]?\s*(\d{2,7})\b',
+    re.IGNORECASE
+)
+
+RE_MILEAGE_ODOMETER = re.compile(
+    r'\b(\d{2,7})\s*(?:odometer)\b',
     re.IGNORECASE
 )
 
@@ -56,35 +59,32 @@ RE_MILEAGE_ALT = re.compile(
 
 FUEL_MAP = {
 
-    # petrol
-    "бенз": "petrol",
-    "бензин": "petrol",
-    "petrol": "petrol",
-    "gasoline": "petrol",
+"бензин": "petrol",
+"бенз": "petrol",
+"бензиновый": "petrol",
+"petrol": "petrol",
+"gasoline": "petrol",
 
-    # diesel
-    "дизель": "diesel",
-    "диз": "diesel",
-    "diesel": "diesel",
+"дизель": "diesel",
+"диз": "diesel",
+"дизельный": "diesel",
+"diesel": "diesel",
+"d": "diesel",
 
-    # hybrid
-    "гибрид": "hybrid",
-    "hybrid": "hybrid",
+"гибрид": "hybrid",
+"hybrid": "hybrid",
 
-    # electric
-    "электро": "electric",
-    "электр": "electric",
-    "electric": "electric",
-    "ev": "electric",
+"электро": "electric",
+"электр": "electric",
+"electric": "electric",
+"ev": "electric",
 
-    # gas
-    "газ": "gas",
-    "lpg": "gas",
-    "gbo": "gas",
+"газ": "gas",
+"lpg": "gas",
+"gbo": "gas",
 
-    # mixed
-    "газ/бензин": "gas_petrol",
-    "газ бензин": "gas_petrol"
+"газ/бензин": "gas_petrol",
+"газ бензин": "gas_petrol"
 }
 
 # =========================
@@ -122,7 +122,9 @@ MODEL_TO_BRAND = {
 "gle": "mercedes",
 "g63": "mercedes",
 "v-class": "mercedes",
+"e class": "mercedes",
 
+"x trail": "nissan",
 "x-trail": "nissan",
 
 "monjaro": "geely",
@@ -139,6 +141,47 @@ MODEL_TO_BRAND = {
 "antara": "opel",
 
 "discovery sport": "land rover",
+
+"xc90": "volvo",
+"xc60": "volvo",
+
+"cx 5": "mazda",
+"cx-5": "mazda",
+"cx 60": "mazda",
+"cx-60": "mazda",
+
+"l7": "li_auto",
+
+"rio": "kia",
+"solaris": "hyundai",
+"tucson": "hyundai",
+"sportage": "kia",
+
+"tiguan": "volkswagen",
+"polo": "volkswagen",
+
+"logan": "renault",
+"duster": "renault",
+
+"focus": "ford",
+"mondeo": "ford",
+
+"civic": "honda",
+"accord": "honda",
+
+"model 3": "tesla",
+"model y": "tesla",
+
+"coolray": "geely",
+"atlas pro": "geely",
+
+"f7": "haval",
+
+"qx50": "infiniti",
+"qx60": "infiniti",
+
+"rx": "lexus",
+"nx": "lexus",
 }
 
 # =========================
@@ -243,12 +286,10 @@ def extract_model(text: str, brand: str | None):
 
     t = text.lower()
 
-    # BMW patterns
     m = re.search(r"\b(x[1-7])\b", t)
     if m:
         return m.group(1)
 
-    # numeric series
     m = re.search(r"\b([1-7]-series)\b", t)
     if m:
         return m.group(1)
@@ -268,7 +309,6 @@ def extract_price(text: str):
     if not text:
         return None
 
-    # 800k / 1.2m / 🍋 support
     k_match = re.search(r"(\d+(?:\.\d+)?)\s?[kк]", text.lower())
     if k_match:
         try:
@@ -356,34 +396,45 @@ def extract_mileage(text):
     if not text:
         return None
 
-    # 120000 км
-    m = RE_MILEAGE.search(text)
+    t = text.lower()
+
+    if "км/ч" in t or "km/h" in t:
+        return None
+
+    m = RE_MILEAGE.search(t)
     if m:
         try:
-            mileage = int(m.group(1).replace(" ", ""))
-            if mileage < 1000000:
-                return mileage
+            val = int(m.group(1).replace(" ", ""))
+            if 0 < val < 700000:
+                return val
         except:
             pass
 
-    # 120k / 120 тыс
-    m = RE_MILEAGE_K.search(text.lower())
+    m = RE_MILEAGE_K.search(t)
     if m:
         try:
             raw = m.group(1).replace(",", ".")
-            mileage = int(float(raw) * 1000)
-            if mileage < 1000000:
-                return mileage
+            val = int(float(raw) * 1000)
+            if 0 < val < 700000:
+                return val
         except:
             pass
 
-    # пробег 120000
-    m = RE_MILEAGE_LABEL.search(text.lower())
+    m = RE_MILEAGE_LABEL.search(t)
     if m:
         try:
-            mileage = int(m.group(1).replace(" ", ""))
-            if mileage < 1000000:
-                return mileage
+            val = int(m.group(1))
+            if 0 < val < 700000:
+                return val
+        except:
+            pass
+
+    m = RE_MILEAGE_ODOMETER.search(t)
+    if m:
+        try:
+            val = int(m.group(1))
+            if 0 < val < 700000:
+                return val
         except:
             pass
 
@@ -400,8 +451,11 @@ def extract_fuel(text):
 
     t = text.lower()
 
+    if "plug-in hybrid" in t or "phev" in t:
+        return "hybrid"
+
     for k, v in FUEL_MAP.items():
-        if k in t:
+        if f" {k} " in f" {t} ":
             return v
 
     return None

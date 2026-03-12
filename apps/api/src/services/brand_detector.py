@@ -255,7 +255,7 @@ def _contains_phrase(text: str, phrase: str) -> bool:
     if not phrase:
         return False
 
-    pattern = r"\b" + r"\s+".join(re.escape(p) for p in phrase.split()) + r"\b"
+    pattern = r"\b" + r"[\s\-_]*".join(re.escape(p) for p in phrase.split()) + r"\b"
     return bool(re.search(pattern, text, re.IGNORECASE))
 
 
@@ -299,6 +299,10 @@ def _match_brand(text: str) -> Tuple[Optional[str], float]:
     best_model_len = 0
 
     for model_token, brand in MODEL_BRAND_MAP.items():
+
+        if len(model_token) < 2:
+            continue
+
         token_norm = _normalize_text(model_token)
 
         if _contains_phrase(text_norm, token_norm):

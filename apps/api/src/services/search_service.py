@@ -407,6 +407,20 @@ class SearchService:
             if is_prod and (payload.get("source") == "dev_seed"):
                 continue
 
+            # =====================================================
+            # STRICT FUEL FILTER (POST FILTER)
+            # =====================================================
+
+            if structured.fuel is not None:
+
+                payload_fuel = payload.get("fuel")
+
+                if payload_fuel is None:
+                    continue
+
+                if str(payload_fuel).lower() != str(structured.fuel).lower():
+                    continue
+
             if structured.price_max is not None:
 
                 price_val = payload.get("price")
@@ -430,18 +444,18 @@ class SearchService:
                 mileage_val = payload.get("mileage")
 
                 if mileage_val is None:
-
                     debug["skipped_by_mileage_null"] += 1
+                    continue
 
-                else:
+                try:
 
-                    try:
-                        if mileage_val is not None and mileage_val > structured.mileage_max:
-                            debug["skipped_by_mileage"] += 1
-                            continue
-                    except Exception:
+                    if mileage_val > structured.mileage_max:
                         debug["skipped_by_mileage"] += 1
                         continue
+
+                except Exception:
+                    debug["skipped_by_mileage"] += 1
+                    continue
 
             if structured.year_min is not None:
                 year_val = payload.get("year")
@@ -460,6 +474,23 @@ class SearchService:
             sale_bonus = self._sale_bonus(payload)
             completeness = self._completeness_score(payload)
             price_score = self._price_score(payload, structured)
+
+            mileage_score = 0.0
+
+            if structured.mileage_max is not None:
+
+                mileage_val = payload.get("mileage")
+
+                if mileage_val is not None:
+
+                    try:
+
+                        ratio = float(mileage_val) / float(structured.mileage_max)
+
+                        mileage_score = max(0.0, 1.0 - ratio)
+
+                    except Exception:
+                        mileage_score = 0.0
 
             text_score = self._text_score(payload, structured)
 
@@ -483,6 +514,9 @@ class SearchService:
             if price_score > 0:
                 final_score += price_score * 0.15
 
+            if mileage_score > 0:
+                final_score += mileage_score * 0.12
+
             if structured.price_max is not None:
                 final_score += price_score * 0.10
 
@@ -499,6 +533,14 @@ class SearchService:
                     brand_boost = 0.15
 
             final_score = final_score + brand_boost
+
+            # fuel mismatch penalty
+
+            if structured.fuel and payload.get("fuel"):
+
+                if str(payload.get("fuel")).lower() != str(structured.fuel).lower():
+
+                    final_score -= 0.6
 
             model_boost = 0.0
 
@@ -529,7 +571,7 @@ class SearchService:
             final_score = final_score + vector_boost
 
             if payload.get("brand") and payload.get("model"):
-                final_score += 0.08
+                final_score += 0.12
 
             reasons = [
                 f"semantic={round(semantic, 4)}",
@@ -538,6 +580,7 @@ class SearchService:
                 f"sale={round(sale_bonus, 4)}",
                 f"complete={round(completeness, 4)}",
                 f"price_score={round(price_score, 4)}",
+                f"mileage_score={round(mileage_score, 4)}",
                 f"brand_boost={round(brand_boost, 4)}",
                 f"model_boost={round(model_boost,4)}",
                 f"vector_boost={round(vector_boost,4)}",
@@ -664,8 +707,12 @@ class SearchService:
         if structured.model and structured.model.lower() in text:
             score += 1.5
 
-        if structured.fuel and payload.get("fuel") and structured.fuel.lower() == str(payload.get("fuel")).lower():
-            score += 0.5
+        if structured.fuel and payload.get("fuel"):
+
+            if structured.fuel.lower() == str(payload.get("fuel")).lower():
+                score += 1.2
+            else:
+                score -= 0.5
 
         for kw in getattr(structured, "keywords", []) or []:
             if kw and kw.lower() in text:
@@ -713,7 +760,7 @@ class SearchService:
 
             pairs.append((query, text.strip()))
 
-        pairs = pairs[:50]
+        pairs = pairs[:80]
 
         try:
             scores = reranker.predict(pairs)
@@ -729,7 +776,7 @@ class SearchService:
             reverse=True,
         )
 
-        return results[:top_k]
+        return results[:min(top_k, 30)]
 
     def _recency_score(self, payload: Dict[str, Any]) -> float:
         ts = payload.get("created_at_ts")
@@ -851,4 +898,3 @@ class SearchService:
         )
 
         return final_score, reasons
-

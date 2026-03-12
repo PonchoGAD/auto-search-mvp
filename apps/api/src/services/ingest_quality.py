@@ -189,6 +189,8 @@ def extract_quality_signals(text: str) -> Dict[str, bool]:
         "has_price": False,
         "has_year": False,
         "has_mileage": False,
+        "has_brand": False,
+        "has_model": False,
     }
 
     if not text:
@@ -205,6 +207,13 @@ def extract_quality_signals(text: str) -> Dict[str, bool]:
     if MILEAGE_PATTERN.search(t):
         signals["has_mileage"] = True
 
+    brand, _ = detect_brand(text)
+    if brand:
+        signals["has_brand"] = True
+        model = resolve_model(brand, text)
+        if model:
+            signals["has_model"] = True
+
     return signals
 
 
@@ -213,19 +222,17 @@ def extract_quality_signals(text: str) -> Dict[str, bool]:
 # =========================
 
 def compute_quality_score(text: str) -> float:
-    """
-    Простая, стабильная эвристика качества (0..1)
-    Используется ТОЛЬКО для ranking / explain, не для skip.
-    """
     if not text:
         return 0.0
 
     signals = extract_quality_signals(text)
 
     score = 0.0
-    score += 0.4 if signals.get("has_price") else 0.0
-    score += 0.3 if signals.get("has_year") else 0.0
-    score += 0.3 if signals.get("has_mileage") else 0.0
+    score += 0.25 if signals.get("has_price") else 0.0
+    score += 0.15 if signals.get("has_year") else 0.0
+    score += 0.15 if signals.get("has_mileage") else 0.0
+    score += 0.20 if signals.get("has_brand") else 0.0
+    score += 0.25 if signals.get("has_model") else 0.0
 
     return round(min(score, 1.0), 3)
 
@@ -248,6 +255,60 @@ def detect_model(text: str, brand: Optional[str]) -> Optional[str]:
         return None
 
     return resolve_model(brand, text)
+
+
+def _is_telegram_noise(text: str) -> bool:
+    t = (text or "").lower()
+
+    hard_noise = [
+        "масло",
+        "редуктор",
+        "допуск",
+        "подписывайтесь",
+        "репост",
+        "лайк",
+        "диски",
+        "резина",
+        "колеса",
+        "шины",
+        "разбор",
+        "запчаст",
+        "км/ч",
+        "скорость",
+    ]
+
+    if any(x in t for x in hard_noise):
+        return True
+
+    brand, _ = detect_brand(text)
+    model = resolve_model(brand, text) if brand else None
+    has_price = bool(PRICE_PATTERN.search(t) or PRICE_ANY_PATTERN.search(t))
+
+    if has_price and not brand and not model:
+        discussion_words = [
+            "это норм",
+            "это цена",
+            "шутка",
+            "реальная цена",
+            "подскажите",
+            "кто знает",
+            "?",
+        ]
+        if any(x in t for x in discussion_words):
+            return True
+
+    return False
+
+
+def _extract_entity_signals(text: str) -> Dict[str, bool]:
+    signals = extract_quality_signals(text)
+
+    brand, _ = detect_brand(text)
+    model = resolve_model(brand, text) if brand else None
+
+    signals["has_brand"] = bool(brand)
+    signals["has_model"] = bool(model)
+    return signals
 
 
 # =========================
@@ -323,18 +384,29 @@ def should_skip_doc(
             return True, meta
 
         lower = text.lower()
+        sale = is_sale_intent(text)
+        quality_score = compute_quality_score(text)
+        is_tg = "telegram" in (source or "").lower()
 
-        if len(text.strip()) < DEFAULT_MIN_TEXT_LEN and not is_sale_intent(text):
-            meta["reason"] = "too_short"
+        meta["sale_intent"] = 1 if sale else 0
+        meta["quality_score"] = quality_score
+
+        if is_tg and _is_telegram_noise(text):
+            meta["reason"] = "telegram_noise"
             if stats:
-                stats.add(True, "too_short")
+                stats.add(True, "telegram_noise")
             return True, meta
 
-        for w in DEFAULT_BLACKLIST_WORDS:
-            if w in lower and not is_sale_intent(text):
-                meta["reason"] = "blacklist_word"
+        if len(text.strip()) < DEFAULT_MIN_TEXT_LEN and not sale and not is_tg:
+            brand_tmp, _ = detect_brand(text)
+            model_tmp = resolve_model(brand_tmp, text) if brand_tmp else None
+            has_price_tmp = bool(PRICE_PATTERN.search(lower) or PRICE_ANY_PATTERN.search(lower))
+            has_year_tmp = bool(YEAR_PATTERN.search(lower))
+
+            if not brand_tmp and not model_tmp and not has_price_tmp and not has_year_tmp:
+                meta["reason"] = "too_short"
                 if stats:
-                    stats.add(True, "blacklist_word")
+                    stats.add(True, "too_short")
                 return True, meta
 
         for w in PARTS_BLACKLIST:
@@ -344,45 +416,46 @@ def should_skip_doc(
                     stats.add(True, "parts_listing")
                 return True, meta
 
-        sale = is_sale_intent(text)
-        quality_score = compute_quality_score(text)
+        brand_tmp, _ = detect_brand(text)
+        model_tmp = resolve_model(brand_tmp, text) if brand_tmp else None
+        has_price_tmp = bool(PRICE_PATTERN.search(lower) or PRICE_ANY_PATTERN.search(lower))
 
-        meta["sale_intent"] = 1 if sale else 0
-        meta["quality_score"] = quality_score
+        for w in DEFAULT_BLACKLIST_WORDS:
+            if w in lower and not sale:
+                if is_tg:
+                    meta["reason"] = "blacklist_word"
+                    if stats:
+                        stats.add(True, "blacklist_word")
+                    return True, meta
+                else:
+                    if not brand_tmp and not model_tmp and not has_price_tmp:
+                        meta["reason"] = "blacklist_word"
+                        if stats:
+                            stats.add(True, "blacklist_word")
+                        return True, meta
 
-        if len(lower) < DEFAULT_MIN_TEXT_LEN and not sale and quality_score == 0:
-            meta["reason"] = "low_quality_or_not_sale"
-            if stats:
-                stats.add(True, "low_quality_or_not_sale")
-            return True, meta
+        signals = _extract_entity_signals(text)
 
-        signals = extract_quality_signals(text)
-
-        signals_count = sum([
-            1 if signals.get("has_price") else 0,
-            1 if signals.get("has_year") else 0,
-            1 if signals.get("has_mileage") else 0,
+        strong_signals = sum([
+            1 if signals["has_brand"] else 0,
+            1 if signals["has_model"] else 0,
+            1 if signals["has_price"] else 0,
+            1 if signals["has_year"] else 0,
+            1 if signals["has_mileage"] else 0,
         ])
 
-        brand, _ = detect_brand(text)
-
-        model = None
-        if brand:
-            model = resolve_model(brand, text)
-
-        entity_signals = 0
-
-        if brand:
-            entity_signals += 1
-
-        if model:
-            entity_signals += 1
-
-        if signals_count + entity_signals < 2:
-            meta["reason"] = "low_entity_signal"
-            if stats:
-                stats.add(True, "low_entity_signal")
-            return True, meta
+        if is_tg:
+            if strong_signals < 2 and not sale:
+                meta["reason"] = "low_entity_signal"
+                if stats:
+                    stats.add(True, "low_entity_signal")
+                return True, meta
+        else:
+            if strong_signals == 0 and not sale:
+                meta["reason"] = "low_entity_signal_marketplace"
+                if stats:
+                    stats.add(True, "low_entity_signal_marketplace")
+                return True, meta
 
         meta["reason"] = "ok"
         if stats:

@@ -3,6 +3,14 @@
 import os
 import hashlib
 import re
+def _clean_text(text: str) -> str:
+    if not text:
+        return ""
+
+    text = text.replace("\u00A0", " ").replace("\xa0", " ")
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
 from typing import List
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,29 +75,32 @@ def _norm_int(v: object) -> int | None:
 
 def build_structured_text(doc: NormalizedDocument) -> str:
     """
-    Builds structured text representation for embedding.
-    Improves recall for structured queries.
+    Structured semantic representation.
+    Улучшает recall для фильтров и semantic matching.
     """
 
     parts = []
 
     if getattr(doc, "brand", None):
-        parts.append(str(doc.brand))
+        parts.append(f"brand {doc.brand}")
 
     if getattr(doc, "model", None):
-        parts.append(str(doc.model))
+        parts.append(f"model {doc.model}")
 
     if getattr(doc, "fuel", None):
-        parts.append(str(doc.fuel))
+        parts.append(f"fuel {doc.fuel}")
 
     if getattr(doc, "year", None):
-        parts.append(str(doc.year))
+        parts.append(f"year {doc.year}")
 
     if getattr(doc, "price", None):
         parts.append(f"price {doc.price}")
 
     if getattr(doc, "mileage", None):
         parts.append(f"mileage {doc.mileage}")
+
+    if getattr(doc, "paint_condition", None):
+        parts.append(f"paint {doc.paint_condition}")
 
     return " ".join(parts).strip()
 
@@ -148,40 +159,17 @@ def index_document_chunks(
         skipped_missing_url = 0
 
         for ch, doc in chunks:
-            chunk_text = (ch.chunk_text or "").strip()
+            chunk_text = _clean_text(ch.chunk_text or "")
             if not chunk_text:
                 skipped_empty_text += 1
                 continue
 
             source_url = getattr(doc, "source_url", None)
-            title_text = (getattr(doc, "title", "") or "").strip()
+            title_text = _clean_text(getattr(doc, "title", "") or "")
 
             if not source_url or not title_text:
                 skipped_missing_url += 1
                 continue
-
-            # =====================================================
-            # MULTI VECTOR EMBEDDINGS
-            # =====================================================
-
-            structured_text = build_structured_text(doc)
-
-            vectors = []
-
-            if title_text:
-                vectors.append(("title", deterministic_embedding(title_text)))
-                vectors.append(("title_boost", deterministic_embedding(title_text)))
-
-            # улучшенный embedding chunk
-            vectors.append((
-                "content",
-                deterministic_embedding(
-                    f"title: {title_text} content: {chunk_text}"
-                )
-            ))
-
-            if structured_text:
-                vectors.append(("structured", deterministic_embedding(structured_text)))
 
             brand = _norm_str(getattr(doc, "brand", None))
             model = _norm_str(getattr(doc, "model", None))
@@ -201,7 +189,46 @@ def index_document_chunks(
             if brand is None:
                 brand = None
 
-            if price is None and mileage is None and year is None and fuel is None:
+            # =====================================================
+            # MULTI VECTOR EMBEDDINGS
+            # =====================================================
+
+            structured_text = build_structured_text(doc)
+
+            vectors = []
+
+            if title_text:
+                title_embedding_text = f"""
+title {title_text}
+brand {brand or ''}
+model {model or ''}
+""".strip()
+
+                vectors.append(("title", deterministic_embedding(title_embedding_text)))
+                vectors.append(("title_boost", deterministic_embedding(title_embedding_text)))
+
+            # улучшенный embedding chunk
+            content_embedding_text = f"""
+title {title_text}
+brand {brand or ''}
+model {model or ''}
+content {chunk_text}
+""".strip()
+
+            vectors.append((
+                "content",
+                deterministic_embedding(content_embedding_text)
+            ))
+
+            if structured_text:
+                structured_embedding_text = f"""
+structured {structured_text}
+title {title_text}
+""".strip()
+
+                vectors.append(("structured", deterministic_embedding(structured_embedding_text)))
+
+            if not brand and not model and price is None and mileage is None and year is None:
                 continue
 
             created_at_ts = getattr(doc, "created_at_ts", None)
@@ -223,6 +250,7 @@ def index_document_chunks(
 
                 "brand": brand,
                 "model": model,
+                "brand_model": f"{brand or ''} {model or ''}".strip(),
                 "price": price,
                 "currency": currency,
                 "mileage": mileage,
@@ -233,6 +261,13 @@ def index_document_chunks(
 
                 "sale_intent": getattr(doc, "sale_intent", None),
                 "quality_score": getattr(doc, "quality_score", None),
+                "doc_quality": (
+                    1 if price else 0
+                ) + (
+                    1 if mileage else 0
+                ) + (
+                    1 if year else 0
+                ),
 
                 "doc_id": getattr(doc, "id", None),
                 "normalized_id": getattr(doc, "id", None),
@@ -247,6 +282,8 @@ def index_document_chunks(
             }
 
             for vec_type, vec in vectors:
+                if not vec or len(vec) != VECTOR_SIZE:
+                    continue
 
                 if not vec or len(vec) != VECTOR_SIZE:
                     continue

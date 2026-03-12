@@ -205,6 +205,7 @@ class QdrantStore:
     # =====================================================
 
     def upsert(self, points: List[PointStruct]):
+
         if not points:
             print("[QDRANT] no points to upsert")
             return
@@ -228,16 +229,23 @@ class QdrantStore:
                 )
             )
 
-        self.client.upsert(
-            collection_name=COLLECTION_NAME,
-            points=normalized_points,
-        )
+        BATCH_SIZE = 64
+        total = len(normalized_points)
+
+        for i in range(0, total, BATCH_SIZE):
+
+            batch = normalized_points[i:i + BATCH_SIZE]
+
+            self.client.upsert(
+                collection_name=COLLECTION_NAME,
+                points=batch,
+            )
 
         if normalized_points:
             sample = normalized_points[0].payload
             print(f"[QDRANT] sample payload schema: {sample}")
 
-        print(f"[QDRANT] upserted points: {len(normalized_points)}")
+        print(f"[QDRANT] upserted points: {total}")
 
     # =====================================================
     # SEARCH

@@ -115,6 +115,16 @@ def _digits_only(value: str) -> str:
     return re.sub(r"[^\d]", "", value)
 
 
+def _is_speed_noise(text: str) -> bool:
+    t = (text or "").lower()
+    return any(x in t for x in [
+        "км/ч",
+        "km/h",
+        "скорость",
+        "средняя скорость",
+    ])
+
+
 def parse_meta(text: str) -> Tuple[Dict[str, str], str]:
     """
     Извлекает meta-префикс из content и возвращает:
@@ -328,11 +338,7 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         return None
 
     def _extract_mileage(source_text: str) -> Optional[int]:
-
-        if "км/ч" in source_text.lower() or "km/h" in source_text.lower():
-            return None
-
-        if "скорость" in source_text.lower():
+        if _is_speed_noise(source_text):
             return None
 
         m = RE_MILEAGE.search(source_text)
@@ -412,8 +418,8 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     return {
         "year": year if isinstance(year, int) else None,
         "mileage": mileage if isinstance(mileage, int) else None,
-        "price": price if isinstance(price, int) else None,
-        "currency": "RUB" if isinstance(price, int) else None,
+        "price": price if isinstance(price, int) and price > 0 else None,
+        "currency": "RUB" if isinstance(price, int) and price > 0 else None,
         "fuel": fuel if isinstance(fuel, str) else None,
         "paint_condition": paint_condition,
     }
@@ -448,6 +454,58 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
     saved = 0
     skipped = 0
 
+    def _is_telegram_noise(raw_text: str) -> bool:
+        t = (raw_text or "").lower()
+
+        hard_noise = [
+            "масло",
+            "редуктор",
+            "допуск",
+            "диски",
+            "резина",
+            "шины",
+            "колеса",
+            "запчаст",
+            "разбор",
+            "км/ч",
+            "km/h",
+            "скорость",
+            "средняя скорость",
+        ]
+
+        if any(x in t for x in hard_noise):
+            return True
+
+        discussion_words = [
+            "это норм",
+            "это цена",
+            "шутка",
+            "реальная цена",
+            "подскажите",
+            "кто знает",
+            "?",
+        ]
+
+        has_price = bool(re.search(r"\d[\d\s]{3,}\s*(₽|руб|р)", t, re.IGNORECASE))
+        brand_tmp, _ = detect_brand(raw_text)
+        model_tmp = resolve_model(brand_tmp, raw_text) if brand_tmp else None
+
+        if has_price and not brand_tmp and not model_tmp:
+            if any(x in t for x in discussion_words):
+                return True
+
+        return False
+
+    def _count_sale_signals(raw_text: str, brand: str | None, model: str | None, fields: dict, sale: bool) -> int:
+        return sum([
+            1 if brand else 0,
+            1 if model else 0,
+            1 if fields.get("price") else 0,
+            1 if fields.get("year") else 0,
+            1 if fields.get("mileage") else 0,
+            1 if sale else 0,
+        ])
+
     for raw in raws:
 
         exists = (
@@ -476,36 +534,36 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             source=raw.source or "",
         )
 
-        # TELEGRAM NOISE FILTER
-        if raw.source == "telegram":
-
-            if not re.search(r"\d[\d\s]{3,}\s*(₽|руб|р)", raw_text, re.IGNORECASE):
-
-                if not re.search(r"\b(продам|продается|продаю|price|цена)\b", raw_text.lower()):
-
-                    skipped += 1
-                    continue
-
-        if "км/ч" in raw_text.lower():
-            skipped += 1
-            continue
-
-        if skip:
-            skipped += 1
-            continue
-
-        if "диски" in raw_text.lower() or "резина" in raw_text.lower():
-            skipped += 1
-            continue
-
-        brand_key, brand_conf = detect_brand(
-            title_text)
-
+        brand_key, brand_conf = detect_brand(title_text)
         if not brand_key:
-            brand_key, brand_conf = detect_brand(
-                raw_text)
+            brand_key, brand_conf = detect_brand(raw_text)
 
+        fields_preview = extract_fields(raw_text)
         sale = is_sale_intent(raw_text)
+
+        brand_preview = brand_key
+        model_preview = resolve_model(brand_preview, raw_text) if brand_preview else None
+        signals_count = _count_sale_signals(
+            raw_text=raw_text,
+            brand=brand_preview,
+            model=model_preview,
+            fields=fields_preview,
+            sale=sale,
+        )
+
+        if raw.source == "telegram":
+            if _is_telegram_noise(raw_text):
+                skipped += 1
+                continue
+
+            if signals_count < 2:
+                skipped += 1
+                continue
+        else:
+            if skip and signals_count == 0:
+                skipped += 1
+                continue
+
         source_boost = resolve_source_boost(raw.source or "")
 
         meta_prefix = build_meta_prefix(
@@ -523,6 +581,10 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
 
         title = title_text
         content = full_text
+
+        brand_key, brand_conf = detect_brand(title_text)
+        if not brand_key:
+            brand_key, brand_conf = detect_brand(full_text)
 
         # -----------------------------
         # BRAND DETECTION
@@ -621,21 +683,41 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
 
         fields = extract_fields(full_text)
 
-        brand = entities.get("brand") or brand
-        model = entities.get("model") or model
-        price = entities.get("price") or price
-        year = entities.get("year") or year
-        mileage = entities.get("mileage") or mileage
-        fuel = entities.get("fuel") or fuel
+        final_brand = brand
+        if entities.get("brand"):
+            final_brand = str(entities.get("brand")).lower().strip()
 
-        if not model:
-            model = resolve_model(
-                brand,
+        final_model = model
+        if entities.get("model"):
+            final_model = entities.get("model")
+
+        final_price = None
+        ent_price = entities.get("price")
+        if isinstance(ent_price, int) and ent_price > 0:
+            final_price = ent_price
+        elif isinstance(fields.get("price"), int) and fields.get("price") > 0:
+            final_price = fields.get("price")
+
+        final_year = year if isinstance(year, int) else fields.get("year")
+
+        final_mileage = None
+        ent_mileage = entities.get("mileage")
+        if not _is_speed_noise(full_text):
+            if isinstance(ent_mileage, int) and 0 <= ent_mileage <= 500_000:
+                final_mileage = ent_mileage
+            elif isinstance(fields.get("mileage"), int) and 0 <= fields.get("mileage") <= 500_000:
+                final_mileage = fields.get("mileage")
+
+        final_fuel = entities.get("fuel") or fields.get("fuel")
+
+        if not final_model:
+            final_model = resolve_model(
+                final_brand,
                 f"{title_text} {full_text}"
             )
 
-        if price == 0:
-            price = None
+        if final_price == 0:
+            final_price = None
 
         doc = NormalizedDocument(
             raw_id=raw.id,
@@ -643,13 +725,13 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             source_url=raw.source_url,
             title=raw.title,
             normalized_text=text,
-            brand=brand,
-            model=model,
-            year=year if isinstance(year, int) else fields["year"],
-            mileage=mileage if isinstance(mileage, int) else fields["mileage"],
-            price=price if isinstance(price, int) else fields["price"],
-            currency="RUB" if isinstance(price, int) else fields["currency"],
-            fuel=fuel if isinstance(fuel, str) else fields["fuel"],
+            brand=final_brand,
+            model=final_model,
+            year=final_year if isinstance(final_year, int) else None,
+            mileage=final_mileage if isinstance(final_mileage, int) else None,
+            price=final_price if isinstance(final_price, int) and final_price > 0 else None,
+            currency="RUB" if isinstance(final_price, int) and final_price > 0 else None,
+            fuel=final_fuel if isinstance(final_fuel, str) else None,
             paint_condition=fields["paint_condition"],
         )
 

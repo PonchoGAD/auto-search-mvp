@@ -6,17 +6,52 @@ from db.session import SessionLocal, engine
 from db.models import Base, NormalizedDocument, DocumentChunk
 
 
+def _clean_chunk_text(text: str) -> str:
+    if not text:
+        return ""
+
+    text = text.replace("\u00A0", " ").replace("\xa0", " ")
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _is_empty_chunk(text: str) -> bool:
+    if not text:
+        return True
+
+    t = text.strip()
+
+    if len(t) < 30:
+        return True
+
+    noise = [
+        "подписывайтесь",
+        "telegram",
+        "t.me",
+        "поделиться",
+        "репост",
+        "лайк",
+    ]
+
+    tl = t.lower()
+
+    if any(x in tl for x in noise):
+        return True
+
+    return False
+
+
 def clean_text(text: str) -> str:
     if not text:
         return ""
-    return " ".join(text.split())
+    return _clean_chunk_text(text)
 
 
 def chunk_text_by_chars(text: str, size: int = 1200, overlap: int = 200) -> list[str]:
     if not text:
         return []
 
-    text = clean_text(text)
+    text = _clean_chunk_text(text)
     if not text:
         return []
 
@@ -32,7 +67,7 @@ def chunk_text_by_chars(text: str, size: int = 1200, overlap: int = 200) -> list
     current = ""
 
     for sentence in sentences:
-        sentence = sentence.strip()
+        sentence = _clean_chunk_text(sentence)
         if not sentence:
             continue
 
@@ -40,15 +75,23 @@ def chunk_text_by_chars(text: str, size: int = 1200, overlap: int = 200) -> list
             current = f"{current} {sentence}".strip()
         else:
             if current:
-                chunks.append(current)
+                current = _clean_chunk_text(current)
+                if not _is_empty_chunk(current):
+                    if len(current) > 1200:
+                        current = current[:1200]
+                    chunks.append(current)
 
             tail = current[-overlap:] if current else ""
-            current = f"{tail} {sentence}".strip()
+            current = _clean_chunk_text(f"{tail} {sentence}")
 
     if current:
-        chunks.append(current)
+        current = _clean_chunk_text(current)
+        if not _is_empty_chunk(current):
+            if len(current) > 1200:
+                current = current[:1200]
+            chunks.append(current)
 
-    return [c for c in chunks if len(c) >= 80]
+    return [c for c in chunks if not _is_empty_chunk(c)]
 
 
 def run_chunk(limit: int = 500, force_rebuild: bool = False):
@@ -83,19 +126,33 @@ def run_chunk(limit: int = 500, force_rebuild: bool = False):
             session.query(DocumentChunk).filter_by(normalized_id=doc.id).delete()
             session.flush()
 
-        text = doc.normalized_text or ""
+        text = _clean_chunk_text(doc.normalized_text or "")
 
         if not text or len(text) < 30:
             continue
 
         chunks = chunk_text_by_chars(text)
+        seen_chunks = set()
 
-        for idx, ch in enumerate(chunks):
+        for idx, chunk in enumerate(chunks):
+            chunk = _clean_chunk_text(chunk)
+
+            if _is_empty_chunk(chunk):
+                continue
+
+            if len(chunk) > 1200:
+                chunk = chunk[:1200]
+
+            if chunk in seen_chunks:
+                continue
+
+            seen_chunks.add(chunk)
+
             session.add(
                 DocumentChunk(
                     normalized_id=doc.id,
                     chunk_index=idx,
-                    chunk_text=ch,
+                    chunk_text=chunk,
                 )
             )
             saved += 1

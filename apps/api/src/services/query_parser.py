@@ -167,6 +167,10 @@ def _parse_mileage_value(num_str: str, unit: str | None) -> Optional[int]:
     return None
 
 
+def _has_mileage_context(text: str) -> bool:
+    return bool(re.search(r"(пробег|км|тыс|т\.км)", text, re.IGNORECASE))
+
+
 # =========================
 # MAIN ENTRY
 # =========================
@@ -250,40 +254,6 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
             result.model = model
 
     # -------------------------
-    # PRICE (max)
-    # -------------------------
-    price_patterns_with_limit = [
-        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(млн|миллион|m)\b",
-        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(тыс|к|k)\b",
-        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(₽|руб|р\.?|р)\b",
-        r"\bдо\s*(\d[\d\s]{4,})\b",
-    ]
-
-    for p in price_patterns_with_limit:
-        m = re.search(p, text, re.IGNORECASE)
-        if m:
-            unit = m.group(2) if len(m.groups()) > 1 else None
-            value = _parse_price_value(m.group(1), unit)
-            if value is not None:
-                result.price_max = value
-                break
-
-    if result.price_max is None:
-        price_patterns_soft = [
-            r"\b(\d+(?:[\s.,]\d+)?)\s*(млн|миллион|m)\b",
-            r"\b(\d+(?:[\s.,]\d+)?)\s*(тыс|к|k)\b",
-            r"\b(\d+(?:[\s.,]\d+)?)\s*(₽|руб|р\.?|р)\b",
-        ]
-
-        for p in price_patterns_soft:
-            m = re.search(p, text, re.IGNORECASE)
-            if m:
-                value = _parse_price_value(m.group(1), m.group(2))
-                if value is not None:
-                    result.price_max = value
-                    break
-
-    # -------------------------
     # MILEAGE (max)
     # -------------------------
     mileage_patterns = [
@@ -299,6 +269,48 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
             if value is not None:
                 result.mileage_max = value
                 break
+
+    # если найден пробег — запрещаем парсить цену
+    if result.mileage_max is not None:
+        result.price_max = None
+        mileage_context = True
+
+    # -------------------------
+    # PRICE (max)
+    # -------------------------
+    mileage_context = _has_mileage_context(text)
+
+    if result.price_max is None and not mileage_context:
+        price_patterns_with_limit = [
+            r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(млн|миллион|m)\b",
+            r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(тыс|к|k)\b",
+            r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(₽|руб|р\.?|р)\b",
+            r"\bдо\s*(\d[\d\s]{4,})\b",
+        ]
+
+        for p in price_patterns_with_limit:
+            m = re.search(p, text, re.IGNORECASE)
+            if m:
+                unit = m.group(2) if len(m.groups()) > 1 else None
+                value = _parse_price_value(m.group(1), unit)
+                if value is not None:
+                    result.price_max = value
+                    break
+
+    if result.price_max is None and not mileage_context:
+        price_patterns_soft = [
+            r"\b(\d+(?:[\s.,]\d+)?)\s*(млн|миллион|m)\b",
+            r"\b(\d+(?:[\s.,]\d+)?)\s*(тыс|к|k)\b",
+            r"\b(\d+(?:[\s.,]\d+)?)\s*(₽|руб|р\.?|р)\b",
+        ]
+
+        for p in price_patterns_soft:
+            m = re.search(p, text, re.IGNORECASE)
+            if m:
+                value = _parse_price_value(m.group(1), m.group(2))
+                if value is not None:
+                    result.price_max = value
+                    break
 
     # -------------------------
     # YEAR_MIN (новое)
@@ -317,6 +329,7 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     # FUEL (strict lowercase normalization)
     # -------------------------
     fuel_patterns = [
+        (r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ)\b", "gas_petrol"),
         (r"\b(бенз|бензин|petrol|gasoline)\b", "petrol"),
         (r"\b(диз|дизель|diesel)\b", "diesel"),
         (r"\b(гибрид|hybrid)\b", "hybrid"),

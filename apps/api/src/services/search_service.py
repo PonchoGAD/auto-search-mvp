@@ -122,7 +122,7 @@ class SearchService:
             limit = int(os.getenv("SEARCH_LIMIT", "50"))
 
         if top_k is None:
-            top_k = int(os.getenv("SEARCH_TOP_K", "300"))
+            top_k = int(os.getenv("SEARCH_TOP_K", "120"))
 
         env = (os.getenv("ENV", "") or os.getenv("APP_ENV", "") or "dev").lower()
         is_prod = env == "prod"
@@ -385,21 +385,15 @@ class SearchService:
         for hit in hits:
             payload = hit.payload or {}
 
-            # ====================================
-            # FILTER: telegram discussions
-            # ====================================
+            # telegram discussion filter
             if payload.get("source") == "telegram":
-
-                if payload.get("price") is None and payload.get("sale_intent") is None:
+                if payload.get("price") is None:
                     continue
 
             url = payload.get("source_url")
             if not url:
                 continue
 
-            # ====================================
-            # FILTER: catalog pages (avito)
-            # ====================================
             if "avito.ru/all/avtomobili" in url:
                 continue
 
@@ -523,9 +517,6 @@ class SearchService:
                 final_score += price_score * 0.15
 
             final_score += mileage_score * 0.2
-
-            if structured.price_max is not None:
-                final_score += price_score * 0.10
 
             brand_boost = 0.0
 
@@ -750,12 +741,6 @@ class SearchService:
             if r.get("model"):
                 text += str(r["model"]) + " "
 
-            if r.get("brand"):
-                text += str(r["brand"]) + " "
-
-            if r.get("model"):
-                text += str(r["model"]) + " "
-
             if r.get("year"):
                 text += str(r["year"]) + " "
 
@@ -767,7 +752,9 @@ class SearchService:
 
             pairs.append((query, text.strip()))
 
-        pairs = pairs[:80]
+        max_rerank = min(len(results), 80)
+        pairs = pairs[:max_rerank]
+        results = results[:max_rerank]
 
         try:
             scores = reranker.predict(pairs)
@@ -905,3 +892,14 @@ class SearchService:
         )
 
         return final_score, reasons
+
+
+# =====================================
+# PRELOAD MODELS (startup warmup)
+# =====================================
+
+try:
+    print("[SEARCH] warming up reranker...", flush=True)
+    get_reranker()
+except Exception as e:
+    print(f"[SEARCH][WARN] reranker preload failed: {e}", flush=True)

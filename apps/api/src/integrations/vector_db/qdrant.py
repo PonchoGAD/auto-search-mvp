@@ -229,7 +229,7 @@ class QdrantStore:
                 )
             )
 
-        BATCH_SIZE = 64
+        BATCH_SIZE = 128
         total = len(normalized_points)
 
         for i in range(0, total, BATCH_SIZE):

@@ -204,8 +204,11 @@ brand {brand or ''}
 model {model or ''}
 """.strip()
 
-                vectors.append(("title", deterministic_embedding(title_embedding_text)))
-                vectors.append(("title_boost", deterministic_embedding(title_embedding_text)))
+                title_vec = deterministic_embedding(title_embedding_text)
+
+                if len(title_vec) == VECTOR_SIZE:
+                    vectors.append(("title", title_vec))
+                    vectors.append(("title_boost", title_vec))
 
             # улучшенный embedding chunk
             content_embedding_text = f"""
@@ -215,10 +218,9 @@ model {model or ''}
 content {chunk_text}
 """.strip()
 
-            vectors.append((
-                "content",
-                deterministic_embedding(content_embedding_text)
-            ))
+            content_vec = deterministic_embedding(content_embedding_text)
+            if len(content_vec) == VECTOR_SIZE:
+                vectors.append(("content", content_vec))
 
             if structured_text:
                 structured_embedding_text = f"""
@@ -226,7 +228,9 @@ structured {structured_text}
 title {title_text}
 """.strip()
 
-                vectors.append(("structured", deterministic_embedding(structured_embedding_text)))
+                structured_vec = deterministic_embedding(structured_embedding_text)
+                if len(structured_vec) == VECTOR_SIZE:
+                    vectors.append(("structured", structured_vec))
 
             if not brand and not model and price is None and mileage is None and year is None:
                 continue
@@ -282,7 +286,7 @@ title {title_text}
             }
 
             for vec_type, vec in vectors:
-                if not vec or len(vec) != VECTOR_SIZE:
+                if len(vec) != VECTOR_SIZE:
                     continue
 
                 if not vec or len(vec) != VECTOR_SIZE:

@@ -182,3 +182,7 @@ li_auto:
 
 ram:
   "1500": ["1500"]
+
+geely:
+  atlas: ["atlas"]
+  monjaro: ["monjaro", "kxingyue l"]

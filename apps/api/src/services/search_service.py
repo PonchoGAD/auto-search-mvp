@@ -384,8 +384,23 @@ class SearchService:
 
         for hit in hits:
             payload = hit.payload or {}
+
+            # ====================================
+            # FILTER: telegram discussions
+            # ====================================
+            if payload.get("source") == "telegram":
+
+                if payload.get("price") is None and payload.get("sale_intent") is None:
+                    continue
+
             url = payload.get("source_url")
             if not url:
+                continue
+
+            # ====================================
+            # FILTER: catalog pages (avito)
+            # ====================================
+            if "avito.ru/all/avtomobili" in url:
                 continue
 
             score = float(getattr(hit, "score", 0.0) or 0.0)
@@ -477,26 +492,19 @@ class SearchService:
 
             mileage_score = 0.0
 
-            if structured.mileage_max is not None:
+            if structured.mileage_max and payload.get("mileage"):
 
-                mileage_val = payload.get("mileage")
-
-                if mileage_val is not None:
-
-                    try:
-
-                        ratio = float(mileage_val) / float(structured.mileage_max)
-
-                        mileage_score = max(0.0, 1.0 - ratio)
-
-                    except Exception:
-                        mileage_score = 0.0
+                try:
+                    m = payload["mileage"]
+                    mileage_score = max(0.0, 1.0 - (m / structured.mileage_max))
+                except:
+                    pass
 
             text_score = self._text_score(payload, structured)
 
             if brand_value:
                 final_score = (
-                    semantic * 0.55
+                    semantic * 0.65
                     + text_score * 0.20
                     + recency * 0.15
                     + sale_bonus * 0.10
@@ -514,8 +522,7 @@ class SearchService:
             if price_score > 0:
                 final_score += price_score * 0.15
 
-            if mileage_score > 0:
-                final_score += mileage_score * 0.12
+            final_score += mileage_score * 0.2
 
             if structured.price_max is not None:
                 final_score += price_score * 0.10

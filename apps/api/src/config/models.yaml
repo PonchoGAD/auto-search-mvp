@@ -186,7 +186,6 @@ ram:
 geely:
   atlas: ["atlas"]
   monjaro: ["monjaro", "kxingyue l"]
-(добавить модели)
 
 ford:
   focus: ["focus"]

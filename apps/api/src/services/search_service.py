@@ -81,6 +81,13 @@ RECENCY_MAX_DAYS = 180
 RECENCY_WEIGHT = 1.2
 
 
+print("[SEARCH] warming reranker", flush=True)
+try:
+    get_reranker()
+except:
+    pass
+
+
 class SearchService:
     def __init__(self):
         self.store = QdrantStore()
@@ -102,7 +109,6 @@ class SearchService:
 
         cache_key = f"search:{structured.raw_query}:{structured.brand}:{structured.model}:{structured.price_max}:{structured.mileage_max}:{structured.fuel}"
 
-        # redis get
         try:
             from redis import Redis
             redis = Redis(
@@ -334,10 +340,6 @@ class SearchService:
                 print(f"[SEARCH][WARN] qdrant fuel-only fallback unavailable: {e}", flush=True)
                 return []
 
-        # =====================================================
-        # FINAL VECTOR FALLBACK
-        # =====================================================
-
         if not hits:
 
             print("[SEARCH] fallback triggered")
@@ -363,7 +365,6 @@ class SearchService:
                 return []
 
         seen_point_ids = set()
-
         unique_hits = []
 
         for hit in hits:
@@ -374,7 +375,6 @@ class SearchService:
                 continue
 
             seen_point_ids.add(pid)
-
             unique_hits.append(hit)
 
         hits = unique_hits
@@ -385,7 +385,6 @@ class SearchService:
         for hit in hits:
             payload = hit.payload or {}
 
-            # telegram discussion filter
             if payload.get("source") == "telegram":
                 if payload.get("price") is None:
                     continue
@@ -415,10 +414,6 @@ class SearchService:
 
             if is_prod and (payload.get("source") == "dev_seed"):
                 continue
-
-            # =====================================================
-            # STRICT FUEL FILTER (POST FILTER)
-            # =====================================================
 
             if structured.fuel is not None:
 
@@ -488,6 +483,9 @@ class SearchService:
 
             if structured.mileage_max and payload.get("mileage"):
 
+                if payload.get("mileage") is None:
+                    final_score -= 0.05
+
                 try:
                     m = payload["mileage"]
                     mileage_score = max(0.0, 1.0 - (m / structured.mileage_max))
@@ -525,14 +523,12 @@ class SearchService:
             if brand_value and payload_brand:
 
                 if payload_brand == brand_value:
-                    brand_boost = 0.20
+                    brand_boost = 0.25
 
                 elif payload_brand.startswith(brand_value):
                     brand_boost = 0.15
 
             final_score = final_score + brand_boost
-
-            # fuel mismatch penalty
 
             if structured.fuel and payload.get("fuel"):
 
@@ -547,7 +543,7 @@ class SearchService:
             if structured.model and payload_model:
 
                 if payload_model == structured.model:
-                    model_boost = 0.30
+                    model_boost = 0.35
 
                 elif structured.model in payload_model:
                     model_boost = 0.20
@@ -567,6 +563,9 @@ class SearchService:
                 vector_boost = 0.06
 
             final_score = final_score + vector_boost
+
+            if payload.get("price") is None:
+                final_score -= 0.10
 
             if payload.get("brand") and payload.get("model"):
                 final_score += 0.12
@@ -893,10 +892,6 @@ class SearchService:
 
         return final_score, reasons
 
-
-# =====================================
-# PRELOAD MODELS (startup warmup)
-# =====================================
 
 try:
     print("[SEARCH] warming up reranker...", flush=True)

@@ -26,7 +26,6 @@ from services.car_entity_extractor import extract_car_entities
 # META PARSING
 # =========================
 
-# __meta__: brand=bmw; sale_intent=1; source_boost=1.5
 META_PREFIX_RE = re.compile(
     r"^__meta__:\s*(.+?)(?:\n|$)",
     re.IGNORECASE,
@@ -49,21 +48,22 @@ RE_PRICE_TITLE_GLUE = re.compile(
 )
 
 RE_MILEAGE = re.compile(
-    r"(\d[\d\s,\u00A0]{2,10})\s*(км|km)\b",
+    r"(\d[\d\s,\u00A0]{2,10})\s*(км|km|тыс\.? ?км|т\.км)\b",
     re.IGNORECASE,
 )
 
 RE_MILEAGE_K = re.compile(
-    r"(\d{1,3}(?:[.,]\d)?)\s*(тыс\.?|т\.км|k)\b",
+    r"(\d{1,3}(?:[.,]\d)?)\s*(тыс\.?|т\.км|k|тыс км)\b",
     re.IGNORECASE,
 )
 
 RE_FUEL = re.compile(
     r"\b("
     r"бензин|бензиновый|бенз|petrol|gasoline|"
-    r"дизель|дизельный|диз|diesel|"
+    r"дизель|дизельный|диз|diesel|tdi|dci|"
     r"гибрид|hybrid|"
-    r"электро|электр|electric|ev"
+    r"электро|электр|electric|ev|"
+    r"газ|lpg|gbo"
     r")\b",
     re.IGNORECASE,
 )
@@ -116,6 +116,9 @@ def _digits_only(value: str) -> str:
 
 
 def _is_speed_noise(text: str) -> bool:
+    if re.search(r"\d+\s*(км/ч|km/h)", text or ""):
+        return True
+
     t = (text or "").lower()
     return any(x in t for x in [
         "км/ч",
@@ -126,11 +129,7 @@ def _is_speed_noise(text: str) -> bool:
 
 
 def parse_meta(text: str) -> Tuple[Dict[str, str], str]:
-    """
-    Извлекает meta-префикс из content и возвращает:
-    - meta dict
-    - очищенный текст (без meta)
-    """
+
     meta: Dict[str, str] = {}
 
     if not text:
@@ -141,7 +140,7 @@ def parse_meta(text: str) -> Tuple[Dict[str, str], str]:
         return meta, text
 
     raw_meta = m.group(1)
-    clean_text = text[m.end():]
+    clean_text_val = text[m.end():]
 
     for part in raw_meta.split(";"):
         part = part.strip()
@@ -150,7 +149,7 @@ def parse_meta(text: str) -> Tuple[Dict[str, str], str]:
         k, v = part.split("=", 1)
         meta[k.strip()] = v.strip()
 
-    return meta, clean_text
+    return meta, clean_text_val
 
 
 # =========================
@@ -186,6 +185,21 @@ def clean_text(text: str):
 
     text = text.replace("₽", " ₽ ")
 
+    # DROM garbage cleanup
+    DROM_GARBAGE = [
+        "Спецтехника",
+        "Отзывы",
+        "Каталог",
+        "Шины",
+        "Форумы",
+        "ОСАГО",
+        "ПДД",
+        "Проверка по VIN",
+    ]
+
+    for g in DROM_GARBAGE:
+        text = text.replace(g, "")
+
     text = re.sub(r"\s+", " ", text)
 
     return text.strip()
@@ -219,9 +233,6 @@ def strip_drom_noise(text: str):
 
 
 def extract_brand_fallback(text: str) -> Optional[str]:
-    """
-    Fallback brand detection using brands.yaml
-    """
 
     if not text:
         return None
@@ -338,6 +349,7 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         return None
 
     def _extract_mileage(source_text: str) -> Optional[int]:
+
         if _is_speed_noise(source_text):
             return None
 
@@ -556,7 +568,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 skipped += 1
                 continue
 
-            if signals_count < 2:
+            if signals_count < 1:
                 skipped += 1
                 continue
         else:
@@ -580,15 +592,11 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         full_text = f"{title_text}\n{text}".strip()
 
         title = title_text
-        content = full_text
+        content = full_text[:800]
 
         brand_key, brand_conf = detect_brand(title_text)
         if not brand_key:
             brand_key, brand_conf = detect_brand(full_text)
-
-        # -----------------------------
-        # BRAND DETECTION
-        # -----------------------------
 
         brand = brand_key
 
@@ -598,18 +606,15 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         if not brand:
             brand = extract_brand_fallback(full_text)
 
-        # -----------------------------
-        # MODEL RESOLVE
-        # -----------------------------
+        if not brand and model:
+            from services.brand_detector import MODEL_BRAND_MAP
+            if model in MODEL_BRAND_MAP:
+                brand = MODEL_BRAND_MAP[model]
 
         model = resolve_model(
             brand,
             f"{title_text} {full_text}"
         )
-
-        # -----------------------------
-        # MODEL → BRAND INFERENCE
-        # -----------------------------
 
         if (not brand or brand == "unknown") and model:
 
@@ -622,10 +627,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 if m in MODEL_BRAND_MAP:
                     brand = MODEL_BRAND_MAP[m]
 
-        # -----------------------------
-        # ENTITY EXTRACTOR
-        # -----------------------------
-
         entities = extract_car_entities(
             title or "",
             f"{title or ''} {content or ''}"
@@ -636,10 +637,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         fuel = entities.get("fuel")
         year = entities.get("year")
 
-        # -----------------------------
-        # BRAND FALLBACK
-        # -----------------------------
-
         if not brand:
             brand = brand_key
 
@@ -649,19 +646,11 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         if not brand:
             brand = extract_brand_fallback(full_text)
 
-        # -----------------------------
-        # MODEL RESOLVER
-        # -----------------------------
-
         if not model:
             model = resolve_model(
                 brand,
                 f"{title_text} {full_text}"
             )
-
-        # -----------------------------
-        # MODEL → BRAND INFERENCE
-        # -----------------------------
 
         if (not brand or brand == "unknown") and model:
             from services.brand_detector import MODEL_BRAND_MAP
@@ -672,14 +661,10 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 if m in MODEL_BRAND_MAP:
                     brand = MODEL_BRAND_MAP[m]
 
-        # -----------------------------
-        # FINAL NORMALIZATION
-        # -----------------------------
-
         if brand:
             brand = brand.lower().strip()
         else:
-            brand = "unknown"
+            brand = None
 
         fields = extract_fields(full_text)
 

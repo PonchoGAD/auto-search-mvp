@@ -268,7 +268,7 @@ class QdrantStore:
                 limit=limit,
                 query_filter=query_filter,
                 search_params=SearchParams(
-                    hnsw_ef=128,
+                    hnsw_ef=256,
                     exact=False
                 )
             )
@@ -279,7 +279,7 @@ class QdrantStore:
                 query=vector,
                 limit=limit,
                 search_params=SearchParams(
-                    hnsw_ef=128,
+                    hnsw_ef=256,
                     exact=False
                 )
             )
@@ -354,7 +354,7 @@ class QdrantStore:
                 elif not isinstance(mileage, int):
                     raise ValueError("invalid mileage type")
 
-                if mileage <= 0 or mileage > 500000:
+                if mileage <= 0 or mileage > 600000:
                     payload["mileage"] = None
                 else:
                     payload["mileage"] = mileage

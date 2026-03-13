@@ -186,3 +186,19 @@ ram:
 geely:
   atlas: ["atlas"]
   monjaro: ["monjaro", "kxingyue l"]
+(добавить модели)
+
+ford:
+  focus: ["focus"]
+
+land_rover:
+  range_rover_sport: ["range rover sport", "rr sport"]
+
+infiniti:
+  qx70: ["qx70"]
+
+chevrolet:
+  equinox: ["equinox"]
+
+jetta:
+  vs5: ["vs5"]

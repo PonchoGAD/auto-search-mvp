@@ -24,6 +24,10 @@ brands:
       - "mersedes"
       - "мерседес бенц"
       - "мерс бенц"
+      - "e class"
+      - "c class"
+      - "s class"
+      - "glc class"
 
   volkswagen:
     en: ["volkswagen", "vw"]
@@ -78,6 +82,7 @@ brands:
     aliases:
       - "range rover"
       - "рендж ровер"
+      - "discovery sport"
 
   jaguar:
     en: ["jaguar"]
@@ -272,6 +277,10 @@ brands:
   li_auto:
     en: ["li auto", "lixiang"]
     ru: ["лисян"]
+    aliases:
+      - "li"
+      - "li auto"
+      - "lixiang"
 
   zeekr:
     en: ["zeekr"]
@@ -307,6 +316,7 @@ brands:
     aliases:
       - "hyunday"
       - "hyandai"
+      - "grand santa fe"
 
   kia:
     en: ["kia"]
@@ -331,3 +341,113 @@ brands:
   kg_mobility:
     en: ["kg mobility"]
     ru: ["кг мобилити"]
+
+  # =========================
+  # EXTRA / GLOBAL
+  # =========================
+
+  acura:
+    en: ["acura"]
+    ru: ["акура"]
+
+  aston_martin:
+    en: ["aston martin"]
+    ru: ["астон мартин"]
+
+  bugatti:
+    en: ["bugatti"]
+    ru: ["бугатти"]
+
+  cupra:
+    en: ["cupra"]
+    ru: ["купра"]
+
+  dacia:
+    en: ["dacia"]
+    ru: ["дачия"]
+
+  fiat:
+    en: ["fiat"]
+    ru: ["фиат"]
+
+  jetour:
+    en: ["jetour"]
+    ru: ["джетур"]
+
+  koenigsegg:
+    en: ["koenigsegg"]
+    ru: ["кёнигсегг"]
+
+  lancia:
+    en: ["lancia"]
+    ru: ["ланча"]
+
+  lotus:
+    en: ["lotus"]
+    ru: ["лотус"]
+
+  lucid:
+    en: ["lucid"]
+    ru: ["люсид"]
+
+  mahindra:
+    en: ["mahindra"]
+    ru: ["махиндра"]
+
+  mclaren:
+    en: ["mclaren"]
+    ru: ["макларен"]
+
+  polestar:
+    en: ["polestar"]
+    ru: ["полестар"]
+
+  pontiac:
+    en: ["pontiac"]
+    ru: ["понтиак"]
+
+  rover:
+    en: ["rover"]
+    ru: ["ровер"]
+
+  saab:
+    en: ["saab"]
+    ru: ["сааб"]
+
+  saturn:
+    en: ["saturn"]
+    ru: ["сатурн"]
+
+  scion:
+    en: ["scion"]
+    ru: ["сайон"]
+
+  smart:
+    en: ["smart"]
+    ru: ["смарт"]
+
+  tata:
+    en: ["tata"]
+    ru: ["тата"]
+
+  vauxhall:
+    en: ["vauxhall"]
+    ru: ["воксхолл"]
+
+  москвич:
+    en: ["moskvich"]
+    ru: ["москвич"]
+
+  ваз:
+    en: ["lada", "vaz"]
+    ru: ["ваз", "лада"]
+    aliases:
+      - "samara"
+
+  газ:
+    en: ["gaz"]
+    ru: ["газ"]
+
+  уаз:
+    en: ["uaz"]
+    ru: ["уаз"]

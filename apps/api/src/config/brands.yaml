@@ -306,6 +306,33 @@ brands:
     en: ["xpeng"]
     ru: ["икспенг"]
 
+  jetta:
+    en: ["jetta"]
+    ru: ["джетта"]
+
+  lynk_co:
+    en: ["lynk & co", "lynk co"]
+    ru: ["линк энд ко"]
+    aliases:
+      - "lynk"
+      - "lynkco"
+
+  zeekr:
+    en: ["zeekr"]
+    ru: ["зикр"]
+
+  voyah:
+    en: ["voyah"]
+    ru: ["воя"]
+
+  li_auto:
+    en: ["li auto", "lixiang"]
+    ru: ["лисян"]
+
+  hongqi:
+    en: ["hongqi"]
+    ru: ["хунци"]
+
   # =========================
   # KOREA
   # =========================

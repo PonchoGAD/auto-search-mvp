@@ -81,6 +81,9 @@ def build_structured_text(doc: NormalizedDocument) -> str:
 
     parts = []
 
+    if getattr(doc, "brand", None) and getattr(doc, "model", None):
+        parts.append(f"{doc.brand} {doc.model}")
+
     if getattr(doc, "brand", None):
         parts.append(f"brand {doc.brand}")
 
@@ -159,7 +162,7 @@ def index_document_chunks(
         skipped_missing_url = 0
 
         for ch, doc in chunks:
-            chunk_text = _clean_text(ch.chunk_text or "")
+            chunk_text = _clean_text(ch.chunk_text or "")[:800]
             if not chunk_text:
                 skipped_empty_text += 1
                 continue

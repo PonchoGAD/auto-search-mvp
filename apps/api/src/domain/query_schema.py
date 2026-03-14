@@ -1,3 +1,5 @@
+# apps/api/src/domain/query_schema.py
+
 from typing import Optional, List
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -31,9 +33,6 @@ class StructuredQuery(BaseModel):
     # geo
     city: Optional[str] = None
     region: Optional[str] = None
-
-    # semantic hints
-    keywords: List[str] = Field(default_factory=list)
 
     # negative filters
     exclusions: List[str] = Field(default_factory=list)

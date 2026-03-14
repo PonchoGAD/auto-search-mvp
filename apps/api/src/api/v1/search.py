@@ -1,11 +1,13 @@
-#  apps\api\src\api\v1\search.py
+# apps/api/src/api/v1/search.py
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import time
 
-from services.query_parser import parse_query, StructuredQuery
+from services.query_parser import parse_query
+from domain.query_schema import StructuredQuery
+from services.retrieval_plan import build_retrieval_plan
 from services.search_service import SearchService
 from services.metrics_service import MetricsService
 
@@ -91,6 +93,7 @@ def search(request: SearchRequest):
     structured: Optional[StructuredQuery] = None
     results: List[dict] = []
     answer: Optional[str] = None
+    retrieval_plan = None
 
     # temporary proxy for result count after retrieval
     vector_hits = 0
@@ -100,6 +103,7 @@ def search(request: SearchRequest):
         # PARSE QUERY
         # -------------------------
         structured = parse_query(request.query)
+        retrieval_plan = build_retrieval_plan(structured)
 
         # safe serialization for pydantic v1/v2
         if structured:
@@ -117,7 +121,7 @@ def search(request: SearchRequest):
         service = SearchService()
 
         try:
-            results = service.search(structured)
+            results = service.search(structured, retrieval_plan=retrieval_plan)
 
             # temporary proxy for result count after retrieval
             vector_hits = len(results)
@@ -128,6 +132,7 @@ def search(request: SearchRequest):
             )
 
             print(f"[SEARCH][DEMO] hits={vector_hits}")
+            print(f"[SEARCH][PLAN] {retrieval_plan}", flush=True)
 
         except Exception as e:
             # 🔥 КЛЮЧЕВОЕ ДЛЯ SMOKE DEMO

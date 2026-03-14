@@ -24,10 +24,6 @@ brands:
       - "mersedes"
       - "мерседес бенц"
       - "мерс бенц"
-      - "e class"
-      - "c class"
-      - "s class"
-      - "glc class"
 
   volkswagen:
     en: ["volkswagen", "vw"]
@@ -79,10 +75,6 @@ brands:
   land_rover:
     en: ["land rover"]
     ru: ["ленд ровер"]
-    aliases:
-      - "range rover"
-      - "рендж ровер"
-      - "discovery sport"
 
   jaguar:
     en: ["jaguar"]
@@ -244,7 +236,7 @@ brands:
 
   great_wall:
     en: ["great wall"]
-    ru: ["грит вол", "грейt вол"]
+    ru: ["грит вол", "грейт вол"]
 
   tank:
     en: ["tank"]
@@ -279,8 +271,6 @@ brands:
     ru: ["лисян"]
     aliases:
       - "li"
-      - "li auto"
-      - "lixiang"
 
   zeekr:
     en: ["zeekr"]
@@ -297,6 +287,9 @@ brands:
   lynk_co:
     en: ["lynk & co", "lynk co"]
     ru: ["линк энд ко"]
+    aliases:
+      - "lynk"
+      - "lynkco"
 
   nio:
     en: ["nio"]
@@ -305,6 +298,10 @@ brands:
   xpeng:
     en: ["xpeng"]
     ru: ["икспенг"]
+
+  jetta:
+    en: ["jetta"]
+    ru: ["джетта"]
 
   # =========================
   # KOREA
@@ -316,7 +313,6 @@ brands:
     aliases:
       - "hyunday"
       - "hyandai"
-      - "grand santa fe"
 
   kia:
     en: ["kia"]

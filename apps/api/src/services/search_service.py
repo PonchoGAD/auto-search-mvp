@@ -65,6 +65,22 @@ def load_brands() -> dict:
         return {}
 
 
+def _model_soft_match(payload_model: str, query_model: str) -> bool:
+    if not payload_model or not query_model:
+        return False
+
+    payload_model = payload_model.lower()
+    query_model = query_model.lower()
+
+    if payload_model == query_model:
+        return True
+
+    if query_model in payload_model:
+        return True
+
+    return False
+
+
 BRANDS_WHITELIST = load_brands()
 WHITELIST_SET = set(BRANDS_WHITELIST.keys())
 
@@ -211,6 +227,44 @@ class SearchService:
                 must=must_conditions,
             )
 
+        def _build_smart_filter(
+            brand: str = None,
+            model: str = None,
+            fuel: str = None,
+        ) -> Filter:
+            must_conditions: List[FieldCondition] = []
+
+            if brand:
+                must_conditions.append(
+                    FieldCondition(
+                        key="brand",
+                        match=MatchValue(value=brand),
+                    )
+                )
+
+            if fuel:
+                must_conditions.append(
+                    FieldCondition(
+                        key="fuel",
+                        match=MatchValue(value=fuel),
+                    )
+                )
+
+            if model:
+                must_conditions.append(
+                    FieldCondition(
+                        key="model",
+                        match=MatchValue(value=model),
+                    )
+                )
+
+            if not must_conditions:
+                return None
+
+            return Filter(
+                must=must_conditions,
+            )
+
         def _search_vectors(query_filter: Filter) -> List[Any]:
             all_hits = []
             vectors = [query_vector] + extra_vectors
@@ -229,7 +283,7 @@ class SearchService:
             return all_hits
 
         if route == "structured":
-            primary_filter = _build_filter(
+            primary_filter = _build_smart_filter(
                 brand=brand_value,
                 model=model_value,
                 fuel=fuel_value
@@ -479,6 +533,11 @@ class SearchService:
             completeness = self._completeness_score(payload)
             price_score = self._price_score(payload, structured)
 
+            final_score = 0.0
+
+            if payload.get("price") is None:
+                final_score -= 0.1
+
             mileage_score = 0.0
 
             if structured.mileage_max and payload.get("mileage"):
@@ -494,8 +553,16 @@ class SearchService:
 
             text_score = self._text_score(payload, structured)
 
+            # model keyword precision
+            if structured.model and payload.get("model"):
+                model_q = structured.model.lower()
+                model_p = payload.get("model").lower()
+
+                if model_q in model_p:
+                    final_score += 0.25
+
             if brand_value:
-                final_score = (
+                final_score += (
                     semantic * 0.65
                     + text_score * 0.20
                     + recency * 0.15
@@ -503,7 +570,7 @@ class SearchService:
                     + completeness * 0.20
                 )
             else:
-                final_score = (
+                final_score += (
                     semantic * 0.60
                     + text_score * 0.20
                     + recency * 0.15
@@ -520,10 +587,22 @@ class SearchService:
 
             payload_brand = payload.get("brand")
 
+            if brand_value and payload_brand and payload_brand != brand_value:
+                final_score -= 0.25
+
+            if brand_value:
+
+                if payload_brand != brand_value:
+
+                    final_score -= 1.0
+
             if brand_value and payload_brand:
 
                 if payload_brand == brand_value:
                     brand_boost = 0.25
+
+                elif payload_brand and brand_value in payload_brand:
+                    brand_boost = 0.18
 
                 elif payload_brand.startswith(brand_value):
                     brand_boost = 0.15
@@ -539,6 +618,13 @@ class SearchService:
             model_boost = 0.0
 
             payload_model = payload.get("model")
+
+            # strict model filter
+            if structured.model and payload_model:
+
+                if not _model_soft_match(payload_model, structured.model):
+
+                    final_score -= 0.8
 
             if structured.model and payload_model:
 
@@ -602,6 +688,10 @@ class SearchService:
                 continue
 
             source_name = payload.get("source") or "unknown"
+
+            if source_counter.get(source_name, 0) > 5:
+                final_score -= 0.15
+
             source_counter.setdefault(source_name, 0)
             if source_counter[source_name] >= MAX_RESULTS_PER_SOURCE:
                 continue
@@ -749,7 +839,7 @@ class SearchService:
             if r.get("mileage"):
                 text += f"{r['mileage']} km "
 
-            pairs.append((query, text.strip()))
+            pairs.append((query, text.strip()[:300]))
 
         max_rerank = min(len(results), 80)
         pairs = pairs[:max_rerank]

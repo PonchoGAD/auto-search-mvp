@@ -1,11 +1,19 @@
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Any
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import VectorParams, Distance, PointStruct
+from qdrant_client.models import (
+    VectorParams,
+    Distance,
+    PointStruct,
+    PayloadSchemaType,
+)
+import os
 
 
 COLLECTION_NAME = "auto_search_chunks"
+ALLOWED_FUELS = {"petrol", "diesel", "hybrid", "electric", "gas", "gas_petrol"}
+MAX_MILEAGE = 500000
 
 
 class QdrantStore:
@@ -25,6 +33,48 @@ class QdrantStore:
             port=port,
             check_compatibility=False,  # важно для версии сервера 1.9.x
         )
+
+    def _safe_create_payload_index(self, field_name: str, field_schema: "PayloadSchemaType"):
+        try:
+            self.client.create_payload_index(
+                collection_name=COLLECTION_NAME,
+                field_name=field_name,
+                field_schema=field_schema,
+            )
+            print(f"[QDRANT] payload index ensured: {field_name}")
+        except Exception as e:
+            print(f"[QDRANT][WARN] payload index ensure failed for {field_name}: {e}")
+
+    def _ensure_payload_indexes(self):
+        self._safe_create_payload_index("brand", PayloadSchemaType.KEYWORD)
+        self._safe_create_payload_index("model", PayloadSchemaType.KEYWORD)
+        self._safe_create_payload_index("fuel", PayloadSchemaType.KEYWORD)
+        self._safe_create_payload_index("year", PayloadSchemaType.INTEGER)
+        self._safe_create_payload_index("price", PayloadSchemaType.INTEGER)
+        self._safe_create_payload_index("mileage", PayloadSchemaType.INTEGER)
+        self._safe_create_payload_index("created_at_ts", PayloadSchemaType.INTEGER)
+        self._safe_create_payload_index("normalized_id", PayloadSchemaType.INTEGER)
+        self._safe_create_payload_index("source_url", PayloadSchemaType.KEYWORD)
+
+    def _normalize_int_or_none(self, value: Any) -> Optional[int]:
+        try:
+            if value is None:
+                return None
+            if isinstance(value, bool):
+                return None
+            if isinstance(value, str):
+                value = value.strip()
+                if not value:
+                    return None
+            return int(value)
+        except Exception:
+            return None
+
+    def _normalize_str_or_none(self, value: Any) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        value = value.strip()
+        return value or None
 
     # =====================================================
     # COLLECTION
@@ -48,6 +98,8 @@ class QdrantStore:
                 }
             )
             print(f"[QDRANT] collection created: {COLLECTION_NAME}")
+
+        self._ensure_payload_indexes()
 
     # =====================================================
     # PAYLOAD NORMALIZATION (RECENCY HARDENING)
@@ -102,7 +154,6 @@ class QdrantStore:
         Ensures fields always exist and are normalized.
         """
 
-        allowed_fuels = {"petrol", "diesel", "hybrid", "electric", "gas", "gas_petrol"}
         current_year = datetime.now(tz=timezone.utc).year
 
         # -------------------------
@@ -131,10 +182,7 @@ class QdrantStore:
         fuel = payload.get("fuel")
         if isinstance(fuel, str):
             fuel = fuel.lower().strip()
-            if not fuel or fuel not in allowed_fuels:
-                payload["fuel"] = None
-            else:
-                payload["fuel"] = fuel
+            payload["fuel"] = fuel if fuel in ALLOWED_FUELS else None
         else:
             payload["fuel"] = None
 
@@ -177,7 +225,7 @@ class QdrantStore:
             else:
                 raise ValueError("invalid mileage type")
 
-            if mileage < 0 or mileage > 500000:
+            if mileage < 0 or mileage > MAX_MILEAGE:
                 payload["mileage"] = None
             else:
                 payload["mileage"] = mileage
@@ -197,6 +245,26 @@ class QdrantStore:
                 payload["year"] = year
         except Exception:
             payload["year"] = None
+
+        # -------------------------
+        # ids
+        # -------------------------
+        payload["normalized_id"] = self._normalize_int_or_none(payload.get("normalized_id"))
+        payload["chunk_id"] = self._normalize_int_or_none(payload.get("chunk_id"))
+        payload["doc_id"] = self._normalize_int_or_none(payload.get("doc_id"))
+
+        # -------------------------
+        # source_url
+        # -------------------------
+        payload["source_url"] = self._normalize_str_or_none(payload.get("source_url"))
+
+        # -------------------------
+        # brand_model
+        # -------------------------
+        brand_value = payload.get("brand") or ""
+        model_value = payload.get("model") or ""
+        brand_model = f"{brand_value} {model_value}".strip()
+        payload["brand_model"] = brand_model or None
 
         return payload
 
@@ -313,15 +381,22 @@ class QdrantStore:
             payload = p.payload or {}
 
             if "brand" in payload and isinstance(payload["brand"], str):
-                payload["brand"] = payload["brand"].lower().strip()
+                brand = payload["brand"].lower().strip()
+                payload["brand"] = brand or None
+            else:
+                payload["brand"] = None
 
             if "model" in payload and isinstance(payload["model"], str):
                 model = payload["model"].lower().strip()
                 payload["model"] = model or None
+            else:
+                payload["model"] = None
 
             if "fuel" in payload and isinstance(payload["fuel"], str):
                 fuel = payload["fuel"].lower().strip()
-                payload["fuel"] = fuel if fuel in {"petrol", "diesel", "hybrid", "electric", "gas", "gas_petrol"} else None
+                payload["fuel"] = fuel if fuel in ALLOWED_FUELS else None
+            else:
+                payload["fuel"] = None
 
             # -------------------------
             # price
@@ -354,7 +429,7 @@ class QdrantStore:
                 elif not isinstance(mileage, int):
                     raise ValueError("invalid mileage type")
 
-                if mileage <= 0 or mileage > 600000:
+                if mileage < 0 or mileage > MAX_MILEAGE:
                     payload["mileage"] = None
                 else:
                     payload["mileage"] = mileage
@@ -374,14 +449,32 @@ class QdrantStore:
             except Exception:
                 payload["year"] = None
 
+            # -------------------------
+            # ids
+            # -------------------------
+            payload["normalized_id"] = self._normalize_int_or_none(payload.get("normalized_id"))
+            payload["chunk_id"] = self._normalize_int_or_none(payload.get("chunk_id"))
+            payload["doc_id"] = self._normalize_int_or_none(payload.get("doc_id"))
+
+            # -------------------------
+            # source_url
+            # -------------------------
+            payload["source_url"] = self._normalize_str_or_none(payload.get("source_url"))
+
+            # -------------------------
+            # brand_model
+            # -------------------------
+            brand_value = payload.get("brand") or ""
+            model_value = payload.get("model") or ""
+            brand_model = f"{brand_value} {model_value}".strip()
+            payload["brand_model"] = brand_model or None
+
         return hits
 
 
 # =====================================================
 # ✅ SINGLETON CLIENT (для metrics и прямого доступа)
 # =====================================================
-
-import os
 
 QDRANT_HOST = os.getenv("QDRANT_HOST", "qdrant")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))

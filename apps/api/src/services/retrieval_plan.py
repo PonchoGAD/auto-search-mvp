@@ -15,11 +15,30 @@ class RetrievalPlan(BaseModel):
 def build_retrieval_plan(query: StructuredQuery) -> RetrievalPlan:
     expanded_terms: List[str] = []
 
+    def _sanitize_aliases(aliases: List[str]) -> List[str]:
+        sanitized: List[str] = []
+        for alias in aliases:
+            cleaned = alias.strip()
+            if not cleaned:
+                continue
+            if len(cleaned) < 2:
+                continue
+            if cleaned.isdigit():
+                continue
+            sanitized.append(cleaned)
+        return sanitized
+
     if query.brand:
-        expanded_terms.extend(taxonomy_service.get_brand_aliases(query.brand))
+        expanded_terms.extend(
+            _sanitize_aliases(taxonomy_service.get_brand_aliases(query.brand))
+        )
 
     if query.brand and query.model:
-        expanded_terms.extend(taxonomy_service.get_model_aliases(query.brand, query.model))
+        expanded_terms.extend(
+            _sanitize_aliases(
+                taxonomy_service.get_model_aliases(query.brand, query.model)
+            )
+        )
 
     semantic_parts = []
 
@@ -54,9 +73,11 @@ def build_retrieval_plan(query: StructuredQuery) -> RetrievalPlan:
     if query.city:
         filters["city"] = query.city
 
+    filtered_terms = _sanitize_aliases(expanded_terms)
+
     return RetrievalPlan(
         semantic_query=" | ".join(semantic_parts).strip(),
-        expanded_terms=list(dict.fromkeys(expanded_terms)),
+        expanded_terms=list(dict.fromkeys(filtered_terms))[:50],
         negative_terms=query.exclusions[:],
         filters=filters,
     )

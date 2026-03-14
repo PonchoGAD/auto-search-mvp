@@ -76,6 +76,8 @@ FUEL_MAP = {
     "дизель": "diesel",
     "диз": "diesel",
     "diesel": "diesel",
+    "tdi": "diesel",
+    "dci": "diesel",
     "гибрид": "hybrid",
     "hybrid": "hybrid",
     "электро": "electric",
@@ -85,6 +87,8 @@ FUEL_MAP = {
     "газ": "gas",
     "lpg": "gas",
     "gbo": "gas",
+    "tsi": "petrol",
+    "tfs": "petrol",
     "газ/бензин": "gas_petrol",
     "газ бензин": "gas_petrol",
 }
@@ -533,6 +537,21 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             session.delete(exists)
             session.flush()
 
+        raw_source = (raw.source or "").strip().lower()
+        raw_source_url = (raw.source_url or "").strip().lower()
+
+        if raw_source in {"dev_seed", "seed", "test", "debug"}:
+            skipped += 1
+            continue
+
+        if raw_source_url and (
+            "seed.local" in raw_source_url
+            or "localhost" in raw_source_url
+            or "example.com" in raw_source_url
+        ):
+            skipped += 1
+            continue
+
         title_text = normalize_title_format((raw.title or "").strip())
 
         body_text = strip_drom_noise((raw.content or "").strip())
@@ -568,7 +587,8 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 skipped += 1
                 continue
 
-            if signals_count < 1:
+            # telegram без структуры слишком шумный
+            if signals_count < 2:
                 skipped += 1
                 continue
         else:
@@ -606,15 +626,15 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         if not brand:
             brand = extract_brand_fallback(full_text)
 
-        if not brand and model:
-            from services.brand_detector import MODEL_BRAND_MAP
-            if model in MODEL_BRAND_MAP:
-                brand = MODEL_BRAND_MAP[model]
-
         model = resolve_model(
             brand,
             f"{title_text} {full_text}"
         )
+
+        if not brand and model:
+            from services.brand_detector import MODEL_BRAND_MAP
+            if model in MODEL_BRAND_MAP:
+                brand = MODEL_BRAND_MAP[model]
 
         if (not brand or brand == "unknown") and model:
 
@@ -663,18 +683,44 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
 
         if brand:
             brand = brand.lower().strip()
+            if brand == "unknown":
+                brand = None
         else:
             brand = None
 
         fields = extract_fields(full_text)
 
         final_brand = brand
-        if entities.get("brand"):
-            final_brand = str(entities.get("brand")).lower().strip()
+        entity_brand = entities.get("brand")
+        entity_model = entities.get("model")
+
+        if entity_brand:
+            entity_brand = str(entity_brand).lower().strip()
+
+        if entity_model:
+            entity_model = str(entity_model).lower().strip()
+
+        # entity brand принимаем только если:
+        # 1) он совпадает с уже найденным brand
+        # 2) либо brand еще пустой, но бренд подтверждается текстом
+        if entity_brand:
+            if final_brand and entity_brand == final_brand:
+                final_brand = entity_brand
+            elif not final_brand:
+                brand_from_text = extract_brand_fallback(title_text) or extract_brand_fallback(full_text)
+                if brand_from_text == entity_brand:
+                    final_brand = entity_brand
 
         final_model = model
-        if entities.get("model"):
-            final_model = entities.get("model")
+
+        # entity model принимаем только если она подтверждается resolve_model()
+        if entity_model:
+            validated_entity_model = resolve_model(
+                final_brand,
+                f"{title_text} {full_text}"
+            )
+            if validated_entity_model and validated_entity_model == entity_model:
+                final_model = entity_model
 
         final_price = None
         ent_price = entities.get("price")

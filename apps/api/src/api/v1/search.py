@@ -132,7 +132,16 @@ def search(request: SearchRequest):
             )
 
             print(f"[SEARCH][DEMO] hits={vector_hits}")
-            print(f"[SEARCH][PLAN] {retrieval_plan}", flush=True)
+            try:
+                plan_payload = (
+                    retrieval_plan.model_dump()
+                    if hasattr(retrieval_plan, "model_dump")
+                    else retrieval_plan.dict()
+                )
+            except Exception:
+                plan_payload = str(retrieval_plan)
+
+            print(f"[SEARCH][PLAN] {plan_payload}", flush=True)
 
         except Exception as e:
             # 🔥 КЛЮЧЕВОЕ ДЛЯ SMOKE DEMO

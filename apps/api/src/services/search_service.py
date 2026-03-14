@@ -2,24 +2,22 @@ from typing import List, Dict, Any, Tuple
 from pathlib import Path
 from datetime import datetime, timezone
 import yaml
-from urllib.parse import urlparse
 import os
 import json
 
 try:
-    from qdrant_client.models import Filter, FieldCondition, MatchValue, IsNullCondition
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
 except ImportError:
     from qdrant_client.models import Filter, FieldCondition, MatchValue
-    IsNullCondition = None
 
 from shared.embeddings.provider import embed_text
 from sentence_transformers import CrossEncoder
 
 from integrations.vector_db.qdrant import QdrantStore
-from services.query_parser import StructuredQuery
+from domain.query_schema import StructuredQuery
 from services.query_router import route_query
 from services.car_intent_classifier import detect_car_intent
-from services.query_expander import expand_query
+from services.retrieval_plan import RetrievalPlan, build_retrieval_plan
 
 from db.session import SessionLocal
 from db.models import SearchHistory
@@ -115,15 +113,26 @@ class SearchService:
     def search(
         self,
         structured: StructuredQuery,
+        retrieval_plan: RetrievalPlan | None = None,
         limit: int = None,
         top_k: int = None,
     ) -> List[Dict[str, Any]]:
 
         intent = detect_car_intent(structured.raw_query)
 
-        expanded_queries = expand_query(structured.raw_query)
+        if retrieval_plan is None:
+            retrieval_plan = build_retrieval_plan(structured)
 
-        cache_key = f"search:{structured.raw_query}:{structured.brand}:{structured.model}:{structured.price_max}:{structured.mileage_max}:{structured.fuel}"
+        filters = retrieval_plan.filters if retrieval_plan else {}
+        brand_value = (filters.get("brand") or "").strip().lower() if filters.get("brand") else None
+        model_value = (filters.get("model") or "").strip().lower() if filters.get("model") else None
+        fuel_value = (filters.get("fuel") or "").strip().lower() if filters.get("fuel") else None
+
+        cache_key = (
+            f"search:{structured.raw_query}:"
+            f"{brand_value}:{model_value}:{structured.price_max}:"
+            f"{structured.mileage_max}:{fuel_value}:{structured.year_min}"
+        )
 
         try:
             from redis import Redis
@@ -150,9 +159,6 @@ class SearchService:
         is_prod = env == "prod"
 
         brand_conf = float(getattr(structured, "brand_confidence", 0.0) or 0.0)
-        brand_value = (structured.brand or "").strip().lower() if structured.brand else None
-        fuel_value = (structured.fuel or "").strip().lower() if structured.fuel else None
-        model_value = (structured.model or "").strip().lower() if structured.model else None
 
         route = route_query(structured)
 
@@ -163,6 +169,8 @@ class SearchService:
         )
 
         debug = {
+            "structured_query": structured.model_dump() if hasattr(structured, "model_dump") else {},
+            "retrieval_plan": retrieval_plan.model_dump() if retrieval_plan and hasattr(retrieval_plan, "model_dump") else {},
             "applied_filters": [],
             "skipped_by_price": 0,
             "skipped_by_price_null": 0,
@@ -176,24 +184,18 @@ class SearchService:
             "fuel_fallback_triggered": False,
             "brandless_debug_fallback_triggered": False,
             "search_stage": None,
+            "candidate_count_before_dedup": 0,
+            "candidate_count_after_dedup": 0,
         }
 
-        query_text = self._build_query_text(structured)
+        query_text = (retrieval_plan.semantic_query if retrieval_plan else None) or structured.raw_query or ""
         query_vector = embed_text(query_text)
-
-        extra_vectors = []
-        for q in expanded_queries:
-            try:
-                extra_vectors.append(embed_text(q))
-            except Exception:
-                pass
 
         def _build_filter(
             brand: str = None,
             model: str = None,
             fuel: str = None,
         ) -> Filter:
-
             must_conditions: List[FieldCondition] = []
 
             if brand:
@@ -223,84 +225,21 @@ class SearchService:
             if not must_conditions:
                 return None
 
-            return Filter(
-                must=must_conditions,
+            return Filter(must=must_conditions)
+
+        def _search_once(query_filter: Filter) -> List[Any]:
+            return self.store.search(
+                vector=query_vector,
+                limit=top_k,
+                query_filter=query_filter,
+                query_text=query_text,
             )
 
-        def _build_smart_filter(
-            brand: str = None,
-            model: str = None,
-            fuel: str = None,
-        ) -> Filter:
-            must_conditions: List[FieldCondition] = []
-
-            if brand:
-                must_conditions.append(
-                    FieldCondition(
-                        key="brand",
-                        match=MatchValue(value=brand),
-                    )
-                )
-
-            if fuel:
-                must_conditions.append(
-                    FieldCondition(
-                        key="fuel",
-                        match=MatchValue(value=fuel),
-                    )
-                )
-
-            if model:
-                must_conditions.append(
-                    FieldCondition(
-                        key="model",
-                        match=MatchValue(value=model),
-                    )
-                )
-
-            if not must_conditions:
-                return None
-
-            return Filter(
-                must=must_conditions,
-            )
-
-        def _search_vectors(query_filter: Filter) -> List[Any]:
-            all_hits = []
-            vectors = [query_vector] + extra_vectors
-
-            for vec in vectors:
-                try:
-                    sub_hits = self.store.search(
-                        vector=vec,
-                        limit=top_k,
-                        query_filter=query_filter,
-                    )
-                    all_hits.extend(sub_hits)
-                except Exception:
-                    pass
-
-            return all_hits
-
-        if route == "structured":
-            primary_filter = _build_smart_filter(
-                brand=brand_value,
-                model=model_value,
-                fuel=fuel_value
-            )
-
-        elif route == "brand_only":
-            primary_filter = _build_filter(
-                brand=brand_value,
-                model=model_value
-            )
-
-        else:
-            primary_filter = _build_filter(
-                brand=None,
-                model=None,
-                fuel=fuel_value
-            )
+        primary_filter = _build_filter(
+            brand=brand_value,
+            model=model_value,
+            fuel=fuel_value,
+        )
 
         debug["applied_filters"].append(
             f"primary(brand={brand_value}, model={model_value}, fuel={fuel_value})"
@@ -308,7 +247,7 @@ class SearchService:
         debug["search_stage"] = "primary"
 
         try:
-            hits = _search_vectors(primary_filter)
+            hits = _search_once(primary_filter)
         except Exception as e:
             print(f"[SEARCH][WARN] qdrant unavailable: {e}", flush=True)
             return []
@@ -328,7 +267,7 @@ class SearchService:
             )
 
             try:
-                hits = _search_vectors(fallback_filter)
+                hits = _search_once(fallback_filter)
             except Exception as e:
                 print(f"[SEARCH][WARN] qdrant fallback without model unavailable: {e}", flush=True)
                 return []
@@ -350,7 +289,7 @@ class SearchService:
             )
 
             try:
-                hits = _search_vectors(fallback_filter)
+                hits = _search_once(fallback_filter)
             except Exception as e:
                 print(f"[SEARCH][WARN] qdrant fuel fallback unavailable: {e}", flush=True)
                 return []
@@ -370,7 +309,7 @@ class SearchService:
             )
 
             try:
-                hits = _search_vectors(brandless_filter)
+                hits = _search_once(brandless_filter)
             except Exception as e:
                 print(f"[SEARCH][WARN] qdrant brandless debug fallback unavailable: {e}", flush=True)
                 return []
@@ -389,7 +328,7 @@ class SearchService:
             )
 
             try:
-                hits = _search_vectors(fuel_only_filter)
+                hits = _search_once(fuel_only_filter)
             except Exception as e:
                 print(f"[SEARCH][WARN] qdrant fuel-only fallback unavailable: {e}", flush=True)
                 return []
@@ -403,7 +342,8 @@ class SearchService:
                 hits = self.store.search(
                     vector=query_vector,
                     limit=top_k,
-                    query_filter=None
+                    query_filter=None,
+                    query_text=query_text,
                 )
 
                 debug["fallback_triggered"] = True
@@ -417,6 +357,8 @@ class SearchService:
                 print(f"[DEBUG] stats={debug}", flush=True)
 
                 return []
+
+        debug["candidate_count_before_dedup"] = len(hits)
 
         seen_point_ids = set()
         unique_hits = []
@@ -433,35 +375,42 @@ class SearchService:
 
         hits = unique_hits
 
+        debug["candidate_count_after_dedup"] = len(hits)
+
         doc_scores: Dict[str, float] = {}
         doc_payloads: Dict[str, Dict[str, Any]] = {}
 
         for hit in hits:
             payload = hit.payload or {}
 
-            if payload.get("source") == "telegram":
-                if payload.get("price") is None:
-                    continue
-
-            url = payload.get("source_url")
-            if not url:
+            if payload.get("source") == "telegram" and payload.get("price") is None:
                 continue
 
-            if "avito.ru/all/avtomobili" in url:
+            source_url = payload.get("source_url")
+            if not source_url:
+                continue
+
+            if "avito.ru/all/avtomobili" in source_url:
+                continue
+
+            doc_key = str(payload.get("normalized_id") or source_url or "").strip()
+            if not doc_key:
                 continue
 
             score = float(getattr(hit, "score", 0.0) or 0.0)
 
-            if url not in doc_scores or score > doc_scores[url]:
-                doc_scores[url] = max(score, doc_scores.get(url, 0))
-                doc_payloads[url] = payload
+            if doc_key not in doc_scores or score > doc_scores[doc_key]:
+                doc_scores[doc_key] = max(score, doc_scores.get(doc_key, 0.0))
+                doc_payloads[doc_key] = payload
+
+        debug["candidate_count_after_dedup"] = len(doc_payloads)
 
         scored_results: List[Tuple[float, Dict[str, Any], List[str]]] = []
 
-        for url, payload in doc_payloads.items():
-            semantic = float(doc_scores.get(url, 0.0) or 0.0)
+        for doc_key, payload in doc_payloads.items():
+            semantic = float(doc_scores.get(doc_key, 0.0) or 0.0)
 
-            if route in {"structured", "brand_only"} and brand_value:
+            if brand_value:
                 payload_brand = payload.get("brand")
                 if payload_brand and payload_brand != brand_value:
                     continue
@@ -469,14 +418,13 @@ class SearchService:
             if is_prod and (payload.get("source") == "dev_seed"):
                 continue
 
-            if structured.fuel is not None:
-
+            if fuel_value is not None:
                 payload_fuel = payload.get("fuel")
 
                 if payload_fuel is None:
                     continue
 
-                if str(payload_fuel).lower() != str(structured.fuel).lower():
+                if str(payload_fuel).lower() != str(fuel_value).lower():
                     continue
 
             if structured.price_max is not None:
@@ -498,7 +446,6 @@ class SearchService:
                         continue
 
             if structured.mileage_max is not None:
-
                 mileage_val = payload.get("mileage")
 
                 if mileage_val is None:
@@ -506,27 +453,27 @@ class SearchService:
                     continue
 
                 try:
-
                     if mileage_val > structured.mileage_max:
                         debug["skipped_by_mileage"] += 1
                         continue
-
                 except Exception:
                     debug["skipped_by_mileage"] += 1
                     continue
 
             if structured.year_min is not None:
                 year_val = payload.get("year")
+
                 if year_val is None:
                     debug["skipped_by_year_null"] += 1
-                else:
-                    try:
-                        if year_val < structured.year_min:
-                            debug["skipped_by_year"] += 1
-                            continue
-                    except Exception:
+                    continue
+
+                try:
+                    if year_val < structured.year_min:
                         debug["skipped_by_year"] += 1
                         continue
+                except Exception:
+                    debug["skipped_by_year"] += 1
+                    continue
 
             recency = self._recency_score(payload)
             sale_bonus = self._sale_bonus(payload)
@@ -553,10 +500,9 @@ class SearchService:
 
             text_score = self._text_score(payload, structured)
 
-            # model keyword precision
-            if structured.model and payload.get("model"):
-                model_q = structured.model.lower()
-                model_p = payload.get("model").lower()
+            if model_value and payload.get("model"):
+                model_q = model_value.lower()
+                model_p = str(payload.get("model")).lower()
 
                 if model_q in model_p:
                     final_score += 0.25
@@ -609,46 +555,27 @@ class SearchService:
 
             final_score = final_score + brand_boost
 
-            if structured.fuel and payload.get("fuel"):
-
-                if str(payload.get("fuel")).lower() != str(structured.fuel).lower():
-
-                    final_score -= 0.6
+            if fuel_value and payload.get("fuel"):
+                if str(payload.get("fuel")).lower() != str(fuel_value).lower():
+                    continue
 
             model_boost = 0.0
 
             payload_model = payload.get("model")
+            query_model = (structured.model or model_value or "").lower() if (structured.model or model_value) else None
 
-            # strict model filter
-            if structured.model and payload_model:
+            if query_model and payload_model:
+                payload_model_norm = str(payload_model).lower()
 
-                if not _model_soft_match(payload_model, structured.model):
+                if not _model_soft_match(payload_model_norm, query_model):
+                    continue
 
-                    final_score -= 0.8
-
-            if structured.model and payload_model:
-
-                if payload_model == structured.model:
+                if payload_model_norm == query_model:
                     model_boost = 0.35
-
-                elif structured.model in payload_model:
+                elif query_model in payload_model_norm:
                     model_boost = 0.20
 
             final_score = final_score + model_boost
-
-            vector_type = payload.get("vector_type")
-            vector_boost = 0.0
-
-            if vector_type == "title_boost":
-                vector_boost = 0.12
-
-            elif vector_type == "title":
-                vector_boost = 0.09
-
-            elif vector_type == "structured":
-                vector_boost = 0.06
-
-            final_score = final_score + vector_boost
 
             if payload.get("price") is None:
                 final_score -= 0.10
@@ -658,15 +585,14 @@ class SearchService:
 
             reasons = [
                 f"semantic={round(semantic, 4)}",
-                f"text={round(text_score,4)}",
+                f"text={round(text_score, 4)}",
                 f"recency={round(recency, 4)}",
                 f"sale={round(sale_bonus, 4)}",
                 f"complete={round(completeness, 4)}",
                 f"price_score={round(price_score, 4)}",
                 f"mileage_score={round(mileage_score, 4)}",
                 f"brand_boost={round(brand_boost, 4)}",
-                f"model_boost={round(model_boost,4)}",
-                f"vector_boost={round(vector_boost,4)}",
+                f"model_boost={round(model_boost, 4)}",
                 f"final={round(final_score, 4)}",
             ]
 
@@ -675,7 +601,7 @@ class SearchService:
         scored_results.sort(key=lambda x: x[0], reverse=True)
 
         results: List[Dict[str, Any]] = []
-        seen_urls = set()
+        seen_doc_keys = set()
         source_counter: Dict[str, int] = {}
 
         for final_score, payload, reasons in scored_results:
@@ -683,7 +609,11 @@ class SearchService:
             if not source_url:
                 continue
 
-            if source_url in seen_urls:
+            doc_key = str(payload.get("normalized_id") or source_url or "").strip()
+            if not doc_key:
+                continue
+
+            if doc_key in seen_doc_keys:
                 debug["skipped_by_url_duplicate"] += 1
                 continue
 
@@ -711,10 +641,11 @@ class SearchService:
                     "why_match": " + ".join(reasons),
                     "source_url": source_url,
                     "source_name": source_name,
+                    "normalized_id": payload.get("normalized_id"),
                 }
             )
 
-            seen_urls.add(source_url)
+            seen_doc_keys.add(doc_key)
             source_counter[source_name] += 1
 
             if len(results) >= limit:
@@ -743,17 +674,12 @@ class SearchService:
                 pass
 
         try:
-
-            query_text = structured.raw_query
-
             results = self._rerank_results(
-                query=query_text,
+                query=structured.raw_query or query_text,
                 results=results,
-                top_k=min(len(results), 20),
+                top_k=min(len(results), limit),
             )
-
         except Exception as e:
-
             print(f"[RERANK][WARN] skipped: {e}", flush=True)
 
         try:
@@ -775,7 +701,7 @@ class SearchService:
         return results
 
     def _text_score(self, payload: Dict[str, Any], structured: StructuredQuery) -> float:
-        text_parts = []
+        text_parts: List[str] = []
 
         for key in ("brand", "model", "title", "title_text", "content"):
             value = payload.get(key)
@@ -789,23 +715,27 @@ class SearchService:
         score = 0.0
 
         if structured.brand and structured.brand.lower() in text:
-            score += 1.5
+            score += 1.4
 
         if structured.model and structured.model.lower() in text:
-            score += 1.5
+            score += 1.4
 
-        if structured.fuel and payload.get("fuel"):
+        if structured.fuel:
+            payload_fuel = payload.get("fuel")
+            if payload_fuel and structured.fuel.lower() == str(payload_fuel).lower():
+                score += 1.0
+            elif payload_fuel:
+                score -= 0.4
 
-            if structured.fuel.lower() == str(payload.get("fuel")).lower():
-                score += 1.2
-            else:
-                score -= 0.5
+        raw_query = (structured.raw_query or "").strip().lower()
+        if raw_query:
+            raw_hits = 0
+            for token in raw_query.split():
+                if len(token) >= 3 and token in text:
+                    raw_hits += 1
+            score += min(raw_hits * 0.12, 0.6)
 
-        for kw in getattr(structured, "keywords", []) or []:
-            if kw and kw.lower() in text:
-                score += 0.25
-
-        return min(score / 3.5, 1.0)
+        return min(max(score / 3.4, 0.0), 1.0)
 
     def _rerank_results(
         self,
@@ -819,9 +749,13 @@ class SearchService:
 
         reranker = get_reranker()
 
+        max_rerank = min(len(results), 80)
+        rerank_slice = results[:max_rerank]
+        tail_slice = results[max_rerank:]
+
         pairs = []
 
-        for r in results:
+        for r in rerank_slice:
             text = ""
 
             if r.get("brand"):
@@ -841,25 +775,30 @@ class SearchService:
 
             pairs.append((query, text.strip()[:300]))
 
-        max_rerank = min(len(results), 80)
-        pairs = pairs[:max_rerank]
-        results = results[:max_rerank]
-
         try:
             scores = reranker.predict(pairs)
         except Exception as e:
             print(f"[RERANK][WARN] failed: {e}", flush=True)
-            return results
+            return results[:top_k]
 
-        for i, score in enumerate(scores):
-            results[i]["rerank_score"] = float(score)
+        score_values = [float(s) for s in scores]
+        min_score = min(score_values) if score_values else 0.0
+        max_score = max(score_values) if score_values else 1.0
+        denom = (max_score - min_score) or 1.0
 
-        results.sort(
-            key=lambda x: x.get("rerank_score", 0),
+        for i, score in enumerate(score_values):
+            rerank_slice[i]["rerank_score"] = float(score)
+            rerank_norm = (float(score) - min_score) / denom
+            base_score = float(rerank_slice[i].get("score", 0.0) or 0.0)
+            rerank_slice[i]["hybrid_score"] = (base_score * 0.8) + (rerank_norm * 0.2)
+
+        rerank_slice.sort(
+            key=lambda x: x.get("hybrid_score", x.get("score", 0.0)),
             reverse=True,
         )
 
-        return results[:min(top_k, 30)]
+        merged = rerank_slice + tail_slice
+        return merged[:top_k]
 
     def _recency_score(self, payload: Dict[str, Any]) -> float:
         ts = payload.get("created_at_ts")
@@ -911,33 +850,11 @@ class SearchService:
         return max(0.0, 1.0 - (price_val / denom))
 
     def _build_query_text(self, structured: StructuredQuery) -> str:
-
-        parts: List[str] = []
-
-        if structured.brand:
-            parts.append(structured.brand)
-            parts.append(f"{structured.brand} car")
-
-        if structured.model:
-            parts.append(structured.model)
-            parts.append(f"{structured.brand} {structured.model}")
-
-        if structured.fuel:
-            parts.append(structured.fuel)
-
-        if structured.price_max:
-            parts.append(f"price under {structured.price_max}")
-
-        if structured.mileage_max:
-            parts.append(f"mileage under {structured.mileage_max}")
-
-        if structured.year_min:
-            parts.append(f"year after {structured.year_min}")
-
-        if structured.keywords:
-            parts.extend(structured.keywords)
-
-        return " ".join(parts).strip()
+        """
+        Deprecated.
+        Search flow uses retrieval_plan.semantic_query instead.
+        """
+        return (structured.raw_query or "").strip()
 
     def _score_hit(
         self,

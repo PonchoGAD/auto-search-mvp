@@ -40,6 +40,15 @@ def _contains_phrase(text: str, phrase: str) -> bool:
     return bool(re.search(pattern, text, re.IGNORECASE))
 
 
+AMBIGUOUS_MODEL_ALIASES = {
+    "x1", "x2", "x3", "x4", "x5", "x6", "x7",
+    "1 series", "2 series", "3 series", "4 series", "5 series", "6 series", "7 series",
+    "glc", "gle", "gls",
+    "rx", "nx", "es", "is", "ls",
+    "a3", "a4", "a6", "a8", "q3", "q5", "q7", "q8",
+}
+
+
 class TaxonomyService:
     """
     Single source of truth for:
@@ -134,13 +143,29 @@ class TaxonomyService:
                 canonical_model = _to_key(raw_model)
                 model_aliases: Set[str] = set()
 
-                model_aliases.add(_norm_text(raw_model))
-                model_aliases.add(_norm_text(canonical_model))
+                raw_model_norm = _norm_text(raw_model)
+                canonical_model_norm = _norm_text(canonical_model)
+
+                if raw_model_norm and not raw_model_norm.isdigit():
+                    model_aliases.add(raw_model_norm)
+                if canonical_model_norm and not canonical_model_norm.isdigit():
+                    model_aliases.add(canonical_model_norm)
 
                 if isinstance(aliases, list):
                     for alias in aliases:
-                        if isinstance(alias, str) and alias.strip():
-                            model_aliases.add(_norm_text(alias))
+                        if not isinstance(alias, str):
+                            continue
+                        alias_norm = _norm_text(alias)
+                        if not alias_norm:
+                            continue
+
+                        alias_parts = alias_norm.split()
+                        if len(alias_parts) == 1 and alias_norm.isdigit():
+                            continue
+                        if len(alias_norm) <= 2 and not re.search(r"[a-zа-яё]", alias_norm, re.IGNORECASE):
+                            continue
+
+                        model_aliases.add(alias_norm)
 
                 self.brand_model_to_aliases[canonical_brand][canonical_model] = model_aliases
 
@@ -198,6 +223,10 @@ class TaxonomyService:
         canonical_models = set(self.brand_model_to_aliases.get(canonical_brand, {}).keys())
 
         for alias, canonical_model in model_map.items():
+            alias_parts = alias.split()
+            if len(alias_parts) == 1 and alias.isdigit():
+                continue
+
             if _contains_phrase(text_norm, alias):
                 alias_len = len(alias)
                 is_canonical = 1 if _norm_text(canonical_model) == alias else 0
@@ -225,6 +254,9 @@ class TaxonomyService:
 
         for alias, brands in self.global_model_alias_to_brands.items():
             if len(brands) != 1:
+                continue
+
+            if alias in AMBIGUOUS_MODEL_ALIASES:
                 continue
 
             if _contains_phrase(text_norm, alias):

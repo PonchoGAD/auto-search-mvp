@@ -50,7 +50,7 @@ def deterministic_embedding(text: str) -> List[float]:
 # PAYLOAD NORMALIZATION HELPERS
 # =====================================================
 
-ALLOWED_FUELS = {"petrol", "diesel", "hybrid", "electric"}
+ALLOWED_FUELS = {"petrol", "diesel", "hybrid", "electric", "gas", "gas_petrol"}
 
 def _norm_str(v: object) -> str | None:
     if isinstance(v, str):
@@ -70,7 +70,7 @@ def _norm_int(v: object) -> int | None:
 
 
 # =====================================================
-# STRUCTURED TEXT BUILDER (MULTI VECTOR)
+# STRUCTURED TEXT BUILDER
 # =====================================================
 
 def build_structured_text(doc: NormalizedDocument) -> str:
@@ -120,7 +120,7 @@ def index_document_chunks(
 ) -> int:
     """
     Index pipeline v2 (production):
-    NormalizedDocument -> DocumentChunk -> embedding(chunk_text) -> Qdrant payload
+    NormalizedDocument -> DocumentChunk -> single embedding per chunk -> Qdrant payload
 
     Payload MUST contain fields used by filters:
     brand, model, price, mileage, year, fuel, source, source_url
@@ -192,50 +192,19 @@ def index_document_chunks(
             if brand is None:
                 brand = None
 
-            # =====================================================
-            # MULTI VECTOR EMBEDDINGS
-            # =====================================================
-
             structured_text = build_structured_text(doc)
 
-            vectors = []
-
-            if title_text:
-                title_embedding_text = f"""
+            embedding_text = f"""
 title {title_text}
 brand {brand or ''}
 model {model or ''}
-""".strip()
-
-                title_vec = deterministic_embedding(title_embedding_text)
-
-                if len(title_vec) == VECTOR_SIZE:
-                    vectors.append(("title", title_vec))
-                    vectors.append(("title_boost", title_vec))
-
-            # улучшенный embedding chunk
-            content_embedding_text = f"""
-title {title_text}
-brand {brand or ''}
-model {model or ''}
+structured {structured_text or ''}
 content {chunk_text}
 """.strip()
 
-            content_vec = deterministic_embedding(content_embedding_text)
-            if len(content_vec) == VECTOR_SIZE:
-                vectors.append(("content", content_vec))
+            embedding = deterministic_embedding(embedding_text)
 
-            if structured_text:
-                structured_embedding_text = f"""
-structured {structured_text}
-title {title_text}
-""".strip()
-
-                structured_vec = deterministic_embedding(structured_embedding_text)
-                if len(structured_vec) == VECTOR_SIZE:
-                    vectors.append(("structured", structured_vec))
-
-            if not brand and not model and price is None and mileage is None and year is None:
+            if not embedding or len(embedding) != VECTOR_SIZE:
                 continue
 
             created_at_ts = getattr(doc, "created_at_ts", None)
@@ -288,26 +257,16 @@ title {title_text}
                 "created_at_source": "normalized",
             }
 
-            for vec_type, vec in vectors:
-                if len(vec) != VECTOR_SIZE:
-                    continue
+            point_hash = hashlib.sha1(f"{ch.id}".encode()).hexdigest()
+            point_id = int(point_hash[:16], 16)
 
-                if not vec or len(vec) != VECTOR_SIZE:
-                    continue
-
-                point_hash = hashlib.sha1(f"{ch.id}_{vec_type}".encode()).hexdigest()
-                point_id = int(point_hash[:16], 16)
-
-                points.append(
-                    PointStruct(
-                        id=point_id,
-                        vector=vec,
-                        payload={
-                            **payload,
-                            "vector_type": vec_type
-                        },
-                    )
+            points.append(
+                PointStruct(
+                    id=point_id,
+                    vector=embedding,
+                    payload=payload,
                 )
+            )
 
         if not points:
             print("[INDEX][WARN] no valid points generated from chunks")

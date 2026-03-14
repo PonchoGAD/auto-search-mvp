@@ -124,7 +124,10 @@ def _parse_with_fallback(raw_text: str, normalized_text: str) -> StructuredQuery
     # -------------------------
     # BRAND
     # -------------------------
-    brand, confidence = detect_brand(title=text, text=text)
+    brand, confidence = detect_brand(
+        title=raw_text or "",
+        text=text,
+    )
     if brand:
         result.brand = brand.lower()
         result.brand_confidence = confidence
@@ -194,14 +197,49 @@ def _parse_with_fallback(raw_text: str, normalized_text: str) -> StructuredQuery
     # -------------------------
     # YEAR_MIN
     # -------------------------
-    match = re.search(r"(от|с|после)\s*(20\d{2}|19\d{2})", text)
-    if match:
-        result.year_min = int(match.group(2))
 
-    match = re.search(r"(не\s+старше|младше|за\s+последние)\s*(\d+)\s*лет", text)
+    match = re.search(
+        r"\b(от|с|после)\s*(19\d{2}|20\d{2})\b",
+        text,
+        re.IGNORECASE,
+    )
     if match:
-        years = int(match.group(2))
-        result.year_min = current_year - years
+        year_val = int(match.group(2))
+        if 1985 <= year_val <= current_year + 1:
+            result.year_min = year_val
+
+    if result.year_min is None:
+        match = re.search(
+            r"\bне\s+старше\s*(19\d{2}|20\d{2})(?:\s*г(?:\.|ода)?)?\b",
+            text,
+            re.IGNORECASE,
+        )
+        if match:
+            year_val = int(match.group(1))
+            if 1985 <= year_val <= current_year + 1:
+                result.year_min = year_val
+
+    if result.year_min is None:
+        match = re.search(
+            r"\b(не\s+ниже|не\s+раньше)\s*(19\d{2}|20\d{2})(?:\s*г(?:\.|ода)?)?\b",
+            text,
+            re.IGNORECASE,
+        )
+        if match:
+            year_val = int(match.group(2))
+            if 1985 <= year_val <= current_year + 1:
+                result.year_min = year_val
+
+    if result.year_min is None:
+        match = re.search(
+            r"\b(младше|за\s+последние)\s*(\d+)\s*лет\b",
+            text,
+            re.IGNORECASE,
+        )
+        if match:
+            years = int(match.group(2))
+            if 0 <= years <= 30:
+                result.year_min = current_year - years
 
     # -------------------------
     # FUEL

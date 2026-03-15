@@ -603,13 +603,13 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         if not brand:
             brand = extract_brand_fallback(title_text)
 
-          model = resolve_model(
+        if not brand:
+            brand = extract_brand_fallback(full_text)
+
+        model = resolve_model(
             brand,
             f"{title_text} {full_text}"
 )
-
-        if not brand:
-            brand = extract_brand_fallback(full_text)
 
         if not brand and model:
             from services.brand_detector import MODEL_BRAND_MAP

@@ -203,6 +203,11 @@ class TaxonomyService:
 
         return None, 0.0
 
+    def canonicalize_brand(self, brand: Optional[str]) -> Optional[str]:
+        if not brand:
+            return None
+        return self.brand_alias_to_canonical.get(_norm_text(brand), _to_key(brand))
+
     def resolve_model(self, brand: Optional[str], text: str) -> Optional[str]:
         if not brand:
             return None
@@ -243,6 +248,36 @@ class TaxonomyService:
             return best_model
 
         return best_model
+
+    def resolve_entities(self, text: str) -> Tuple[Optional[str], Optional[str], float]:
+        brand, conf = self.resolve_brand(text)
+        if brand:
+            model = self.resolve_model(brand, text)
+            return brand, model, conf
+
+        fallback_brand, fallback_conf = self.resolve_brand_from_model(text)
+        if fallback_brand:
+            model = self.resolve_model(fallback_brand, text)
+            return fallback_brand, model, fallback_conf
+
+        return None, None, 0.0
+
+    def canonicalize_model(self, brand: Optional[str], model: Optional[str]) -> Optional[str]:
+        if not brand or not model:
+            return None
+
+        canonical_brand = self.canonicalize_brand(brand)
+        if not canonical_brand:
+            return None
+
+        model_norm = _norm_text(model)
+        model_map = self.brand_model_alias_to_canonical.get(canonical_brand, {})
+
+        resolved = model_map.get(model_norm)
+        if resolved:
+            return resolved
+
+        return _to_key(model)
 
     def resolve_brand_from_model(self, text: str) -> Tuple[Optional[str], float]:
         text_norm = _norm_text(text)

@@ -5,7 +5,8 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import time
 
-from services.query_parser import parse_query, StructuredQuery
+from services.query_parser import parse_query
+from domain.query_schema import StructuredQuery
 from services.search_service import SearchService
 from services.metrics_service import MetricsService
 

@@ -160,4 +160,5 @@ def run_chunk(limit: int = 500, force_rebuild: bool = False):
     session.commit()
     session.close()
 
-    print(f"[CHUNK] chunks saved: {saved} from docs: {len(docs)}")
+    print(f"[CHUNK] chunks saved: {saved} from docs: {len(docs)}", flush=True)
+    return saved

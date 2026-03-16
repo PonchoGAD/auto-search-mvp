@@ -8,25 +8,22 @@ import time
 import random
 
 from sqlalchemy.exc import OperationalError
-from sqlalchemy import text
 
-from db.session import engine, SessionLocal, Base
-from db.models import RawDocument
+from db.session import engine, SessionLocal
+from db.models import RawDocument, Base
 
 from sources.auto_ru import fetch_auto_ru_serp
 from sources.avito import fetch_avito_serp
 from sources.drom import fetch_drom_ru
-
-# ✅ ВАЖНО: импортируем ASYNC telegram (НЕ sync wrapper)
-from sources.telegram import fetch_telegram  # async def
-
-# ✅ ДОБАВЛЕНО — форумы
+from sources.telegram import fetch_telegram
 from sources.benzclub import fetch_benzclub_listings
 from sources.bmwclub import fetch_bmwclub_listings
 
 # =========================
 # DATA PIPELINE
 # =========================
+# Worker does not own separate pipeline implementation.
+# Worker only orchestrates shared API pipeline modules.
 from src.data_pipeline.normalize import run_normalize
 from src.data_pipeline.chunk import run_chunk
 from src.data_pipeline.index import run_index
@@ -55,35 +52,6 @@ Base.metadata.create_all(bind=engine)
 
 
 # =========================
-# DB SCHEMA PATCH (MVP MIGRATION)
-# =========================
-def ensure_schema():
-    session = SessionLocal()
-    try:
-        session.execute(text("""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1
-                    FROM information_schema.columns
-                    WHERE table_name='raw_documents'
-                    AND column_name='indexed'
-                ) THEN
-                    ALTER TABLE raw_documents
-                    ADD COLUMN indexed BOOLEAN DEFAULT FALSE;
-                END IF;
-            END $$;
-        """))
-        session.commit()
-        print("[DB] ensured raw_documents.indexed", flush=True)
-    finally:
-        session.close()
-
-
-ensure_schema()
-
-
-# =========================
 # SAVE (HARDENED)
 # =========================
 def save_items(items):
@@ -95,27 +63,31 @@ def save_items(items):
 
     try:
         for item in items:
-
             if saved >= MAX_SAVE:
-                print("[DB] save limit reached")
+                print("[DB] save limit reached", flush=True)
                 break
 
             url = item.get("source_url")
-            content = item.get("content")
+            source = (item.get("source") or "unknown").strip()
+            title = (item.get("title") or "").strip()
+            content = (item.get("content") or "").strip()
 
             if not url:
                 skipped += 1
                 print(f"[DB][SAVE] reason_skip=no_url item={item}", flush=True)
                 continue
 
-            if not content or len(content.strip()) < 10:
+            if not content or len(content) < 10:
                 skipped += 1
                 print(f"[DB][SAVE] reason_skip=short_content url={url}", flush=True)
                 continue
 
             exists = (
                 session.query(RawDocument)
-                .filter_by(source_url=url)
+                .filter(
+                    RawDocument.source == source,
+                    RawDocument.source_url == url,
+                )
                 .first()
             )
             if exists:
@@ -125,9 +97,9 @@ def save_items(items):
 
             session.add(
                 RawDocument(
-                    source=item.get("source", "unknown"),
+                    source=source,
                     source_url=url,
-                    title=item.get("title"),
+                    title=title,
                     content=content,
                 )
             )
@@ -175,18 +147,15 @@ async def run_cycle():
         drom_items = []
     await asyncio.sleep(random.uniform(0.5, 1.5))
 
-    # ✅ TELEGRAM — ASYNC await
     telegram_items = await safe_await("telegram", fetch_telegram(limit_per_channel=50), timeout_s=180)
     print(f"[INGEST] telegram fetched={len(telegram_items)}", flush=True)
 
-    # ✅ ДОБАВЛЕНО — BENZCLUB
     try:
         benz_items = fetch_benzclub_listings(limit=30) or []
     except Exception as e:
         print(f"[INGEST][ERROR] benzclub: {e}", flush=True)
         benz_items = []
 
-    # ✅ ДОБАВЛЕНО — BMWCLUB
     try:
         bmw_items = fetch_bmwclub_listings(limit=30) or []
     except Exception as e:
@@ -215,21 +184,16 @@ async def run_cycle():
     # =========================
     if saved > 0:
 
+        pipeline_limit = max(saved, 500)
+
         print("[PIPELINE] normalize started", flush=True)
-        normalized = run_normalize(limit=500, force_rebuild=False)
+        run_normalize(limit=pipeline_limit, force_rebuild=False)
 
         print("[PIPELINE] chunk started", flush=True)
-        chunks = run_chunk(limit=500, force_rebuild=False)
+        run_chunk(limit=pipeline_limit, force_rebuild=False)
 
         print("[PIPELINE] index started", flush=True)
-
-        if chunks and chunks > 0:
-
-            run_index(limit=1000)
-
-        else:
-
-            print("[PIPELINE] index skipped (no chunks)")
+        run_index(limit=max(pipeline_limit * 3, 1000), force_rebuild=False)
 
         print("[PIPELINE] completed", flush=True)
 

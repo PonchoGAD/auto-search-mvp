@@ -1,5 +1,5 @@
-from apps.shared.db.base import Base
-from apps.shared.db.models import (
+from shared.db.base import Base
+from shared.db.models import (
     DocumentChunk,
     NormalizedDocument,
     RawDocument,

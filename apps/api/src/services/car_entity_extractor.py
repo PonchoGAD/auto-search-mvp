@@ -9,10 +9,6 @@ except Exception:
     taxonomy_service = None
 
 
-# =========================
-# TEXT NORMALIZATION
-# =========================
-
 def _norm(text: str) -> str:
     text = text or ""
     text = text.replace("\u00A0", " ").replace("\xa0", " ")
@@ -30,19 +26,8 @@ def _is_speed_noise(text: str) -> bool:
     return any(x in t for x in ["км/ч", "km/h", "скорость", "средняя скорость"])
 
 
-# =========================
-# PRICE
-# =========================
-
-RE_PRICE = re.compile(
-    r"(\d[\d\s\u00A0]{3,12})\s*(₽|руб|р)\b",
-    re.IGNORECASE
-)
-
-RE_PRICE_GLUE = re.compile(
-    r"(\d[\d\s\u00A0]{3,12})(?:₽|руб|р)(?=[a-zа-я])",
-    re.IGNORECASE
-)
+RE_PRICE = re.compile(r"(\d[\d\s\u00A0]{3,12})\s*(₽|руб|р)\b", re.IGNORECASE)
+RE_PRICE_GLUE = re.compile(r"(\d[\d\s\u00A0]{3,12})(?:₽|руб|р)(?=[a-zа-я])", re.IGNORECASE)
 
 PRICE_PATTERNS = [
     r"(\d[\d\s\u00A0]{4,12})\s*₽",
@@ -51,34 +36,11 @@ PRICE_PATTERNS = [
     r"(\d[\d\s\u00A0]{4,12})\s*р\b",
 ]
 
-# =========================
-# YEAR
-# =========================
-
 RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
-# =========================
-# MILEAGE
-# =========================
-
-RE_MILEAGE = re.compile(
-    r"\b(\d[\d\s\u00A0]{2,8})\s*(км|km)\b",
-    re.IGNORECASE
-)
-
-RE_MILEAGE_K = re.compile(
-    r"\b(\d{1,3}(?:[.,]\d+)?)\s*(тыс\.?|т\.км|k|ткм)\b",
-    re.IGNORECASE
-)
-
-RE_MILEAGE_LABEL = re.compile(
-    r"\b(?:пробег|mileage)\s*[:\-]?\s*(\d[\d\s\u00A0]{2,8})\b",
-    re.IGNORECASE
-)
-
-# =========================
-# FUEL MAP
-# =========================
+RE_MILEAGE = re.compile(r"\b(\d[\d\s\u00A0]{2,8})\s*(км|km)\b", re.IGNORECASE)
+RE_MILEAGE_K = re.compile(r"\b(\d{1,3}(?:[.,]\d+)?)\s*(тыс\.?\s*км|тыс\.?|т\.км|k|ткм)\b", re.IGNORECASE)
+RE_MILEAGE_LABEL = re.compile(r"\b(?:пробег|mileage)\s*[:\-]?\s*(\d[\d\s\u00A0]{2,8})\b", re.IGNORECASE)
 
 FUEL_MAP = {
     "бензин": "petrol",
@@ -116,9 +78,16 @@ FUEL_MAP = {
 }
 
 
-# =========================
-# TAXONOMY HELPERS
-# =========================
+def _normalize_model(model: str | None) -> str | None:
+    if not model:
+        return None
+    m = model.strip().lower().replace("_", "-")
+    m = re.sub(r"\s+", " ", m)
+    m = re.sub(r"\b([a-zа-я]+)\s+(\d{1,4})\b", r"\1\2", m, flags=re.IGNORECASE)
+    m = m.replace(" ", "-")
+    m = re.sub(r"-{2,}", "-", m)
+    return m.strip("-") or None
+
 
 def _detect_brand_with_fallback(title: str, content: str, text: str):
     brand = None
@@ -145,31 +114,20 @@ def _detect_brand_with_fallback(title: str, content: str, text: str):
         return brand, brand_conf
 
     if taxonomy_service:
-        try:
-            if hasattr(taxonomy_service, "detect_brand_by_model_alias"):
-                inferred = taxonomy_service.detect_brand_by_model_alias(text)
-                if inferred:
-                    return inferred, brand_conf
-        except Exception:
-            pass
-
-        try:
-            if hasattr(taxonomy_service, "resolve_brand_by_model_alias"):
-                inferred = taxonomy_service.resolve_brand_by_model_alias(text)
-                if inferred:
-                    return inferred, brand_conf
-        except Exception:
-            pass
-
-        try:
-            if hasattr(taxonomy_service, "detect_brand"):
-                inferred = taxonomy_service.detect_brand(text)
-                if isinstance(inferred, tuple):
-                    inferred = inferred[0] if inferred else None
-                if inferred:
-                    return inferred, brand_conf
-        except Exception:
-            pass
+        for method_name in [
+            "detect_brand_by_model_alias",
+            "resolve_brand_by_model_alias",
+            "detect_brand",
+        ]:
+            try:
+                if hasattr(taxonomy_service, method_name):
+                    inferred = getattr(taxonomy_service, method_name)(text)
+                    if isinstance(inferred, tuple):
+                        inferred = inferred[0] if inferred else None
+                    if inferred:
+                        return inferred, brand_conf
+            except Exception:
+                pass
 
     return None, brand_conf
 
@@ -184,14 +142,14 @@ def _resolve_model_with_fallback(brand: str | None, text: str):
             model = None
 
     if model:
-        return model
+        return _normalize_model(model)
 
     if taxonomy_service:
         try:
             if hasattr(taxonomy_service, "resolve_model"):
                 model = taxonomy_service.resolve_model(brand, text)
                 if model:
-                    return model
+                    return _normalize_model(model)
         except Exception:
             pass
 
@@ -200,21 +158,16 @@ def _resolve_model_with_fallback(brand: str | None, text: str):
                 if hasattr(taxonomy_service, "resolve_model_with_brand"):
                     resolved = taxonomy_service.resolve_model_with_brand(text)
                     if isinstance(resolved, tuple):
-                        inferred_brand = resolved[0] if len(resolved) > 0 else None
                         inferred_model = resolved[1] if len(resolved) > 1 else None
                         if inferred_model:
-                            return inferred_model
+                            return _normalize_model(inferred_model)
                     elif resolved:
-                        return resolved
+                        return _normalize_model(resolved)
             except Exception:
                 pass
 
     return None
 
-
-# =========================
-# PRICE
-# =========================
 
 def extract_price(text: str):
     if not text:
@@ -222,28 +175,30 @@ def extract_price(text: str):
 
     t = text.replace("\xa0", " ")
 
-    lemon_match = re.search(r"(\d+)\s?🍋", t)
+    lemon_match = re.search(r"(\d+(?:[.,]\d+)?)\s?🍋", t)
     if lemon_match:
         try:
-            value = int(lemon_match.group(1))
-            return value * 1_000_000
+            value = float(lemon_match.group(1).replace(",", "."))
+            price = int(value * 1_000_000)
+            if 10_000 < price < 200_000_000:
+                return price
         except Exception:
             pass
 
-    k_match = re.search(r"(\d+(?:\.\d+)?)\s?[kк]\b", t.lower())
+    k_match = re.search(r"(\d+(?:[.,]\d+)?)\s?[kк]\b", t.lower())
     if k_match:
         try:
-            value = float(k_match.group(1))
+            value = float(k_match.group(1).replace(",", "."))
             price = int(value * 1000)
             if 10_000 < price < 200_000_000:
                 return price
         except Exception:
             pass
 
-    m_match = re.search(r"(\d+(?:\.\d+)?)\s?[mм]\b", t.lower())
+    m_match = re.search(r"(\d+(?:[.,]\d+)?)\s?[mм]\b", t.lower())
     if m_match:
         try:
-            value = float(m_match.group(1))
+            value = float(m_match.group(1).replace(",", "."))
             price = int(value * 1_000_000)
             if 10_000 < price < 200_000_000:
                 return price
@@ -281,10 +236,6 @@ def extract_price(text: str):
     return None
 
 
-# =========================
-# YEAR
-# =========================
-
 def extract_year(text):
     if not text:
         return None
@@ -302,10 +253,6 @@ def extract_year(text):
 
     return None
 
-
-# =========================
-# MILEAGE
-# =========================
 
 def extract_mileage(text):
     if not text:
@@ -347,10 +294,6 @@ def extract_mileage(text):
     return None
 
 
-# =========================
-# FUEL
-# =========================
-
 def extract_fuel(text):
     if not text:
         return None
@@ -370,10 +313,6 @@ def extract_fuel(text):
     return None
 
 
-# =========================
-# MAIN EXTRACTOR
-# =========================
-
 def extract_car_entities(title, content):
     text = f"{title or ''} {content or ''}".strip()
 
@@ -386,23 +325,20 @@ def extract_car_entities(title, content):
     model = _resolve_model_with_fallback(brand, text)
 
     if not brand and model and taxonomy_service:
-        try:
-            if hasattr(taxonomy_service, "detect_brand_by_model_alias"):
-                brand = taxonomy_service.detect_brand_by_model_alias(text)
-        except Exception:
-            pass
-
-        if not brand:
+        for method_name in [
+            "detect_brand_by_model_alias",
+            "resolve_brand_by_model_alias",
+            "get_brand_by_model",
+        ]:
             try:
-                if hasattr(taxonomy_service, "resolve_brand_by_model_alias"):
-                    brand = taxonomy_service.resolve_brand_by_model_alias(text)
-            except Exception:
-                pass
-
-        if not brand:
-            try:
-                if hasattr(taxonomy_service, "get_brand_by_model"):
-                    brand = taxonomy_service.get_brand_by_model(model)
+                if hasattr(taxonomy_service, method_name):
+                    if method_name == "get_brand_by_model":
+                        inferred = getattr(taxonomy_service, method_name)(model)
+                    else:
+                        inferred = getattr(taxonomy_service, method_name)(text)
+                    if inferred:
+                        brand = inferred
+                        break
             except Exception:
                 pass
 

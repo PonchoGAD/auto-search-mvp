@@ -4,26 +4,14 @@ from typing import Optional, Tuple, Dict, Any
 from services.model_resolver import resolve_model
 from services.brand_detector import detect_brand as detect_brand_main
 
-# taxonomy_service is the single source of truth for brand/model canonicalization.
 
-# =========================
-# CONFIG / DEFAULTS
-# =========================
+DEFAULT_MIN_SALE_SCORE = int(_import_("os").getenv("MIN_SALE_SCORE", "2"))
+DEFAULT_MIN_TEXT_LEN = int(_import_("os").getenv("MIN_TEXT_LEN", "80"))
+DEFAULT_MIN_PRICE_RUB = int(_import_("os").getenv("MIN_PRICE_RUB", "150000"))
+DEFAULT_MAX_PRICE_RUB = int(_import_("os").getenv("MAX_PRICE_RUB", "20000000"))
+DEFAULT_MIN_YEAR = int(_import_("os").getenv("MIN_YEAR", "1995"))
+DEFAULT_MAX_MILEAGE_KM = int(_import_("os").getenv("MAX_MILEAGE_KM", "400000"))
 
-DEFAULT_MIN_SALE_SCORE = int(
-    __import__("os").getenv("MIN_SALE_SCORE", "2")
-)
-
-# 🆕 Anti-noise thresholds (VPS-safe defaults)
-DEFAULT_MIN_TEXT_LEN = int(__import__("os").getenv("MIN_TEXT_LEN", "80"))
-
-DEFAULT_MIN_PRICE_RUB = int(__import__("os").getenv("MIN_PRICE_RUB", "150000"))
-DEFAULT_MAX_PRICE_RUB = int(__import__("os").getenv("MAX_PRICE_RUB", "20000000"))
-
-DEFAULT_MIN_YEAR = int(__import__("os").getenv("MIN_YEAR", "1995"))
-DEFAULT_MAX_MILEAGE_KM = int(__import__("os").getenv("MAX_MILEAGE_KM", "400000"))
-
-# 🆕 blacklist words (anti-noise)
 DEFAULT_BLACKLIST_WORDS = [
     "ищу",
     "куплю",
@@ -38,10 +26,6 @@ DEFAULT_BLACKLIST_WORDS = [
     "запчасти",
     "разбор",
 ]
-
-# =========================
-# 🆕 PARTS BLACKLIST
-# =========================
 
 PARTS_BLACKLIST = [
     "фары отдельно",
@@ -58,15 +42,11 @@ PARTS_BLACKLIST = [
     "на запчасти",
 ]
 
-# =========================
-# SALE INTENT DICTIONARIES
-# =========================
-
 POSITIVE_WORDS_RU = [
     "продам",
     "продаю",
-    "продаётся",
     "продается",
+    "продаётся",
     "продажа",
     "срочно продам",
     "торг",
@@ -85,6 +65,7 @@ NEGATIVE_WORDS_RU = [
     "ищу",
     "куплю",
     "нужен",
+    "нужна",
     "подскажите",
     "помогите",
     "обсуждение",
@@ -104,21 +85,21 @@ NEGATIVE_WORDS_EN = [
 ]
 
 PRICE_PATTERN = re.compile(
-    r"(\b\d{3,}\b\s?(руб|₽|р\.|\$|€|тыс|к|k))",
+    r"(\b\d+(?:[.,]\d+)?\b\s?(руб|₽|р\.?|долл|usd|€|eur|тыс|к|k|млн|m))",
     re.IGNORECASE,
 )
 
 PRICE_ANY_PATTERN = re.compile(
-    r"(до|<=|<)?\s*(\d+[\d\s]*)\s*(млн|миллион|m|тыс|к|k|₽|руб|р\.|\$|€)",
-    re.IGNORECASE,
-)
-YEAR_PATTERN = re.compile(r"\b(19\d{2}|20\d{2})\b")
-MILEAGE_PATTERN = re.compile(
-    r"(пробег)?\s*(до|<=|<)?\s*(\d+[\d\s]*)\s*(км|тыс)",
+    r"(до|<=|<)?\s*(\d+(?:[.,]\d+)?[\d\s])\s(млн|миллион|m|тыс|к|k|₽|руб|р\.?|долл|usd|€|eur)",
     re.IGNORECASE,
 )
 
-REQUIRED_SIGNALS_ANY = ("price", "year", "mileage")
+YEAR_PATTERN = re.compile(r"\b(19\d{2}|20\d{2})\b")
+
+MILEAGE_PATTERN = re.compile(
+    r"(пробег)?\s*(до|<=|<)?\s*(\d+(?:[.,]\d+)?[\d\s])\s(км|km|тыс|т\.км|тыс\s*км)",
+    re.IGNORECASE,
+)
 
 NOISE_PATTERNS = [
     re.compile(r"\bhttp(s)?://\S+\b", re.IGNORECASE),
@@ -128,10 +109,6 @@ NOISE_PATTERNS = [
     re.compile(r"\bлайк\b|\bрепост\b|\bподел(ись|итесь)\b", re.IGNORECASE),
 ]
 
-
-# =========================
-# BRAND / MODEL ADAPTERS
-# =========================
 
 def detect_brand(text: str) -> Tuple[Optional[str], float]:
     if not text:
@@ -164,37 +141,28 @@ def detect_model(text: str, brand: Optional[str]) -> Optional[str]:
         return None
 
 
-# =========================
-# SALE INTENT
-# =========================
-
 def is_sale_intent(text: str, min_score: int = DEFAULT_MIN_SALE_SCORE) -> bool:
     if not text:
         return False
 
-    text = text.lower()
+    t = text.lower()
     score = 0
 
     for w in POSITIVE_WORDS_RU + POSITIVE_WORDS_EN:
-        if w in text:
+        if w in t:
             score += 2
 
-    if PRICE_PATTERN.search(text):
+    if PRICE_PATTERN.search(t):
         score += 1
 
     for w in NEGATIVE_WORDS_RU + NEGATIVE_WORDS_EN:
-        if w in text:
+        if w in t:
             score -= 2
 
     return score >= min_score
 
 
-# =========================
-# QUALITY SIGNAL EXTRACTION
-# =========================
-
 def extract_quality_signals(text: str) -> Dict[str, bool]:
-
     signals = {
         "has_price": False,
         "has_year": False,
@@ -225,10 +193,6 @@ def extract_quality_signals(text: str) -> Dict[str, bool]:
 
     return signals
 
-
-# =========================
-# QUALITY SCORE (0..1)
-# =========================
 
 def compute_quality_score(text: str) -> float:
     if not text:
@@ -269,6 +233,9 @@ def _is_telegram_noise(text: str) -> bool:
     if any(x in t for x in hard_noise):
         return True
 
+    if any(p.search(t) for p in NOISE_PATTERNS):
+        return True
+
     brand, _ = detect_brand(text)
     model = detect_model(text, brand) if brand else None
     has_price = bool(PRICE_PATTERN.search(t) or PRICE_ANY_PATTERN.search(t))
@@ -300,10 +267,6 @@ def _extract_entity_signals(text: str) -> Dict[str, bool]:
     return signals
 
 
-# =========================
-# SOURCE BOOST
-# =========================
-
 SOURCE_BOOSTS = {
     "forum": 1.5,
     "telegram": 1.0,
@@ -326,12 +289,8 @@ def resolve_source_boost(source: str) -> float:
     return SOURCE_BOOSTS["marketplace"]
 
 
-# =========================
-# 🆕 STATS (IN-MEMORY)
-# =========================
-
 class SkipStats:
-    def __init__(self):
+    def _init_(self):
         self.total = 0
         self.kept = 0
         self.skipped = 0
@@ -352,10 +311,6 @@ class SkipStats:
             f"reasons={self.by_reason}"
         )
 
-
-# =========================
-# MAIN QUALITY GATE
-# =========================
 
 def should_skip_doc(
     *,
@@ -387,18 +342,6 @@ def should_skip_doc(
                 stats.add(True, "telegram_noise")
             return True, meta
 
-        if len(text.strip()) < DEFAULT_MIN_TEXT_LEN and not sale and not is_tg:
-            brand_tmp, _ = detect_brand(text)
-            model_tmp = detect_model(text, brand_tmp) if brand_tmp else None
-            has_price_tmp = bool(PRICE_PATTERN.search(lower) or PRICE_ANY_PATTERN.search(lower))
-            has_year_tmp = bool(YEAR_PATTERN.search(lower))
-
-            if not brand_tmp and not model_tmp and not has_price_tmp and not has_year_tmp:
-                meta["reason"] = "too_short"
-                if stats:
-                    stats.add(True, "too_short")
-                return True, meta
-
         for w in PARTS_BLACKLIST:
             if w in lower:
                 meta["reason"] = "parts_listing"
@@ -409,6 +352,14 @@ def should_skip_doc(
         brand_tmp, _ = detect_brand(text)
         model_tmp = detect_model(text, brand_tmp) if brand_tmp else None
         has_price_tmp = bool(PRICE_PATTERN.search(lower) or PRICE_ANY_PATTERN.search(lower))
+        has_year_tmp = bool(YEAR_PATTERN.search(lower))
+
+        if len(text.strip()) < DEFAULT_MIN_TEXT_LEN and not sale and not is_tg:
+            if not brand_tmp and not model_tmp and not has_price_tmp and not has_year_tmp:
+                meta["reason"] = "too_short"
+                if stats:
+                    stats.add(True, "too_short")
+                return True, meta
 
         for w in DEFAULT_BLACKLIST_WORDS:
             if w in lower and not sale:
@@ -417,12 +368,11 @@ def should_skip_doc(
                     if stats:
                         stats.add(True, "blacklist_word")
                     return True, meta
-                else:
-                    if not brand_tmp and not model_tmp and not has_price_tmp:
-                        meta["reason"] = "blacklist_word"
-                        if stats:
-                            stats.add(True, "blacklist_word")
-                        return True, meta
+                if not brand_tmp and not model_tmp and not has_price_tmp:
+                    meta["reason"] = "blacklist_word"
+                    if stats:
+                        stats.add(True, "blacklist_word")
+                    return True, meta
 
         signals = _extract_entity_signals(text)
 
@@ -433,6 +383,15 @@ def should_skip_doc(
             1 if signals["has_year"] else 0,
             1 if signals["has_mileage"] else 0,
         ])
+
+        if has_price_tmp:
+            price_match = PRICE_ANY_PATTERN.search(lower) or PRICE_PATTERN.search(lower)
+            if price_match:
+                raw_price = price_match.group(0)
+                if raw_price:
+                    compact = raw_price.replace(" ", "")
+                    if "млн" in compact or re.search(r"\bm\b", compact):
+                        pass
 
         if is_tg:
             if strong_signals < 2 and not sale:
@@ -460,10 +419,6 @@ def should_skip_doc(
         return True, meta
 
 
-# =========================
-# ONE-SHOT ENRICH
-# =========================
-
 def enrich_text_with_meta(
     *,
     raw_text: str,
@@ -487,7 +442,7 @@ def enrich_text_with_meta(
     meta["source_boost"] = boost
 
     meta_prefix = (
-        "__meta__: "
+        "_meta_: "
         f"brand={brand or 'none'}; "
         f"model={model or 'none'}; "
         f"brand_conf={round(float(brand_conf or 0.0), 2)}; "
@@ -500,10 +455,6 @@ def enrich_text_with_meta(
     return content, meta
 
 
-# =====================================================
-# META PREFIX BUILDER
-# =====================================================
-
 def build_meta_prefix(
     brand: str | None = None,
     model: str | None = None,
@@ -512,7 +463,6 @@ def build_meta_prefix(
     source_boost: float | None = None,
     quality_score: float | None = None,
 ) -> str:
-
     parts = []
 
     if brand:
@@ -536,19 +486,10 @@ def build_meta_prefix(
     if not parts:
         return ""
 
-    return "__meta__: " + "; ".join(parts)
+    return "_meta_: " + "; ".join(parts)
 
-
-# =====================================================
-# APPLY META PREFIX
-# =====================================================
 
 def apply_meta_prefix(text: str, meta_prefix: str) -> str:
-    """
-    Добавляет meta prefix к тексту.
-    normalize.py ожидает именно эту функцию.
-    """
-
     if not text:
         return meta_prefix or ""
 

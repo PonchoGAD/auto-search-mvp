@@ -2,8 +2,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 import os
 
-from db.session import engine
-from db.models import Base
+from db.session import engine, Base
 
 from api.v1.health import router as health_router
 from api.v1.search import router as search_router

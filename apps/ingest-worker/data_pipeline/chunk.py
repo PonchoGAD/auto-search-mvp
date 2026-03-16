@@ -1,27 +1,8 @@
-import re
+# DEPRECATED
+# Worker must not own a separate chunk pipeline.
+# Use API pipeline: apps/api/src/data_pipeline/chunk.py
 
-
-def chunk_text(text: str, chunk_size: int = 800):
-
-    if not text:
-        return []
-
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-
-    chunks = []
-
-    current = ""
-
-    for s in sentences:
-
-        if len(current) + len(s) < chunk_size:
-            current += " " + s
-
-        else:
-            chunks.append(current.strip())
-            current = s
-
-    if current:
-        chunks.append(current.strip())
-
-    return chunks
+raise RuntimeError(
+    "apps/ingest-worker/data_pipeline/chunk.py is deprecated. "
+    "Use src.data_pipeline.chunk from API pipeline."
+)

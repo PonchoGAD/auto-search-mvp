@@ -8,7 +8,6 @@ from db.models import RawDocument, NormalizedDocument
 
 from services.ingest_quality import (
     should_skip_doc,
-    detect_brand,
     is_sale_intent,
     resolve_source_boost,
     build_meta_prefix,
@@ -16,7 +15,7 @@ from services.ingest_quality import (
 )
 
 from services.taxonomy_service import taxonomy_service
-from services.car_entity_extractor import extract_car_entities
+# extract_car_entities intentionally removed from primary normalization flow
 
 
 # =========================
@@ -35,7 +34,7 @@ META_PREFIX_RE = re.compile(
 RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
 RE_PRICE = re.compile(
-    r"(\d[\d\s\u00A0]{3,12})\s*(₽|руб|р)\b",
+    r"(?<!\d)(\d[\d\s\u00A0]{3,12})\s*(₽|руб(?:\.|лей)?|р\b)(?!\d)",
     re.IGNORECASE,
 )
 
@@ -45,7 +44,7 @@ RE_PRICE_TITLE_GLUE = re.compile(
 )
 
 RE_MILEAGE = re.compile(
-    r"(\d[\d\s,\u00A0]{2,10})\s*(км|km|тыс\.?\s?км|т\.км)\b",
+    r"(?<!\d)(\d[\d\s,\u00A0]{2,10})\s*(км|km|тыс\.?\s?км|т\.км)\b",
     re.IGNORECASE,
 )
 
@@ -56,11 +55,11 @@ RE_MILEAGE_K = re.compile(
 
 RE_FUEL = re.compile(
     r"\b("
-    r"бензин|бензиновый|бенз|petrol|gasoline|tsi|tfs|"
-    r"дизель|дизельный|диз|diesel|tdi|dci|"
-    r"гибрид|hybrid|"
+    r"бензин|бензиновый|бенз|petrol|gasoline|mpi|fsi|tsi|tfsi|"
+    r"дизель|дизельный|диз|diesel|tdi|dci|cdi|"
+    r"гибрид|hybrid|phev|hev|"
     r"электро|электр|electric|ev|"
-    r"газ|lpg|gbo|cng"
+    r"газ/бензин|газ бензин|газ|lpg|gbo|cng"
     r")\b",
     re.IGNORECASE,
 )
@@ -71,24 +70,34 @@ FUEL_MAP = {
     "бенз": "petrol",
     "petrol": "petrol",
     "gasoline": "petrol",
+    "mpi": "petrol",
+    "fsi": "petrol",
     "tsi": "petrol",
-    "tfs": "petrol",
+    "tfsi": "petrol",
+
     "дизель": "diesel",
     "дизельный": "diesel",
     "диз": "diesel",
     "diesel": "diesel",
     "tdi": "diesel",
     "dci": "diesel",
+    "cdi": "diesel",
+
     "гибрид": "hybrid",
     "hybrid": "hybrid",
+    "phev": "hybrid",
+    "hev": "hybrid",
+
     "электро": "electric",
     "электр": "electric",
     "electric": "electric",
     "ev": "electric",
+
     "газ": "gas",
     "lpg": "gas",
     "gbo": "gas",
     "cng": "gas",
+
     "газ/бензин": "gas_petrol",
     "газ бензин": "gas_petrol",
 }
@@ -240,14 +249,24 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         return 0 <= value <= 500_000
 
     def _extract_year(source_text: str) -> Optional[int]:
-        for y in RE_YEAR.findall(source_text or ""):
+        matches = RE_YEAR.findall(source_text or "")
+        if not matches:
+            return None
+
+        valid = []
+        for y in matches:
             try:
                 y_int = int(y)
                 if _valid_year(y_int):
-                    return y_int
+                    valid.append(y_int)
             except Exception:
-                pass
-        return None
+                continue
+
+        if not valid:
+            return None
+
+        title_year = valid[0]
+        return title_year
 
     def _extract_price(source_text: str) -> Optional[int]:
         m = RE_PRICE.search(source_text)
@@ -313,7 +332,9 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         if _is_speed_noise(source_text):
             return None
 
-        m = RE_MILEAGE.search(source_text)
+        lowered = (source_text or "").lower()
+
+        m = re.search(r"пробег[:\s]+(\d[\d\s\u00A0]{2,10})\b", lowered, re.IGNORECASE)
         if m:
             raw = _digits_only(m.group(1))
             try:
@@ -323,21 +344,24 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
             except Exception:
                 pass
 
-        m = RE_MILEAGE_K.search(source_text.lower())
+        m = RE_MILEAGE.search(source_text)
+        if m:
+            raw = _digits_only(m.group(1))
+            unit = (m.group(2) or "").lower()
+            try:
+                val = int(raw)
+                if "тыс" in unit or "т.км" in unit:
+                    val *= 1000
+                if _valid_mileage(val):
+                    return val
+            except Exception:
+                pass
+
+        m = RE_MILEAGE_K.search(lowered)
         if m:
             raw = m.group(1).replace(",", ".")
             try:
                 val = int(float(raw) * 1000)
-                if _valid_mileage(val):
-                    return val
-            except Exception:
-                pass
-
-        m = re.search(r"пробег[:\s]+(\d[\d\s\u00A0]{2,10})\b", source_text.lower(), re.IGNORECASE)
-        if m:
-            raw = _digits_only(m.group(1))
-            try:
-                val = int(raw)
                 if _valid_mileage(val):
                     return val
             except Exception:
@@ -360,12 +384,19 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         mileage = _extract_mileage(text)
 
     fuel = None
-    m = RE_FUEL.search(lower)
-    if m:
-        raw = m.group(1).lower()
-        normalized_fuel = FUEL_MAP.get(raw)
-        if normalized_fuel in {"petrol", "diesel", "hybrid", "electric", "gas", "gas_petrol"}:
-            fuel = normalized_fuel
+    fuel_matches = RE_FUEL.findall(lower)
+    if fuel_matches:
+        normalized = []
+        for raw in fuel_matches:
+            raw_fuel = str(raw).lower().strip()
+            mapped = FUEL_MAP.get(raw_fuel)
+            if mapped:
+                normalized.append(mapped)
+
+        if "gas_petrol" in normalized:
+            fuel = "gas_petrol"
+        elif normalized:
+            fuel = normalized[0]
 
     paint_condition = None
 
@@ -430,39 +461,27 @@ def _safe_quality_score(
 
 
 def _extract_canonical_entities(title_text: str, body_text: str) -> Tuple[Optional[str], Optional[str], float]:
+    title_text = title_text or ""
+    body_text = body_text or ""
     raw_text = f"{title_text}\n{body_text}".strip()
 
     title_brand, title_model, title_conf = taxonomy_service.resolve_entities(title_text)
     if title_brand:
-        return title_brand, title_model, title_conf
+        return (
+            taxonomy_service.canonicalize_brand(title_brand),
+            taxonomy_service.canonicalize_model(title_brand, title_model) if title_model else None,
+            title_conf,
+        )
 
     full_brand, full_model, full_conf = taxonomy_service.resolve_entities(raw_text)
-    return full_brand, full_model, full_conf
-
-
-def _log_extraction_conflict(
-    raw_id: Any,
-    taxonomy_brand: Optional[str],
-    taxonomy_model: Optional[str],
-    entity_brand: Optional[str],
-    entity_model: Optional[str],
-) -> None:
-    brand_conflict = (
-        taxonomy_brand and entity_brand and taxonomy_brand != entity_brand
-    )
-    model_conflict = (
-        taxonomy_model and entity_model and taxonomy_model != entity_model
-    )
-
-    if brand_conflict or model_conflict:
-        print(
-            "[NORMALIZE][WARN] extraction conflict "
-            f"raw_id={raw_id} "
-            f"taxonomy_brand={taxonomy_brand} taxonomy_model={taxonomy_model} "
-            f"entity_brand={entity_brand} entity_model={entity_model} "
-            "-> using taxonomy canonical result",
-            flush=True,
+    if full_brand:
+        return (
+            taxonomy_service.canonicalize_brand(full_brand),
+            taxonomy_service.canonicalize_model(full_brand, full_model) if full_model else None,
+            full_conf,
         )
+
+    return None, None, 0.0
 
 
 def _build_normalized_document_kwargs(
@@ -528,7 +547,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
     if not raws:
         print("[NORMALIZE][WARN] no raw documents found", flush=True)
         session.close()
-        return
+        return 0
 
     saved = 0
     skipped = 0
@@ -588,42 +607,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 title_text=title_text,
                 body_text=body_text,
             )
-
-            entities = extract_car_entities(
-                title_text or "",
-                raw_text,
-            ) or {}
-
-            entity_brand = entities.get("brand")
-            entity_model = entities.get("model")
-
-            if entity_brand:
-                try:
-                    entity_brand = taxonomy_service.canonicalize_brand(str(entity_brand))
-                except Exception:
-                    entity_brand = None
-
-            if entity_model and taxonomy_brand:
-                try:
-                    entity_model = taxonomy_service.canonicalize_model(taxonomy_brand, str(entity_model))
-                except Exception:
-                    entity_model = None
-            elif entity_model:
-                entity_model = None
-
-            if (
-                taxonomy_brand and entity_brand and taxonomy_brand != entity_brand
-            ) or (
-                taxonomy_model and entity_model and taxonomy_model != entity_model
-            ):
-                counters["conflict_count"] += 1
-                _log_extraction_conflict(
-                    raw_id=raw.id,
-                    taxonomy_brand=taxonomy_brand,
-                    taxonomy_model=taxonomy_model,
-                    entity_brand=entity_brand,
-                    entity_model=entity_model,
-                )
 
             final_brand = taxonomy_brand
             final_model = taxonomy_model
@@ -708,3 +691,4 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         f"conflict_count={counters['conflict_count']}",
         flush=True,
     )
+    return saved

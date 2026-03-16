@@ -47,6 +47,8 @@ from services.ingest_quality import (
 # INDEXING (QDRANT)
 # =========================
 
+from data_pipeline.normalize import run_normalize
+from data_pipeline.chunk import run_chunk
 from data_pipeline.index import run_index
 
 # =========================
@@ -150,8 +152,6 @@ def run_ingest() -> Dict[str, int]:
             try:
                 items = _run_coro(loop, fetch_drom_ru_serp(limit=DROM_RU_LIMIT))
                 all_items.extend(items or [])
-                print(f"[INGEST][DROM.RU] fetched: {len(items or [])}")
-            except Exception as e:
                 print(f"[INGEST][ERROR] drom.ru failed: {e}")
 
         # -------------------------
@@ -267,9 +267,13 @@ def run_ingest() -> Dict[str, int]:
         session.commit()
 
         # -------------------------
-        # INDEX → QDRANT
+        # NORMALIZE -> CHUNK -> INDEX
         # -------------------------
-        indexed = run_index(limit=len(saved_docs))
+        pipeline_limit = max(len(saved_docs), 500)
+
+        run_normalize(limit=pipeline_limit, force_rebuild=False)
+        run_chunk(limit=pipeline_limit, force_rebuild=False)
+        indexed = run_index(limit=max(pipeline_limit * 3, 1000), force_rebuild=False)
 
         print(
             f"[INGEST] saved={len(saved_docs)}, "

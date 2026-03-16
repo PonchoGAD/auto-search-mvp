@@ -1,5 +1,4 @@
-# apps/api/src/db/models.py
-
+from apps.shared.db.base import Base
 from apps.shared.db.models import (
     DocumentChunk,
     NormalizedDocument,
@@ -8,7 +7,8 @@ from apps.shared.db.models import (
     SearchHistory,
 )
 
-__all__ = [
+_all_ = [
+    "Base",
     "RawDocument",
     "NormalizedDocument",
     "DocumentChunk",

@@ -35,17 +35,17 @@ def detect_brand(title: str = "", text: str = "") -> Tuple[Optional[str], float]
         if brand:
             return brand, float(conf or 0.0)
 
-        brand, conf = taxonomy_service.resolve_brand_from_model(title)
+        brand, model = taxonomy_service.maybe_resolve_brand_from_model(title)
         if brand:
-            return brand, float(conf or 0.0)
+            return brand, 0.82
 
     if text:
         brand, conf = taxonomy_service.resolve_brand(text)
         if brand:
             return brand, float(conf or 0.0)
 
-        brand, conf = taxonomy_service.resolve_brand_from_model(text)
+        brand, model = taxonomy_service.maybe_resolve_brand_from_model(text)
         if brand:
-            return brand, float(conf or 0.0)
+            return brand, 0.82
 
     return None, 0.0

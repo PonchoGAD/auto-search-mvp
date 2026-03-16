@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Tuple, Optional
 from pathlib import Path
 from datetime import datetime, timezone
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 from collections import Counter
 import yaml
 import os
@@ -50,7 +50,8 @@ def load_brands() -> dict:
 
         with open(brands_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-            return data.get("brands", {})
+            brands = data.get("brands", {})
+            return brands if isinstance(brands, dict) else {}
 
     except Exception as e:
         print(f"[SEARCH][WARN] failed to load brands.yaml: {e}", flush=True)
@@ -60,9 +61,15 @@ def load_brands() -> dict:
 def _normalize_token_text(value: str) -> str:
     value = (value or "").strip().lower()
     value = value.replace("\u00A0", " ").replace("\xa0", " ")
-    value = re.sub(r"[-_/]+", " ", value)
+    value = value.replace("-", " ").replace("_", " ").replace("/", " ")
+    value = re.sub(r"([a-zа-я])(\d)", r"\1 \2", value, flags=re.IGNORECASE)
+    value = re.sub(r"(\d)([a-zа-я])", r"\1 \2", value, flags=re.IGNORECASE)
     value = re.sub(r"\s+", " ", value)
     return value.strip()
+
+
+def _compact_token_text(value: str) -> str:
+    return _normalize_token_text(value).replace(" ", "")
 
 
 def _model_soft_match(payload_model: str, query_model: str) -> bool:
@@ -78,28 +85,41 @@ def _model_soft_match(payload_model: str, query_model: str) -> bool:
     pm_tokens = pm.split()
     qm_tokens = qm.split()
 
-    if pm_tokens == qm_tokens:
+    pm_compact = "".join(pm_tokens)
+    qm_compact = "".join(qm_tokens)
+
+    if pm_compact == qm_compact:
         return True
 
+    # camry xv70 vs camry
+    # e 200 vs e200
+    # gx 460 vs gx460
     if len(qm_tokens) == 1:
-        token = qm_tokens[0]
-        if token in pm_tokens:
+        q_single = qm_tokens[0]
+        if q_single in pm_tokens:
             return True
-
-        compact_pm = "".join(pm_tokens)
-        compact_qm = "".join(qm_tokens)
-        if compact_pm == compact_qm:
+        if q_single == pm_compact:
             return True
-
         return False
 
-    compact_pm = "".join(pm_tokens)
-    compact_qm = "".join(qm_tokens)
+    if len(pm_tokens) == 1:
+        p_single = pm_tokens[0]
+        if p_single in qm_tokens:
+            return True
+        if p_single == qm_compact:
+            return True
 
-    if compact_pm == compact_qm:
+    # all query tokens exist in payload tokens
+    if all(token in pm_tokens for token in qm_tokens):
         return True
 
-    if all(t in pm_tokens for t in qm_tokens):
+    # compact segment inclusion but only on normalized compact forms
+    # protects x5 from matching random token sequences unless compact form is exact piece
+    if qm_compact and (
+        pm_compact == qm_compact or
+        pm_compact.startswith(qm_compact) or
+        pm_compact.endswith(qm_compact)
+    ):
         return True
 
     return False
@@ -134,6 +154,16 @@ class SearchService:
         except Exception:
             return default
 
+    def _env_json_dict(self, name: str, default: Dict[str, Any]) -> Dict[str, Any]:
+        raw = os.getenv(name)
+        if not raw:
+            return default
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else default
+        except Exception:
+            return default
+
     def _canonicalize_source_url(self, url: str) -> str:
         if not url:
             return ""
@@ -142,15 +172,36 @@ class SearchService:
             parsed = urlparse(url.strip())
             scheme = (parsed.scheme or "https").lower()
             netloc = (parsed.netloc or "").lower()
-            path = parsed.path.rstrip("/") or "/"
+            path = (parsed.path or "/").rstrip("/") or "/"
 
-            return urlunparse((scheme, netloc, path, "", "", ""))
+            tracking_prefixes = (
+                "utm_",
+                "yclid",
+                "gclid",
+                "fbclid",
+                "ref",
+                "referrer",
+            )
+
+            filtered_query = []
+            for k, v in parse_qsl(parsed.query, keep_blank_values=True):
+                key_norm = (k or "").strip().lower()
+                if key_norm.startswith(tracking_prefixes):
+                    continue
+                filtered_query.append((k, v))
+
+            query = urlencode(filtered_query, doseq=True)
+
+            return urlunparse((scheme, netloc, path, "", query, ""))
         except Exception:
             return (url or "").strip().lower()
 
     def _build_listing_fingerprint(self, payload: Dict[str, Any]) -> str:
-        parsed = urlparse(payload.get("source_url") or "")
+        source_url = payload.get("source_url") or ""
+        canonical_url = self._canonicalize_source_url(source_url)
+        parsed = urlparse(canonical_url)
         domain = (parsed.netloc or "").lower()
+        path = (parsed.path or "").lower()
 
         brand = _normalize_token_text(str(payload.get("brand") or ""))
         model = _normalize_token_text(str(payload.get("model") or ""))
@@ -158,21 +209,39 @@ class SearchService:
         price = str(payload.get("price") or "")
         mileage = str(payload.get("mileage") or "")
 
-        return "|".join([domain, brand, model, year, price, mileage])
+        return "|".join([domain, path, brand, model, year, price, mileage])
 
     def _source_quality_score(self, payload: Dict[str, Any]) -> float:
         source = str(payload.get("source") or "unknown").strip().lower()
+        source_url = str(payload.get("source_url") or "").strip().lower()
+        domain = (urlparse(source_url).netloc or "").lower()
 
-        priors = {
-            "avito": self._env_float("SEARCH_SOURCE_PRIOR_AVITO", 0.90),
-            "auto_ru": self._env_float("SEARCH_SOURCE_PRIOR_AUTO_RU", 0.95),
-            "drom.ru": self._env_float("SEARCH_SOURCE_PRIOR_DROM", 0.90),
-            "drom": self._env_float("SEARCH_SOURCE_PRIOR_DROM", 0.90),
-            "telegram": self._env_float("SEARCH_SOURCE_PRIOR_TELEGRAM", 0.60),
-            "unknown": self._env_float("SEARCH_SOURCE_PRIOR_UNKNOWN", 0.50),
+        defaults = {
+            "auto_ru": 0.95,
+            "avito": 0.90,
+            "avito.ru": 0.90,
+            "drom": 0.90,
+            "drom.ru": 0.90,
+            "telegram": 0.60,
+            "unknown": 0.50,
         }
+        priors = self._env_json_dict("SEARCH_SOURCE_PRIORS", defaults)
 
-        return max(0.0, min(1.0, priors.get(source, priors["unknown"])))
+        if source in priors:
+            value = priors[source]
+        elif domain in priors:
+            value = priors[domain]
+        elif "avito.ru" in domain:
+            value = priors.get("avito.ru", priors.get("avito", priors.get("unknown", 0.50)))
+        elif "drom.ru" in domain:
+            value = priors.get("drom.ru", priors.get("drom", priors.get("unknown", 0.50)))
+        else:
+            value = priors.get("unknown", 0.50)
+
+        try:
+            return max(0.0, min(1.0, float(value)))
+        except Exception:
+            return 0.50
 
     def _build_query_text(self, structured: StructuredQuery) -> str:
         parts: List[str] = []
@@ -185,13 +254,14 @@ class SearchService:
             seen.add(p)
             parts.append(p)
 
-        if structured.brand and structured.model:
-            add(f"{structured.brand} {structured.model}")
-        else:
+        if structured.brand:
             add(structured.brand)
+
+        if structured.model:
             add(structured.model)
 
-        add(structured.fuel)
+        if structured.fuel:
+            add(structured.fuel)
 
         if structured.year_min:
             add(f"year from {structured.year_min}")
@@ -210,15 +280,16 @@ class SearchService:
 
         return " ".join(parts).strip()
 
-    def _build_filter(
+    def _build_stage_filter(
         self,
+        route: str,
         brand: str = None,
         model: str = None,
         fuel: str = None,
     ) -> Optional[Filter]:
         must_conditions: List[FieldCondition] = []
 
-        if brand:
+        if route in {"structured", "brand_only"} and brand:
             must_conditions.append(
                 FieldCondition(
                     key="brand",
@@ -226,7 +297,7 @@ class SearchService:
                 )
             )
 
-        if model:
+        if route == "structured" and model:
             must_conditions.append(
                 FieldCondition(
                     key="model",
@@ -263,6 +334,12 @@ class SearchService:
         payload_fuel = _normalize_token_text(str(payload.get("fuel") or ""))
         payload_model = _normalize_token_text(str(payload.get("model") or ""))
 
+        source_name = str(payload.get("source") or "").strip().lower()
+
+        # keep telegram no-price exclusion only for non-sale-like entries
+        if source_name == "telegram" and payload.get("price") is None:
+            reasons.append("telegram_non_sale_no_price")
+
         if route in {"structured", "brand_only"} and brand_value:
             if payload_brand and payload_brand != brand_value:
                 reasons.append("brand_mismatch")
@@ -298,7 +375,8 @@ class SearchService:
                 except Exception:
                     reasons.append("year_invalid")
 
-        if model_value and payload_model:
+        # for structured route, model mismatch is still a valid hard drop
+        if route == "structured" and model_value and payload_model:
             if not _model_soft_match(payload_model, model_value):
                 reasons.append("model_mismatch")
 
@@ -455,7 +533,10 @@ class SearchService:
             row["final_blended_score"] = round(final_blended_score, 6)
             row["score"] = round(final_blended_score, 6)
 
-        rerank_slice.sort(key=lambda x: x.get("final_blended_score", x.get("score", 0.0)), reverse=True)
+        rerank_slice.sort(
+            key=lambda x: x.get("final_blended_score", x.get("score", 0.0)),
+            reverse=True,
+        )
 
         merged = rerank_slice + tail_slice
         return merged[:top_k]
@@ -556,72 +637,62 @@ class SearchService:
 
         strict_brand = bool(brand_value and brand_conf >= 0.9)
 
-        stages: List[Dict[str, Any]] = []
-
         primary_brand = brand_value if route in {"structured", "brand_only"} else None
         primary_model = model_value if route == "structured" else None
-        primary_fuel = fuel_value if route == "structured" else fuel_value if route not in {"structured", "brand_only"} else None
+        primary_fuel = fuel_value if fuel_value else None
 
-        stages.append(
+        stages: List[Dict[str, Any]] = [
             {
                 "stage_name": "strict_primary",
                 "enabled": True,
-                "filter": self._build_filter(
+                "filter": self._build_stage_filter(
+                    route=route,
                     brand=primary_brand,
                     model=primary_model,
                     fuel=primary_fuel,
                 ),
                 "filter_summary": f"brand={primary_brand},model={primary_model},fuel={primary_fuel}",
-            }
-        )
-
-        stages.append(
+            },
             {
                 "stage_name": "no_model_fallback",
                 "enabled": bool(model_value),
-                "filter": self._build_filter(
+                "filter": self._build_stage_filter(
+                    route=route,
                     brand=primary_brand,
                     model=None,
                     fuel=primary_fuel,
                 ),
                 "filter_summary": f"brand={primary_brand},model=None,fuel={primary_fuel}",
-            }
-        )
-
-        stages.append(
+            },
             {
                 "stage_name": "no_fuel_fallback",
                 "enabled": bool(fuel_value),
-                "filter": self._build_filter(
+                "filter": self._build_stage_filter(
+                    route=route,
                     brand=primary_brand,
-                    model=primary_model if route == "structured" else None,
+                    model=primary_model,
                     fuel=None,
                 ),
-                "filter_summary": f"brand={primary_brand},model={primary_model if route == 'structured' else None},fuel=None",
-            }
-        )
-
-        stages.append(
+                "filter_summary": f"brand={primary_brand},model={primary_model},fuel=None",
+            },
             {
                 "stage_name": "weak_brand_fallback",
-                "enabled": bool(not strict_brand),
-                "filter": self._build_filter(
+                "enabled": bool(brand_value and not strict_brand),
+                "filter": self._build_stage_filter(
+                    route="semantic",
                     brand=None,
-                    model=primary_model if route == "structured" and model_value else None,
-                    fuel=fuel_value if fuel_value else None,
+                    model=primary_model if model_value else None,
+                    fuel=primary_fuel,
                 ),
-                "filter_summary": f"brand=None,model={primary_model if route == 'structured' and model_value else None},fuel={fuel_value if fuel_value else None}",
-            }
-        )
-
-        stages.append(
+                "filter_summary": f"brand=None,model={primary_model if model_value else None},fuel={primary_fuel}",
+            },
             {
                 "stage_name": "global_vector_fallback",
                 "enabled": True,
                 "filter": None,
                 "filter_summary": "brand=None,model=None,fuel=None",
-            }
-        )
+            },
+        ]
 
         all_hits = []
         seen_point_ids = set()
@@ -682,21 +753,21 @@ class SearchService:
         for hit in all_hits:
             payload = hit.payload or {}
 
-            if payload.get("source") == "telegram" and payload.get("price") is None:
+            source_url = payload.get("source_url")
+            if not source_url:
                 continue
 
-            source_url = payload.get("source_url")
-            canonical_url = self._canonicalize_source_url(source_url) if source_url else ""
-            fingerprint = self._build_listing_fingerprint(payload)
+            if "avito.ru/all/avtomobili" in source_url:
+                continue
 
+            canonical_url = self._canonicalize_source_url(source_url)
+            fingerprint = self._build_listing_fingerprint(payload)
             doc_key = canonical_url or fingerprint
             if not doc_key:
                 continue
 
-            if "avito.ru/all/avtomobili" in (source_url or ""):
-                continue
-
             score = float(getattr(hit, "score", 0.0) or 0.0)
+
             if doc_key not in doc_scores or score > doc_scores[doc_key]:
                 doc_scores[doc_key] = score
                 doc_payloads[doc_key] = payload
@@ -711,7 +782,7 @@ class SearchService:
         price_fit_values = []
         mileage_fit_values = []
 
-        for _, payload in doc_payloads.items():
+        for doc_key, payload in doc_payloads.items():
             debug["filtering"]["checked_candidates"] += 1
 
             env_name = (os.getenv("ENV", "") or os.getenv("APP_ENV", "") or "dev").lower()
@@ -722,9 +793,7 @@ class SearchService:
                 debug["filtering"]["discarded_candidates"] += 1
                 continue
 
-            source_url = payload.get("source_url")
-            canonical_url = self._canonicalize_source_url(source_url) if source_url else ""
-            semantic = float(doc_scores.get(canonical_url or self._build_listing_fingerprint(payload), 0.0) or 0.0)
+            semantic = float(doc_scores.get(doc_key, 0.0) or 0.0)
 
             passed, discard_reasons = self._passes_hard_filters(payload, structured, route)
             if not passed:
@@ -838,7 +907,7 @@ class SearchService:
 
             source_counter[source_name] += 1
 
-            if len(results) >= limit:
+            if len(results) >= max(limit, self._env_int("SEARCH_RERANK_MAX_CANDIDATES", 50)):
                 break
 
         debug["scoring"]["top_score_breakdowns"] = scoring_snapshots
@@ -857,12 +926,13 @@ class SearchService:
 
         verbose = str(os.getenv("SEARCH_DEBUG_VERBOSE", "0")).strip().lower() in {"1", "true", "yes", "on"}
         print(
-            f"[SEARCH] query='{structured.raw_query}' route={route} stages={len(debug['retrieval_stages'])} results={len(results)}",
+            f"[SEARCH] query='{structured.raw_query}' route={route} stages={len(debug['retrieval_stages'])} checked={debug['filtering']['checked_candidates']} results={len(results)}",
             flush=True,
         )
         if verbose:
             print(f"[SEARCH][DEBUG] {json.dumps(debug, ensure_ascii=False, default=str)}", flush=True)
 
+        session = None
         try:
             session = SessionLocal()
             history = SearchHistory(
@@ -878,7 +948,8 @@ class SearchService:
             print(f"[SEARCH][WARN] history save failed: {e}", flush=True)
         finally:
             try:
-                session.close()
+                if session is not None:
+                    session.close()
             except Exception:
                 pass
 
@@ -918,8 +989,10 @@ class SearchService:
         if structured.brand and _normalize_token_text(structured.brand) in text:
             score += 1.2
 
-        if structured.model and _normalize_token_text(structured.model) in text:
-            score += 1.2
+        if structured.model:
+            model_norm = _normalize_token_text(structured.model)
+            if model_norm in text or _compact_token_text(model_norm) in _compact_token_text(text):
+                score += 1.2
 
         if structured.fuel:
             fuel_value = _normalize_token_text(structured.fuel)
@@ -927,8 +1000,6 @@ class SearchService:
             if payload_fuel:
                 if payload_fuel == fuel_value:
                     score += 0.8
-                else:
-                    score -= 0.3
 
         for kw in getattr(structured, "keywords", []) or []:
             kw_norm = _normalize_token_text(str(kw))

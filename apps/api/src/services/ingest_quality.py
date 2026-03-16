@@ -1,10 +1,10 @@
 import re
-import yaml
 from typing import Optional, Tuple, Dict, Any
-from pathlib import Path
 
 from services.model_resolver import resolve_model
 from services.brand_detector import detect_brand as detect_brand_main
+
+# taxonomy_service is the single source of truth for brand/model canonicalization.
 
 # =========================
 # CONFIG / DEFAULTS
@@ -13,9 +13,6 @@ from services.brand_detector import detect_brand as detect_brand_main
 DEFAULT_MIN_SALE_SCORE = int(
     __import__("os").getenv("MIN_SALE_SCORE", "2")
 )
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-BRANDS_YAML_PATH = BASE_DIR / "config" / "brands.yaml"
 
 # 🆕 Anti-noise thresholds (VPS-safe defaults)
 DEFAULT_MIN_TEXT_LEN = int(__import__("os").getenv("MIN_TEXT_LEN", "80"))
@@ -131,27 +128,40 @@ NOISE_PATTERNS = [
     re.compile(r"\bлайк\b|\bрепост\b|\bподел(ись|итесь)\b", re.IGNORECASE),
 ]
 
+
 # =========================
-# BRAND CACHE
+# BRAND / MODEL ADAPTERS
 # =========================
 
-_BRANDS_CACHE = None
-
-
-def _load_brands():
-    global _BRANDS_CACHE
-
-    if _BRANDS_CACHE is not None:
-        return _BRANDS_CACHE
+def detect_brand(text: str) -> Tuple[Optional[str], float]:
+    if not text:
+        return None, 0.0
 
     try:
-        with open(BRANDS_YAML_PATH, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-            _BRANDS_CACHE = data.get("brands", {})
+        brand, conf = detect_brand_main(title=text, text=text)
+        return brand, float(conf or 0.0)
+    except TypeError:
+        try:
+            detected = detect_brand_main(text)
+            if isinstance(detected, tuple):
+                brand = detected[0] if len(detected) > 0 else None
+                conf = detected[1] if len(detected) > 1 else 0.0
+                return brand, float(conf or 0.0)
+            return detected, 0.0
+        except Exception:
+            return None, 0.0
     except Exception:
-        _BRANDS_CACHE = {}
+        return None, 0.0
 
-    return _BRANDS_CACHE
+
+def detect_model(text: str, brand: Optional[str]) -> Optional[str]:
+    if not text or not brand:
+        return None
+
+    try:
+        return resolve_model(brand, text)
+    except Exception:
+        return None
 
 
 # =========================
@@ -208,11 +218,10 @@ def extract_quality_signals(text: str) -> Dict[str, bool]:
         signals["has_mileage"] = True
 
     brand, _ = detect_brand(text)
-    if brand:
-        signals["has_brand"] = True
-        model = resolve_model(brand, text)
-        if model:
-            signals["has_model"] = True
+    model = detect_model(text, brand) if brand else None
+
+    signals["has_brand"] = bool(brand)
+    signals["has_model"] = bool(model)
 
     return signals
 
@@ -234,27 +243,7 @@ def compute_quality_score(text: str) -> float:
     score += 0.20 if signals.get("has_brand") else 0.0
     score += 0.25 if signals.get("has_model") else 0.0
 
-    return round(min(score, 1.0), 3)
-
-
-# =========================
-# BRAND DETECTION (ADAPTER)
-# =========================
-
-def detect_brand(text: str) -> Tuple[Optional[str], float]:
-    if not text:
-        return None, 0.0
-
-    brand, conf = detect_brand_main(title=text, text=text)
-    return brand, conf
-
-
-def detect_model(text: str, brand: Optional[str]) -> Optional[str]:
-
-    if not text or not brand:
-        return None
-
-    return resolve_model(brand, text)
+    return float(round(min(score, 1.0), 3))
 
 
 def _is_telegram_noise(text: str) -> bool:
@@ -281,7 +270,7 @@ def _is_telegram_noise(text: str) -> bool:
         return True
 
     brand, _ = detect_brand(text)
-    model = resolve_model(brand, text) if brand else None
+    model = detect_model(text, brand) if brand else None
     has_price = bool(PRICE_PATTERN.search(t) or PRICE_ANY_PATTERN.search(t))
 
     if has_price and not brand and not model:
@@ -304,7 +293,7 @@ def _extract_entity_signals(text: str) -> Dict[str, bool]:
     signals = extract_quality_signals(text)
 
     brand, _ = detect_brand(text)
-    model = resolve_model(brand, text) if brand else None
+    model = detect_model(text, brand) if brand else None
 
     signals["has_brand"] = bool(brand)
     signals["has_model"] = bool(model)
@@ -385,10 +374,11 @@ def should_skip_doc(
 
         lower = text.lower()
         sale = is_sale_intent(text)
-        quality_score = compute_quality_score(text)
+        sale_intent = 1 if sale else 0
+        quality_score = float(compute_quality_score(text))
         is_tg = "telegram" in (source or "").lower()
 
-        meta["sale_intent"] = 1 if sale else 0
+        meta["sale_intent"] = sale_intent
         meta["quality_score"] = quality_score
 
         if is_tg and _is_telegram_noise(text):
@@ -399,7 +389,7 @@ def should_skip_doc(
 
         if len(text.strip()) < DEFAULT_MIN_TEXT_LEN and not sale and not is_tg:
             brand_tmp, _ = detect_brand(text)
-            model_tmp = resolve_model(brand_tmp, text) if brand_tmp else None
+            model_tmp = detect_model(text, brand_tmp) if brand_tmp else None
             has_price_tmp = bool(PRICE_PATTERN.search(lower) or PRICE_ANY_PATTERN.search(lower))
             has_year_tmp = bool(YEAR_PATTERN.search(lower))
 
@@ -417,7 +407,7 @@ def should_skip_doc(
                 return True, meta
 
         brand_tmp, _ = detect_brand(text)
-        model_tmp = resolve_model(brand_tmp, text) if brand_tmp else None
+        model_tmp = detect_model(text, brand_tmp) if brand_tmp else None
         has_price_tmp = bool(PRICE_PATTERN.search(lower) or PRICE_ANY_PATTERN.search(lower))
 
         for w in DEFAULT_BLACKLIST_WORDS:
@@ -485,22 +475,23 @@ def enrich_text_with_meta(
     model = detect_model(raw_text, brand)
 
     sale = is_sale_intent(raw_text)
-    boost = resolve_source_boost(source)
-    quality_score = compute_quality_score(raw_text)
+    sale_intent = 1 if sale else 0
+    boost = float(resolve_source_boost(source))
+    quality_score = float(compute_quality_score(raw_text))
 
-    meta["brand"] = brand
-    meta["model"] = model
-    meta["brand_confidence"] = float(brand_conf)
-    meta["sale_intent"] = 1 if sale else 0
+    meta["brand"] = brand or None
+    meta["model"] = model or None
+    meta["brand_confidence"] = float(brand_conf or 0.0)
+    meta["sale_intent"] = sale_intent
     meta["quality_score"] = quality_score
-    meta["source_boost"] = float(boost)
+    meta["source_boost"] = boost
 
     meta_prefix = (
         "__meta__: "
         f"brand={brand or 'none'}; "
         f"model={model or 'none'}; "
-        f"brand_conf={round(brand_conf, 2)}; "
-        f"sale_intent={1 if sale else 0}; "
+        f"brand_conf={round(float(brand_conf or 0.0), 2)}; "
+        f"sale_intent={sale_intent}; "
         f"quality_score={quality_score}; "
         f"source_boost={round(boost, 2)}"
     )
@@ -515,8 +506,9 @@ def enrich_text_with_meta(
 
 def build_meta_prefix(
     brand: str | None = None,
+    model: str | None = None,
     brand_confidence: float | None = None,
-    sale_intent: bool | None = None,
+    sale_intent: bool | int | None = None,
     source_boost: float | None = None,
     quality_score: float | None = None,
 ) -> str:
@@ -526,33 +518,25 @@ def build_meta_prefix(
     if brand:
         parts.append(f"brand={brand}")
 
+    if model:
+        parts.append(f"model={model}")
+
     if brand_confidence is not None:
-        parts.append(f"brand_conf={round(brand_confidence,2)}")
+        parts.append(f"brand_conf={round(float(brand_confidence), 2)}")
 
     if sale_intent is not None:
-        parts.append(f"sale_intent={1 if sale_intent else 0}")
+        parts.append(f"sale_intent={1 if bool(sale_intent) else 0}")
 
     if quality_score is not None:
-        parts.append(f"quality_score={quality_score}")
+        parts.append(f"quality_score={float(quality_score)}")
 
     if source_boost is not None:
-        parts.append(f"source_boost={round(source_boost,2)}")
+        parts.append(f"source_boost={round(float(source_boost), 2)}")
 
     if not parts:
         return ""
 
     return "__meta__: " + "; ".join(parts)
-
-
-# =====================================================
-# WARMUP
-# =====================================================
-
-try:
-    _load_brands()
-    print("[INGEST][QUALITY] brands loaded", flush=True)
-except Exception as e:
-    print(f"[INGEST][QUALITY][WARN] brands load failed: {e}", flush=True)
 
 
 # =====================================================

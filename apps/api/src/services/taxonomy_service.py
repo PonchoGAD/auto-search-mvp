@@ -1,5 +1,3 @@
-# apps/api/src/services/taxonomy_service.py
-
 from __future__ import annotations
 
 import re
@@ -14,9 +12,12 @@ def _norm_text(text: str) -> str:
     text = text.replace("\u00A0", " ")
     text = text.replace("\xa0", " ")
     text = text.lower().strip()
+
     text = re.sub(r"[-_/]+", " ", text)
+    text = re.sub(r"([a-zа-яё])(\d)", r"\1 \2", text, flags=re.IGNORECASE)
+    text = re.sub(r"(\d)([a-zа-яё])", r"\1 \2", text, flags=re.IGNORECASE)
     text = re.sub(r"\s+", " ", text)
-    return text
+    return text.strip()
 
 
 def _to_key(text: str) -> str:
@@ -25,12 +26,58 @@ def _to_key(text: str) -> str:
     return text
 
 
+def _compact_model_text(text: str) -> str:
+    text = text or ""
+    text = text.lower().strip()
+    text = text.replace("\u00A0", " ").replace("\xa0", " ")
+    text = re.sub(r"[-_\s]+", "", text)
+    return text
+
+
+def _alias_variants(value: str) -> Set[str]:
+    """
+    Генерирует безопасные варианты для моделей:
+    - x5 <-> x 5
+    - gx460 <-> gx 460
+    - e200 <-> e 200
+    - x-trail <-> x trail
+    - cx-5 <-> cx 5
+    """
+    variants: Set[str] = set()
+
+    norm = _norm_text(value)
+    if not norm:
+        return variants
+
+    variants.add(norm)
+
+    compact = _compact_model_text(norm)
+    if compact:
+        variants.add(compact)
+
+    spaced = re.sub(r"([a-zа-яё]+)(\d+)", r"\1 \2", norm, flags=re.IGNORECASE)
+    spaced = re.sub(r"(\d+)([a-zа-яё]+)", r"\1 \2", spaced, flags=re.IGNORECASE)
+    spaced = re.sub(r"\s+", " ", spaced).strip()
+    if spaced:
+        variants.add(spaced)
+
+    joined = spaced.replace(" ", "")
+    if joined:
+        variants.add(joined)
+
+    return {v for v in variants if v}
+
+
 def _phrase_pattern(value: str) -> str:
     value = _norm_text(value)
+    if not value:
+        return ""
+
     parts = [re.escape(p) for p in value.split() if p.strip()]
     if not parts:
         return ""
-    return r"\b" + r"[\s\-_]*".join(parts) + r"\b"
+
+    return r"(?<![a-zа-яё0-9])" + r"[\s\-_]*".join(parts) + r"(?![a-zа-яё0-9])"
 
 
 def _contains_phrase(text: str, phrase: str) -> bool:
@@ -46,6 +93,12 @@ AMBIGUOUS_MODEL_ALIASES = {
     "glc", "gle", "gls",
     "rx", "nx", "es", "is", "ls",
     "a3", "a4", "a6", "a8", "q3", "q5", "q7", "q8",
+}
+
+MODEL_STOPWORDS = {
+    "год", "года", "лет", "цена", "пробег", "км", "руб", "р", "₽",
+    "до", "от", "с", "не", "старше", "ниже", "после", "дизель",
+    "бензин", "гибрид", "электро",
 }
 
 
@@ -76,12 +129,19 @@ class TaxonomyService:
         self._build_brand_index()
         self._build_model_index()
 
+    def normalize_text(self, text: str) -> str:
+        return _norm_text(text)
+
     def _load_brands(self) -> Dict[str, Dict[str, List[str]]]:
         try:
             with open(self.brands_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
-            brands = data.get("brands", {})
-            return brands if isinstance(brands, dict) else {}
+
+            if isinstance(data, dict) and "brands" in data:
+                brands = data.get("brands", {})
+                return brands if isinstance(brands, dict) else {}
+
+            return data if isinstance(data, dict) else {}
         except Exception as e:
             print(f"[TAXONOMY][WARN] failed to load brands.yaml: {e}", flush=True)
             return {}
@@ -146,30 +206,42 @@ class TaxonomyService:
                 raw_model_norm = _norm_text(raw_model)
                 canonical_model_norm = _norm_text(canonical_model)
 
-                if raw_model_norm and not raw_model_norm.isdigit():
-                    model_aliases.add(raw_model_norm)
-                if canonical_model_norm and not canonical_model_norm.isdigit():
-                    model_aliases.add(canonical_model_norm)
+                if raw_model_norm and raw_model_norm not in MODEL_STOPWORDS:
+                    model_aliases.update(_alias_variants(raw_model_norm))
+
+                if canonical_model_norm and canonical_model_norm not in MODEL_STOPWORDS:
+                    model_aliases.update(_alias_variants(canonical_model_norm))
 
                 if isinstance(aliases, list):
                     for alias in aliases:
                         if not isinstance(alias, str):
                             continue
+
                         alias_norm = _norm_text(alias)
                         if not alias_norm:
                             continue
 
-                        alias_parts = alias_norm.split()
-                        if len(alias_parts) == 1 and alias_norm.isdigit():
-                            continue
-                        if len(alias_norm) <= 2 and not re.search(r"[a-zа-яё]", alias_norm, re.IGNORECASE):
+                        if alias_norm in MODEL_STOPWORDS:
                             continue
 
-                        model_aliases.add(alias_norm)
+                        if alias_norm.isdigit():
+                            continue
 
-                self.brand_model_to_aliases[canonical_brand][canonical_model] = model_aliases
+                        model_aliases.update(_alias_variants(alias_norm))
 
+                cleaned_aliases = set()
                 for alias in model_aliases:
+                    if not alias:
+                        continue
+                    if alias.isdigit():
+                        continue
+                    if len(alias) <= 1:
+                        continue
+                    cleaned_aliases.add(alias)
+
+                self.brand_model_to_aliases[canonical_brand][canonical_model] = cleaned_aliases
+
+                for alias in cleaned_aliases:
                     existing = self.brand_model_alias_to_canonical[canonical_brand].get(alias)
                     if existing and existing != canonical_model:
                         print(
@@ -201,6 +273,10 @@ class TaxonomyService:
             confidence = min(1.0, 0.95 + best_len / 100.0)
             return best_brand, confidence
 
+        fallback_brand, _fallback_model = self.maybe_resolve_brand_from_model(text_norm)
+        if fallback_brand:
+            return fallback_brand, 0.82
+
         return None, 0.0
 
     def canonicalize_brand(self, brand: Optional[str]) -> Optional[str]:
@@ -209,45 +285,110 @@ class TaxonomyService:
         return self.brand_alias_to_canonical.get(_norm_text(brand), _to_key(brand))
 
     def resolve_model(self, brand: Optional[str], text: str) -> Optional[str]:
-        if not brand:
-            return None
-
-        canonical_brand = self.brand_alias_to_canonical.get(_norm_text(brand), _to_key(brand))
         text_norm = _norm_text(text)
+        text_compact = _compact_model_text(text)
+
         if not text_norm:
             return None
 
-        model_map = self.brand_model_alias_to_canonical.get(canonical_brand, {})
-        if not model_map:
-            return None
+        if brand:
+            canonical_brand = self.canonicalize_brand(brand)
+            if not canonical_brand:
+                return None
 
-        best_model: Optional[str] = None
-        best_len = 0
-        best_is_canonical = 0
+            model_map = self.brand_model_alias_to_canonical.get(canonical_brand, {})
+            if not model_map:
+                return None
 
-        canonical_models = set(self.brand_model_to_aliases.get(canonical_brand, {}).keys())
+            best_model: Optional[str] = None
+            best_score = -1
 
-        for alias, canonical_model in model_map.items():
-            alias_parts = alias.split()
-            if len(alias_parts) == 1 and alias.isdigit():
-                continue
+            canonical_models = set(self.brand_model_to_aliases.get(canonical_brand, {}).keys())
 
-            if _contains_phrase(text_norm, alias):
-                alias_len = len(alias)
-                is_canonical = 1 if _norm_text(canonical_model) == alias else 0
+            for alias, canonical_model in model_map.items():
+                alias_norm = _norm_text(alias)
+                if not alias_norm:
+                    continue
+                if alias_norm in MODEL_STOPWORDS:
+                    continue
 
-                score = alias_len * 10 + is_canonical
-                best_score = best_len * 10 + best_is_canonical
+                matched = False
+                match_score = 0
 
-                if score > best_score:
+                if _contains_phrase(text_norm, alias_norm):
+                    matched = True
+                    match_score = len(alias_norm) * 10
+
+                alias_compact = _compact_model_text(alias_norm)
+                if not matched and alias_compact and len(alias_compact) >= 2:
+                    if alias_compact in text_compact:
+                        if re.search(_phrase_pattern(alias_norm), text_norm, re.IGNORECASE) or len(alias_compact) >= 4:
+                            matched = True
+                            match_score = len(alias_compact) * 8
+
+                if not matched:
+                    continue
+
+                is_canonical_alias = 1 if _norm_text(canonical_model) == alias_norm else 0
+                total_score = match_score + is_canonical_alias
+
+                if total_score > best_score:
                     best_model = canonical_model
-                    best_len = alias_len
-                    best_is_canonical = is_canonical
+                    best_score = total_score
 
-        if best_model in canonical_models:
+            if best_model in canonical_models:
+                return best_model
+
             return best_model
 
-        return best_model
+        fallback_brand, fallback_model = self.maybe_resolve_brand_from_model(text)
+        if fallback_brand and fallback_model:
+            return fallback_model
+
+        return None
+
+    def maybe_resolve_brand_from_model(self, text: str) -> Tuple[Optional[str], Optional[str]]:
+        text_norm = _norm_text(text)
+        if not text_norm:
+            return None, None
+
+        best_alias_len = 0
+        candidates: List[Tuple[str, str, int]] = []
+
+        for alias, brands in self.global_model_alias_to_brands.items():
+            if not _contains_phrase(text_norm, alias):
+                continue
+
+            alias_len = len(alias)
+            if alias_len < best_alias_len:
+                continue
+
+            matched_brands = sorted(brands)
+            if len(matched_brands) != 1:
+                if alias in AMBIGUOUS_MODEL_ALIASES:
+                    continue
+                continue
+
+            brand = matched_brands[0]
+            model = self.brand_model_alias_to_canonical.get(brand, {}).get(alias)
+            if not model:
+                continue
+
+            if alias_len > best_alias_len:
+                best_alias_len = alias_len
+                candidates = [(brand, model, alias_len)]
+            elif alias_len == best_alias_len:
+                candidates.append((brand, model, alias_len))
+
+        if not candidates:
+            return None, None
+
+        unique_pairs = {(brand, model) for brand, model, _ in candidates}
+        if len(unique_pairs) != 1:
+            return None, None
+
+        brand, model = next(iter(unique_pairs))
+        return brand, model
 
     def resolve_entities(self, text: str) -> Tuple[Optional[str], Optional[str], float]:
         brand, conf = self.resolve_brand(text)
@@ -255,10 +396,9 @@ class TaxonomyService:
             model = self.resolve_model(brand, text)
             return brand, model, conf
 
-        fallback_brand, fallback_conf = self.resolve_brand_from_model(text)
+        fallback_brand, fallback_model = self.maybe_resolve_brand_from_model(text)
         if fallback_brand:
-            model = self.resolve_model(fallback_brand, text)
-            return fallback_brand, model, fallback_conf
+            return fallback_brand, fallback_model, 0.82
 
         return None, None, 0.0
 
@@ -273,38 +413,15 @@ class TaxonomyService:
         model_norm = _norm_text(model)
         model_map = self.brand_model_alias_to_canonical.get(canonical_brand, {})
 
-        resolved = model_map.get(model_norm)
-        if resolved:
-            return resolved
+        if model_norm in model_map:
+            return model_map[model_norm]
+
+        for variant in _alias_variants(model_norm):
+            resolved = model_map.get(variant)
+            if resolved:
+                return resolved
 
         return _to_key(model)
-
-    def resolve_brand_from_model(self, text: str) -> Tuple[Optional[str], float]:
-        text_norm = _norm_text(text)
-        if not text_norm:
-            return None, 0.0
-
-        best_brand: Optional[str] = None
-        best_len = 0
-
-        for alias, brands in self.global_model_alias_to_brands.items():
-            if len(brands) != 1:
-                continue
-
-            if alias in AMBIGUOUS_MODEL_ALIASES:
-                continue
-
-            if _contains_phrase(text_norm, alias):
-                alias_len = len(alias)
-                if alias_len > best_len:
-                    best_brand = list(brands)[0]
-                    best_len = alias_len
-
-        if best_brand:
-            confidence = min(0.88, 0.82 + best_len / 100.0)
-            return best_brand, confidence
-
-        return None, 0.0
 
     def get_brand_aliases(self, brand: str) -> List[str]:
         canonical_brand = self.brand_alias_to_canonical.get(_norm_text(brand), _to_key(brand))
@@ -312,7 +429,7 @@ class TaxonomyService:
 
     def get_model_aliases(self, brand: str, model: str) -> List[str]:
         canonical_brand = self.brand_alias_to_canonical.get(_norm_text(brand), _to_key(brand))
-        canonical_model = _to_key(model)
+        canonical_model = self.canonicalize_model(canonical_brand, model) or _to_key(model)
         return sorted(
             self.brand_model_to_aliases.get(canonical_brand, {}).get(canonical_model, set())
         )

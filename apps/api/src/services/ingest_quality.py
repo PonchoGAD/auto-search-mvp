@@ -1,16 +1,17 @@
 import re
+import os
 from typing import Optional, Tuple, Dict, Any
 
 from services.model_resolver import resolve_model
 from services.brand_detector import detect_brand as detect_brand_main
 
 
-DEFAULT_MIN_SALE_SCORE = int(_import_("os").getenv("MIN_SALE_SCORE", "2"))
-DEFAULT_MIN_TEXT_LEN = int(_import_("os").getenv("MIN_TEXT_LEN", "80"))
-DEFAULT_MIN_PRICE_RUB = int(_import_("os").getenv("MIN_PRICE_RUB", "150000"))
-DEFAULT_MAX_PRICE_RUB = int(_import_("os").getenv("MAX_PRICE_RUB", "20000000"))
-DEFAULT_MIN_YEAR = int(_import_("os").getenv("MIN_YEAR", "1995"))
-DEFAULT_MAX_MILEAGE_KM = int(_import_("os").getenv("MAX_MILEAGE_KM", "400000"))
+DEFAULT_MIN_SALE_SCORE = int(os.getenv("MIN_SALE_SCORE", "2"))
+DEFAULT_MIN_TEXT_LEN = int(os.getenv("MIN_TEXT_LEN", "80"))
+DEFAULT_MIN_PRICE_RUB = int(os.getenv("MIN_PRICE_RUB", "150000"))
+DEFAULT_MAX_PRICE_RUB = int(os.getenv("MAX_PRICE_RUB", "20000000"))
+DEFAULT_MIN_YEAR = int(os.getenv("MIN_YEAR", "1995"))
+DEFAULT_MAX_MILEAGE_KM = int(os.getenv("MAX_MILEAGE_KM", "400000"))
 
 DEFAULT_BLACKLIST_WORDS = [
     "ищу",

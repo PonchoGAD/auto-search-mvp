@@ -46,7 +46,7 @@ def get_reranker():
 
 def load_brands() -> dict:
     try:
-        base_dir = Path(_file_).resolve().parent.parent
+        base_dir = Path(__file__).resolve().parent.parent
         brands_path = base_dir / "config" / "brands.yaml"
 
         with open(brands_path, "r", encoding="utf-8") as f:

@@ -150,6 +150,11 @@ class TaxonomyService:
         try:
             with open(self.models_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
+
+            if isinstance(data, dict) and "models" in data:
+                models = data.get("models", {})
+                return models if isinstance(models, dict) else {}
+
             return data if isinstance(data, dict) else {}
         except Exception as e:
             print(f"[TAXONOMY][WARN] failed to load models.yaml: {e}", flush=True)

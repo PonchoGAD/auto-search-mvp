@@ -21,6 +21,7 @@ from domain.query_schema import StructuredQuery
 from services.query_router import route_query
 from services.car_intent_classifier import detect_car_intent
 from services.query_expander import expand_query
+from services.taxonomy_service import taxonomy_service
 
 from db.session import SessionLocal
 from db.models import SearchHistory
@@ -45,13 +46,17 @@ def get_reranker():
 
 def load_brands() -> dict:
     try:
-        base_dir = Path(__file__).resolve().parent.parent
+        base_dir = Path(_file_).resolve().parent.parent
         brands_path = base_dir / "config" / "brands.yaml"
 
         with open(brands_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
+
+        if isinstance(data, dict) and "brands" in data:
             brands = data.get("brands", {})
             return brands if isinstance(brands, dict) else {}
+
+        return data if isinstance(data, dict) else {}
 
     except Exception as e:
         print(f"[SEARCH][WARN] failed to load brands.yaml: {e}", flush=True)
@@ -134,8 +139,8 @@ RECENCY_MAX_DAYS = 180
 print("[SEARCH] warming reranker", flush=True)
 try:
     get_reranker()
-except Exception:
-    pass
+except Exception as e:
+    print(f"[SEARCH][WARN] reranker warmup failed: {e}", flush=True)
 
 
 class SearchService:
@@ -338,7 +343,9 @@ class SearchService:
 
         # keep telegram no-price exclusion only for non-sale-like entries
         if source_name == "telegram" and payload.get("price") is None:
-            reasons.append("telegram_non_sale_no_price")
+            sale_intent = str(payload.get("sale_intent") or "0").strip()
+            if sale_intent not in {"1", "true", "True"}:
+                reasons.append("telegram_non_sale_no_price")
 
         if route in {"structured", "brand_only"} and brand_value:
             if payload_brand and payload_brand != brand_value:
@@ -558,10 +565,24 @@ class SearchService:
         min_candidates = self._env_int("SEARCH_MIN_CANDIDATES", 60)
 
         brand_conf = float(getattr(structured, "brand_confidence", 0.0) or 0.0)
-        brand_value = _normalize_token_text(structured.brand or "")
+
+        canonical_brand = taxonomy_service.canonicalize_brand(structured.brand) if structured.brand else None
+        canonical_model = (
+            taxonomy_service.canonicalize_model(canonical_brand, structured.model)
+            if canonical_brand and structured.model
+            else structured.model
+        )
+
+        brand_value = _normalize_token_text(canonical_brand or "")
         fuel_value = _normalize_token_text(structured.fuel or "")
-        model_value = _normalize_token_text(structured.model or "")
+        model_value = _normalize_token_text(canonical_model or "")
         route = route_query(structured)
+
+        if canonical_brand:
+            structured.brand = canonical_brand
+
+        if canonical_model:
+            structured.model = canonical_model
 
         cache_key = (
             f"search:{structured.raw_query}:"
@@ -1082,10 +1103,3 @@ class SearchService:
 
         denom = 250_000.0
         return max(0.0, min(1.0, 1.0 - (mileage_val / denom)))
-
-
-try:
-    print("[SEARCH] warming up reranker...", flush=True)
-    get_reranker()
-except Exception as e:
-    print(f"[SEARCH][WARN] reranker preload failed: {e}", flush=True)

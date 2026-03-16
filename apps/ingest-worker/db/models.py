@@ -1,6 +1,5 @@
-# apps/ingest-worker/db/models.py
-
-from apps.shared.db.models import (
+from shared.db.base import Base
+from shared.db.models import (
     DocumentChunk,
     NormalizedDocument,
     RawDocument,
@@ -8,7 +7,8 @@ from apps.shared.db.models import (
     SearchHistory,
 )
 
-__all__ = [
+_all_ = [
+    "Base",
     "RawDocument",
     "NormalizedDocument",
     "DocumentChunk",

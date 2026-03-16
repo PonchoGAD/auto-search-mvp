@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-ENV PYTHONPATH=/app/src:/app/apps
+ENV PYTHONPATH=/app:/app/src:/app/apps
 
 RUN pip install --no-cache-dir poetry
 

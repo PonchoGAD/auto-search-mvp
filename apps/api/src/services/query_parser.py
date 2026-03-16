@@ -1,4 +1,4 @@
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Tuple
 import re
 from datetime import datetime
 
@@ -7,7 +7,31 @@ from services.query_normalizer import normalize_query
 from services.taxonomy_service import taxonomy_service
 
 
-MODEL_TOKEN_RE = re.compile(r"^[a-zа-я]+(?:[-_ ]?[a-zа-я0-9]+)\d[a-zа-я0-9-]*$", re.IGNORECASE)
+MODEL_TOKEN_RE = re.compile(
+    r"^[a-zа-я]+(?:[-_ ]?[a-zа-я0-9]+)\d[a-zа-я0-9-]$",
+    re.IGNORECASE,
+)
+
+CITY_MAP = {
+    "москва": "moskva",
+    "спб": "spb",
+    "питер": "spb",
+    "санкт-петербург": "spb",
+    "екатеринбург": "ekaterinburg",
+    "казань": "kazan",
+    "новосибирск": "novosibirsk",
+    "алматы": "almaty",
+    "астана": "astana",
+}
+
+STOP_TOKENS = {
+    "до", "от", "с", "после", "не", "старше", "младше", "раньше", "ниже",
+    "года", "год", "лет", "км", "тыс", "млн", "руб", "р", "бензин",
+    "дизель", "гибрид", "электро", "electric", "hybrid", "diesel", "petrol",
+    "пробег", "без", "окрас", "бит", "крашен", "цена", "купить", "продажа",
+    "машина", "авто", "тачка", "седан", "кроссовер", "внедорожник",
+    "свежая", "свежий", "новая", "новый", "последний", "последняя",
+}
 
 
 def _normalize_spaces(text: str) -> str:
@@ -20,20 +44,16 @@ def _normalize_parse_text(text: str) -> str:
     text = (text or "").lower()
     text = text.replace("ё", "е")
 
-    # unify separators but preserve model structure
     text = re.sub(r"(?<=\d)\s+(?=км\b)", " ", text)
     text = re.sub(r"(?<=\d)\s+(?=тыс\b)", " ", text)
 
-    # normalize compact price forms: 2м -> 2 млн ; 100к -> 100 тыс only if not mileage-context-resolved later
     text = re.sub(r"\b(\d+(?:[.,]\d+)?)\s*млн\b", r"\1 млн", text)
     text = re.sub(r"\b(\d+(?:[.,]\d+)?)\s*миллион(?:а|ов)?\b", r"\1 млн", text)
     text = re.sub(r"\b(\d+(?:[.,]\d+)?)\s*м\b", r"\1 млн", text)
 
-    # keep 100к as-is for later context resolution
     text = re.sub(r"\b(\d+(?:[.,]\d+)?)\s*к\b", r"\1к", text)
     text = re.sub(r"\b(\d+(?:[.,]\d+)?)\s*k\b", r"\1к", text)
 
-    # preserve popular model spellings
     text = re.sub(r"\be[\s-]?(\d{3})\b", r"e\1", text)
     text = re.sub(r"\bgx[\s-]?(\d{3})\b", r"gx\1", text)
     text = re.sub(r"\bcx[\s-]?(\d)\b", r"cx-\1", text)
@@ -41,6 +61,9 @@ def _normalize_parse_text(text: str) -> str:
     text = re.sub(r"\bx[\s-]?trail\b", "x-trail", text)
     text = re.sub(r"\bs[\s-]?class\b", "s-class", text)
     text = re.sub(r"\bc[\s-]?class\b", "c-class", text)
+    text = re.sub(r"\be[\s-]?class\b", "e-class", text)
+    text = re.sub(r"\b3[\s-]?series\b", "3-series", text)
+    text = re.sub(r"\b5[\s-]?series\b", "5-series", text)
 
     text = _normalize_spaces(text)
     return text
@@ -58,19 +81,10 @@ def _normalize_model_token(value: str) -> str:
 
 def _looks_like_model_token(token: str) -> bool:
     token = (token or "").strip().lower()
-    if not token:
+    if not token or len(token) < 2:
         return False
 
-    if len(token) < 2:
-        return False
-
-    stop = {
-        "до", "от", "с", "после", "не", "старше", "ниже", "раньше",
-        "года", "год", "лет", "км", "тыс", "млн", "руб", "р", "бензин",
-        "дизель", "гибрид", "электро", "electric", "hybrid", "diesel", "petrol",
-        "пробег", "без", "окрас", "бит", "крашен",
-    }
-    if token in stop:
+    if token in STOP_TOKENS:
         return False
 
     if re.fullmatch(r"(19|20)\d{2}", token):
@@ -85,7 +99,12 @@ def _looks_like_model_token(token: str) -> bool:
     if "-" in token and re.search(r"[a-zа-я]", token):
         return True
 
-    if token in {"x5", "x6", "x7", "gle", "gls", "cls", "camry", "corolla", "rav4", "rav-4"}:
+    if token in {
+        "x3", "x5", "x6", "x7", "gle", "gls", "cls",
+        "camry", "corolla", "rav4", "rav-4", "prado",
+        "qashqai", "x-trail", "solaris", "sportage", "sorento",
+        "tucson", "monjaro", "coolray"
+    }:
         return True
 
     return bool(MODEL_TOKEN_RE.match(token))
@@ -106,7 +125,7 @@ def _parse_price_value(num_str: str, unit: str | None) -> Optional[int]:
 
     unit_norm = (unit or "").strip().lower()
 
-    if unit_norm in {"млн", "миллион", "m"}:
+    if unit_norm in {"млн", "миллион", "m", "м"}:
         value *= 1_000_000
     elif unit_norm in {"тыс", "к", "k"}:
         value *= 1_000
@@ -141,11 +160,11 @@ def _parse_mileage_value(num_str: str, unit: str | None) -> Optional[int]:
     except Exception:
         return None
 
-    unit_norm = (unit or "").strip().lower()
+    unit_norm = (unit or "").strip().lower().replace(" ", "")
 
-    if unit_norm in {"тыс", "т.км", "k", "к"}:
+    if unit_norm in {"тыс", "т.км", "tkm", "k", "к", "тыскм"}:
         value *= 1_000
-    elif unit_norm in {"км", ""}:
+    elif unit_norm in {"км", "km", ""}:
         pass
     else:
         return None
@@ -162,7 +181,13 @@ def _parse_mileage_value(num_str: str, unit: str | None) -> Optional[int]:
 
 
 def _has_mileage_context(text: str) -> bool:
-    return bool(re.search(r"\b(пробег|км|т\.км|тыс\s*км|\d+км|\d+к)\b", text, re.IGNORECASE))
+    return bool(
+        re.search(
+            r"\b(пробег|км|km|т\.км|тыс\s*км|\d+км|\d+к)\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
 
 
 def _extract_year_min(text: str, current_year: int) -> Optional[int]:
@@ -190,10 +215,10 @@ def _extract_year_min(text: str, current_year: int) -> Optional[int]:
 
 def _extract_fuel(text: str) -> Optional[str]:
     fuel_patterns = [
-        (r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ)\b", "gas_petrol"),
+        (r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ|газ\s+бензин|бензин\s+газ)\b", "gas_petrol"),
         (r"\b(бенз|бензин|petrol|gasoline)\b", "petrol"),
         (r"\b(диз|дизель|diesel)\b", "diesel"),
-        (r"\b(гибрид|hybrid)\b", "hybrid"),
+        (r"\b(гибрид|hybrid|phev)\b", "hybrid"),
         (r"\b(электро|электр|electric|ev)\b", "electric"),
     ]
 
@@ -205,9 +230,9 @@ def _extract_fuel(text: str) -> Optional[str]:
 
 def _extract_mileage_max(text: str) -> Optional[int]:
     patterns = [
-        r"\bпробег\s*до\s*(\d+(?:[\s.,]\d+)?)\s*(тыс|т\.км|k|к|км)?\b",
-        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(тыс\s*км|т\.км|kм|км|тыс|к)\b",
-        r"\bдо\s*(\d{2,6})\s*км\b",
+        r"\bпробег\s*до\s*(\d+(?:[\s.,]\d+)?)\s*(тыс|т\.км|tkm|k|к|км|km)?\b",
+        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(тыс\s*км|т\.км|tkm|kм|km|км|тыс|к)\b",
+        r"\bдо\s*(\d{2,6})\s*(км|km)\b",
         r"\bдо\s*(\d+(?:[.,]\d+)?)к\b",
         r"\b(\d+(?:[\s.,]\d+)?)\s*т\.км\b",
         r"\bпробег\s*(\d+(?:[\s.,]\d+)?)\s*тыс\s*км\b",
@@ -220,11 +245,11 @@ def _extract_mileage_max(text: str) -> Optional[int]:
 
         num = m.group(1)
         unit = m.group(2) if len(m.groups()) > 1 else "км"
-
         unit_norm = (unit or "").lower().replace(" ", "")
+
         if unit_norm in {"тыскм", "тыс"}:
             unit_norm = "тыс"
-        elif unit_norm in {"kм"}:
+        elif unit_norm in {"kм", "km"}:
             unit_norm = "км"
 
         value = _parse_mileage_value(num, unit_norm)
@@ -249,10 +274,11 @@ def _extract_price_max(text: str, mileage_context: bool) -> Optional[int]:
 
         matched = m.group(0).lower()
 
-        # mileage wins over ambiguous "до 100к"
-        if "км" in matched:
+        if "км" in matched or "km" in matched:
             continue
-        if mileage_context and (m.group(2).lower() if len(m.groups()) > 1 and m.group(2) else "") in {"к", "тыс"}:
+
+        unit_candidate = m.group(2).lower() if len(m.groups()) > 1 and m.group(2) else ""
+        if mileage_context and unit_candidate in {"к", "тыс"}:
             continue
 
         unit = m.group(2) if len(m.groups()) > 1 else None
@@ -277,24 +303,29 @@ def _extract_price_max(text: str, mileage_context: bool) -> Optional[int]:
     return None
 
 
+def _extract_city(text: str) -> Optional[str]:
+    for raw_city, canonical in CITY_MAP.items():
+        if re.search(rf"\b{re.escape(raw_city)}\b", text, re.IGNORECASE):
+            return canonical
+    return None
+
+
 def _extract_brand_model(text: str) -> Tuple[Optional[str], Optional[str], float]:
     brand, model, confidence = taxonomy_service.resolve_entities(text)
 
     model_norm = _normalize_model_token(model) if model else None
 
     if brand and model_norm:
-        return brand, model_norm, confidence
+        return brand, model_norm, float(confidence or 0.0)
 
     tokens = re.findall(r"[a-zа-я0-9-]+", text, re.IGNORECASE)
 
-    # try to recover missing model if brand was found
     if brand and not model_norm:
         brand_aliases = set(taxonomy_service.get_brand_aliases(brand) or [])
         brand_aliases.add(str(brand).lower())
 
         for idx, token in enumerate(tokens):
-            token_norm = token.lower()
-            if token_norm not in brand_aliases:
+            if token.lower() not in brand_aliases:
                 continue
 
             candidates = tokens[idx + 1: idx + 4]
@@ -306,7 +337,6 @@ def _extract_brand_model(text: str) -> Tuple[Optional[str], Optional[str], float
                     continue
                 return brand, c_norm, max(float(confidence or 0.0), 0.85)
 
-    # if taxonomy found model but not brand, keep model anyway only if very model-like
     if not brand and model_norm and _looks_like_model_token(model_norm):
         return None, model_norm, float(confidence or 0.0)
 
@@ -338,12 +368,8 @@ def _parse_with_llm(raw_text: str) -> dict:
 def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     text = _normalize_parse_text(raw_text)
     result = StructuredQuery(raw_query=raw_text)
-
     current_year = datetime.utcnow().year
 
-    # -------------------------
-    # BRAND / MODEL
-    # -------------------------
     brand, model, confidence = _extract_brand_model(text)
 
     if brand:
@@ -353,9 +379,6 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     if model:
         result.model = model
 
-    # -------------------------
-    # EXPLICIT STRUCTURED CONSTRAINTS
-    # -------------------------
     result.year_min = _extract_year_min(text, current_year)
     result.fuel = _extract_fuel(text)
 
@@ -365,52 +388,19 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     if result.mileage_max is None:
         result.price_max = _extract_price_max(text, mileage_context=mileage_context)
     else:
-        # allow explicit price extraction too, but mileage intent has priority over ambiguous tokens
         result.price_max = _extract_price_max(text, mileage_context=True)
 
-    # -------------------------
-    # PAINT CONDITION
-    # -------------------------
-    if "без окрас" in text or "не бит" in text or "родная краска" in text:
+    if "без окрас" in text or "без окраса" in text or "не бит" in text or "родная краска" in text:
         result.paint_condition = "original"
     elif "крашен" in text or "бит" in text:
         result.paint_condition = "repainted"
 
-    # -------------------------
-    # CITY
-    # -------------------------
-    m = re.search(
-        r"\b(москва|спб|питер|екатеринбург|казань|новосибирск|алматы|астана)\b",
-        text,
-        re.IGNORECASE,
-    )
-    if m:
-        result.city = m.group(1)
+    result.city = _extract_city(text)
 
-    # -------------------------
-    # RECENCY INTENT
-    # -------------------------
     if any(w in text for w in ["свеж", "нов", "последн", "recent", "latest", "new"]):
         result.keywords.append("recent")
 
-    # -------------------------
-    # KEYWORDS / EXCLUSIONS
-    # -------------------------
     tokens = re.findall(r"[a-zа-я0-9-]+", text, re.IGNORECASE)
-
-    stop_tokens = {
-        "до", "без", "и", "или", "не",
-        "бит", "крашен", "окрас",
-        "км", "тыс", "руб", "р", "k", "m", "м",
-        "от", "с", "после", "старше", "младше",
-        "лет", "год", "года",
-        "бенз", "бензин", "petrol", "gasoline",
-        "дизель", "диз", "diesel",
-        "гибрид", "hybrid",
-        "электро", "электр", "electric", "ev",
-        "млн", "миллион", "пробег",
-        "нестарше", "ненеже", "раньше", "ниже",
-    }
 
     brand_synonyms = set()
     if result.brand:
@@ -427,34 +417,33 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
 
         if t.isdigit():
             continue
-
         if re.fullmatch(r"(19|20)\d{2}", t):
             continue
-
+        if t in STOP_TOKENS:
+            continue
         if result.brand and t == str(result.brand).lower():
             continue
-
         if result.model and t == str(result.model).lower():
             continue
-
         if t in brand_synonyms or t in model_synonyms:
             continue
-
         if _looks_like_model_token(t) and result.model and _normalize_model_token(t) == _normalize_model_token(result.model):
+            continue
+        if t in CITY_MAP:
             continue
 
         if t.startswith("не") and len(t) > 2:
-            exclusion = t[2:] if t.startswith("не-") else t[2:] if t.startswith("не") else ""
+            exclusion = t[2:]
             exclusion = exclusion.strip("-")
             if (
                 exclusion
-                and exclusion not in stop_tokens
+                and exclusion not in STOP_TOKENS
                 and exclusion not in brand_synonyms
                 and exclusion not in model_synonyms
                 and exclusion not in result.exclusions
             ):
                 result.exclusions.append(exclusion)
-        elif t not in stop_tokens and t not in result.keywords:
+        elif t not in result.keywords:
             result.keywords.append(t)
 
     return result

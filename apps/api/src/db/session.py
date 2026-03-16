@@ -2,7 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from core.settings import settings
-from apps.shared.db.base import Base
+from shared.db.base import Base
 
 engine = create_engine(
     settings.DATABASE_URL,
@@ -15,7 +15,7 @@ SessionLocal = sessionmaker(
     bind=engine,
 )
 
-__all__ = [
+_all_ = [
     "Base",
     "engine",
     "SessionLocal",

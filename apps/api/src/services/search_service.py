@@ -139,7 +139,7 @@ except Exception:
 
 
 class SearchService:
-    def _init_(self):
+    def __init__(self):
         self.store = QdrantStore()
 
     def _env_int(self, name: str, default: int) -> int:

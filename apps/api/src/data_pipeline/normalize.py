@@ -18,6 +18,7 @@ from services.ingest_quality import (
 )
 
 from services.model_resolver import resolve_model
+from services.taxonomy_service import taxonomy_service
 
 from services.car_entity_extractor import extract_car_entities
 
@@ -76,6 +77,8 @@ FUEL_MAP = {
     "дизель": "diesel",
     "диз": "diesel",
     "diesel": "diesel",
+    "tdi": "diesel",
+    "dci": "diesel",
     "гибрид": "hybrid",
     "hybrid": "hybrid",
     "электро": "electric",
@@ -87,6 +90,8 @@ FUEL_MAP = {
     "gbo": "gas",
     "газ/бензин": "gas_petrol",
     "газ бензин": "gas_petrol",
+    "tsi": "petrol",
+    "tfs": "petrol",
 }
 
 
@@ -533,6 +538,18 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             session.delete(exists)
             session.flush()
 
+        if (raw.source or "").strip().lower() in {"dev_seed", "seed", "test", "debug"}:
+            skipped += 1
+            continue
+
+        if raw.source_url and (
+            "seed.local" in raw.source_url
+            or "localhost" in raw.source_url
+            or "example.com" in raw.source_url
+        ):
+            skipped += 1
+            continue
+
         title_text = normalize_title_format((raw.title or "").strip())
 
         body_text = strip_drom_noise((raw.content or "").strip())
@@ -568,7 +585,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 skipped += 1
                 continue
 
-            if signals_count < 1:
+            if signals_count < 2:
                 skipped += 1
                 continue
         else:
@@ -594,11 +611,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         title = title_text
         content = full_text[:800]
 
-        brand_key, brand_conf = detect_brand(title_text)
-        if not brand_key:
-            brand_key, brand_conf = detect_brand(full_text)
-
-        brand = brand_key
+        brand, model, brand_conf = taxonomy_service.resolve_entities(f"{title_text} {full_text}")
 
         if not brand:
             brand = extract_brand_fallback(title_text)
@@ -606,26 +619,11 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         if not brand:
             brand = extract_brand_fallback(full_text)
 
-        model = resolve_model(
-            brand,
-            f"{title_text} {full_text}"
-)
-
-        if not brand and model:
-            from services.brand_detector import MODEL_BRAND_MAP
-            if model in MODEL_BRAND_MAP:
-                brand = MODEL_BRAND_MAP[model]
-
-        if (not brand or brand == "unknown") and model:
-
-            from services.brand_detector import MODEL_BRAND_MAP
-
-            if model:
-
-                m = model.lower()
-
-                if m in MODEL_BRAND_MAP:
-                    brand = MODEL_BRAND_MAP[m]
+        if not model:
+            model = taxonomy_service.resolve_model(
+                brand,
+                f"{title_text} {full_text}"
+            )
 
         entities = extract_car_entities(
             title or "",
@@ -647,34 +645,49 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             brand = extract_brand_fallback(full_text)
 
         if not model:
-            model = resolve_model(
+            model = taxonomy_service.resolve_model(
                 brand,
                 f"{title_text} {full_text}"
             )
 
-        if (not brand or brand == "unknown") and model:
-            from services.brand_detector import MODEL_BRAND_MAP
-
-            if model:
-                m = model.lower().strip()
-
-                if m in MODEL_BRAND_MAP:
-                    brand = MODEL_BRAND_MAP[m]
-
         if brand:
-            brand = brand.lower().strip()
+            brand = taxonomy_service.canonicalize_brand(brand)
+            if brand == "unknown":
+                brand = None
         else:
             brand = None
 
         fields = extract_fields(full_text)
 
         final_brand = brand
-        if entities.get("brand"):
-            final_brand = str(entities.get("brand")).lower().strip()
+        entity_brand = entities.get("brand")
+        entity_model = entities.get("model")
+
+        if entity_brand:
+            entity_brand = taxonomy_service.canonicalize_brand(str(entity_brand).lower().strip())
+
+        if entity_model and final_brand:
+            entity_model = taxonomy_service.canonicalize_model(final_brand, str(entity_model).lower().strip())
+        elif entity_model:
+            entity_model = str(entity_model).lower().strip()
+
+        if entity_brand:
+            if final_brand and entity_brand == final_brand:
+                final_brand = entity_brand
+            elif not final_brand:
+                brand_from_text, _, _ = taxonomy_service.resolve_entities(f"{title_text} {full_text}")
+                if brand_from_text == entity_brand:
+                    final_brand = entity_brand
 
         final_model = model
-        if entities.get("model"):
-            final_model = entities.get("model")
+
+        if entity_model and final_brand:
+            validated_entity_model = taxonomy_service.resolve_model(
+                final_brand,
+                f"{title_text} {full_text}"
+            )
+            if validated_entity_model and validated_entity_model == entity_model:
+                final_model = entity_model
 
         final_price = None
         ent_price = entities.get("price")
@@ -696,10 +709,13 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         final_fuel = entities.get("fuel") or fields.get("fuel")
 
         if not final_model:
-            final_model = resolve_model(
+            final_model = taxonomy_service.resolve_model(
                 final_brand,
                 f"{title_text} {full_text}"
             )
+
+        if final_brand and final_model:
+            final_model = taxonomy_service.canonicalize_model(final_brand, final_model)
 
         if final_price == 0:
             final_price = None

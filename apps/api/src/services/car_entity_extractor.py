@@ -1,5 +1,14 @@
 import re
 
+from services.brand_detector import detect_brand
+from services.model_resolver import resolve_model
+
+try:
+    from services.taxonomy_service import taxonomy_service
+except Exception:
+    taxonomy_service = None
+
+
 # =========================
 # TEXT NORMALIZATION
 # =========================
@@ -106,186 +115,102 @@ FUEL_MAP = {
     "бензин газ": "gas_petrol",
 }
 
-# =========================
-# BRAND / MODEL MAPS
-# =========================
-
-BRANDS = [
-    "toyota", "bmw", "mercedes", "mercedes benz", "audi",
-    "honda", "nissan", "mazda", "lexus", "infiniti",
-    "kia", "hyundai", "volkswagen", "skoda", "porsche",
-    "chevrolet", "ford", "cadillac", "gmc", "jeep",
-    "land rover", "range rover", "volvo", "opel",
-    "peugeot", "citroen", "renault", "lada",
-    "chery", "geely", "haval", "jetour", "exeed",
-    "byd", "xpeng", "tesla", "zeekr",
-    "bentley", "lamborghini", "ferrari", "rolls royce",
-    "changan", "li auto"
-]
-
-MODEL_TO_BRAND = {
-    "camry": "toyota",
-    "corolla": "toyota",
-    "rav4": "toyota",
-    "prado": "toyota",
-    "land cruiser": "toyota",
-    "land cruiser prado": "toyota",
-    "highlander": "toyota",
-    "hilux": "toyota",
-
-    "x1": "bmw",
-    "x3": "bmw",
-    "x5": "bmw",
-    "x6": "bmw",
-    "x7": "bmw",
-    "3 series": "bmw",
-    "5 series": "bmw",
-
-    "e class": "mercedes",
-    "c class": "mercedes",
-    "s class": "mercedes",
-    "glc": "mercedes",
-    "glc class": "mercedes",
-    "gle": "mercedes",
-    "gls": "mercedes",
-    "v class": "mercedes",
-
-    "x trail": "nissan",
-    "qashqai": "nissan",
-    "teana": "nissan",
-    "patrol": "nissan",
-
-    "solaris": "hyundai",
-    "sonata": "hyundai",
-    "elantra": "hyundai",
-    "tucson": "hyundai",
-    "santa fe": "hyundai",
-    "creta": "hyundai",
-
-    "rio": "kia",
-    "ceed": "kia",
-    "cerato": "kia",
-    "k5": "kia",
-    "seltos": "kia",
-    "sportage": "kia",
-    "sorento": "kia",
-    "pegas": "kia",
-
-    "cx 5": "mazda",
-    "cx 60": "mazda",
-    "mazda 3": "mazda",
-    "mazda 6": "mazda",
-
-    "monjaro": "geely",
-    "atlas": "geely",
-    "coolray": "geely",
-
-    "jolion": "haval",
-    "h6": "haval",
-    "f7": "haval",
-
-    "cruze": "chevrolet",
-
-    "antara": "opel",
-    "astra": "opel",
-
-    "xc60": "volvo",
-    "xc90": "volvo",
-
-    "l7": "li_auto",
-    "l9": "li_auto",
-
-    "discovery sport": "land_rover",
-    "range rover sport": "land_rover",
-    "evoque": "land_rover",
-}
-
-COMMON_MODELS = [
-    "camry", "corolla", "rav4", "prado", "land cruiser", "land cruiser prado", "highlander",
-    "x1", "x3", "x5", "x6", "x7", "3 series", "5 series",
-    "e class", "c class", "s class", "glc", "glc class", "gle", "gls", "v class",
-    "x trail", "qashqai", "teana", "patrol",
-    "solaris", "sonata", "elantra", "tucson", "santa fe", "creta",
-    "rio", "ceed", "cerato", "k5", "seltos", "sportage", "sorento", "pegas",
-    "cx 5", "cx 60", "mazda 3", "mazda 6",
-    "monjaro", "atlas", "coolray",
-    "jolion", "h6", "f7",
-    "cruze",
-    "antara", "astra",
-    "xc60", "xc90",
-    "l7", "l9",
-    "discovery sport", "range rover sport", "evoque",
-]
 
 # =========================
-# BRAND
+# TAXONOMY HELPERS
 # =========================
 
-def extract_brand(text):
-    if not text:
-        return None
+def _detect_brand_with_fallback(title: str, content: str, text: str):
+    brand = None
 
-    t = _norm(text)
-    t = t.replace("-", " ")
+    try:
+        detected = detect_brand(title=title or "", text=content or text)
+    except TypeError:
+        try:
+            detected = detect_brand(text)
+        except Exception:
+            detected = None
+    except Exception:
+        detected = None
 
-    for brand in BRANDS:
-        if f" {brand} " in f" {t} ":
-            if brand == "li auto":
-                return "li_auto"
-            if brand == "mercedes benz":
-                return "mercedes"
-            if brand == "rolls royce":
-                return "rolls-royce"
-            if brand == "land rover":
-                return "land_rover"
-            return brand
+    brand_conf = None
 
-    for model, brand in MODEL_TO_BRAND.items():
-        if f" {model} " in f" {t} ":
-            return brand
+    if isinstance(detected, tuple):
+        brand = detected[0] if len(detected) > 0 else None
+        brand_conf = detected[1] if len(detected) > 1 else None
+    else:
+        brand = detected
 
-    return None
+    if brand:
+        return brand, brand_conf
 
-# =========================
-# MODEL
-# =========================
+    if taxonomy_service:
+        try:
+            if hasattr(taxonomy_service, "detect_brand_by_model_alias"):
+                inferred = taxonomy_service.detect_brand_by_model_alias(text)
+                if inferred:
+                    return inferred, brand_conf
+        except Exception:
+            pass
 
-def extract_model(text: str, brand: str | None):
-    if not text:
-        return None
+        try:
+            if hasattr(taxonomy_service, "resolve_brand_by_model_alias"):
+                inferred = taxonomy_service.resolve_brand_by_model_alias(text)
+                if inferred:
+                    return inferred, brand_conf
+        except Exception:
+            pass
 
-    t = _norm(text)
+        try:
+            if hasattr(taxonomy_service, "detect_brand"):
+                inferred = taxonomy_service.detect_brand(text)
+                if isinstance(inferred, tuple):
+                    inferred = inferred[0] if inferred else None
+                if inferred:
+                    return inferred, brand_conf
+        except Exception:
+            pass
 
-    for model in COMMON_MODELS:
+    return None, brand_conf
 
-        if f" {model} " not in f" {t} ":
-            continue
 
-        if brand and MODEL_TO_BRAND.get(model) and MODEL_TO_BRAND.get(model) != brand:
-            continue
+def _resolve_model_with_fallback(brand: str | None, text: str):
+    model = None
 
+    if brand:
+        try:
+            model = resolve_model(brand, text)
+        except Exception:
+            model = None
+
+    if model:
         return model
 
-    m = re.search(r"\b(x[1-7])\b", t)
-    if m:
-        return m.group(1)
+    if taxonomy_service:
+        try:
+            if hasattr(taxonomy_service, "resolve_model"):
+                model = taxonomy_service.resolve_model(brand, text)
+                if model:
+                    return model
+        except Exception:
+            pass
 
-    m = re.search(r"\b([1-7]\s+series)\b", t)
-    if m:
-        return m.group(1)
-
-    mercedes_aliases = [
-        ("e class", r"\be\s*class\b"),
-        ("c class", r"\bc\s*class\b"),
-        ("s class", r"\bs\s*class\b"),
-        ("glc class", r"\bglc\s*class\b"),
-        ("v class", r"\bv\s*class\b"),
-    ]
-    for canon, pattern in mercedes_aliases:
-        if re.search(pattern, t, re.IGNORECASE):
-            return canon
+        if not brand:
+            try:
+                if hasattr(taxonomy_service, "resolve_model_with_brand"):
+                    resolved = taxonomy_service.resolve_model_with_brand(text)
+                    if isinstance(resolved, tuple):
+                        inferred_brand = resolved[0] if len(resolved) > 0 else None
+                        inferred_model = resolved[1] if len(resolved) > 1 else None
+                        if inferred_model:
+                            return inferred_model
+                    elif resolved:
+                        return resolved
+            except Exception:
+                pass
 
     return None
+
 
 # =========================
 # PRICE
@@ -355,6 +280,7 @@ def extract_price(text: str):
 
     return None
 
+
 # =========================
 # YEAR
 # =========================
@@ -375,6 +301,7 @@ def extract_year(text):
         pass
 
     return None
+
 
 # =========================
 # MILEAGE
@@ -419,6 +346,7 @@ def extract_mileage(text):
 
     return None
 
+
 # =========================
 # FUEL
 # =========================
@@ -441,18 +369,42 @@ def extract_fuel(text):
 
     return None
 
+
 # =========================
 # MAIN EXTRACTOR
 # =========================
 
 def extract_car_entities(title, content):
-    text = f"{title or ''} {content or ''}"
+    text = f"{title or ''} {content or ''}".strip()
 
-    brand = extract_brand(text)
-    model = extract_model(text, brand)
+    brand, _brand_conf = _detect_brand_with_fallback(
+        title=title or "",
+        content=content or text,
+        text=text,
+    )
 
-    if not brand and model:
-        brand = MODEL_TO_BRAND.get(model)
+    model = _resolve_model_with_fallback(brand, text)
+
+    if not brand and model and taxonomy_service:
+        try:
+            if hasattr(taxonomy_service, "detect_brand_by_model_alias"):
+                brand = taxonomy_service.detect_brand_by_model_alias(text)
+        except Exception:
+            pass
+
+        if not brand:
+            try:
+                if hasattr(taxonomy_service, "resolve_brand_by_model_alias"):
+                    brand = taxonomy_service.resolve_brand_by_model_alias(text)
+            except Exception:
+                pass
+
+        if not brand:
+            try:
+                if hasattr(taxonomy_service, "get_brand_by_model"):
+                    brand = taxonomy_service.get_brand_by_model(model)
+            except Exception:
+                pass
 
     price = extract_price(text)
     year = extract_year(text)
@@ -460,10 +412,10 @@ def extract_car_entities(title, content):
     fuel = extract_fuel(text)
 
     return {
-        "brand": brand,
-        "model": model,
+        "brand": brand or None,
+        "model": model or None,
         "price": price,
         "year": year,
         "mileage": mileage,
-        "fuel": fuel,
+        "fuel": fuel or None,
     }

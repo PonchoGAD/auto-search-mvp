@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import Optional, Dict, Tuple, Any
 from collections import Counter
 
-from db.session import SessionLocal, engine
-from db.models import Base, RawDocument, NormalizedDocument
+from db.session import SessionLocal, engine, Base
+from db.models import RawDocument, NormalizedDocument
 
 from services.ingest_quality import (
     should_skip_doc,

@@ -1,4 +1,4 @@
-brands:
+#brands:
 
   # =========================
   # EUROPE
@@ -297,6 +297,9 @@ brands:
   lynk_co:
     en: ["lynk & co", "lynk co"]
     ru: ["линк энд ко"]
+    aliases:
+      - "lynk"
+      - "lynkco"
 
   nio:
     en: ["nio"]
@@ -305,6 +308,10 @@ brands:
   xpeng:
     en: ["xpeng"]
     ru: ["икспенг"]
+
+  jetta:
+    en: ["jetta"]
+    ru: ["джетта"]
 
   # =========================
   # KOREA
@@ -434,20 +441,20 @@ brands:
     en: ["vauxhall"]
     ru: ["воксхолл"]
 
-  москвич:
+  moskvich:
     en: ["moskvich"]
     ru: ["москвич"]
 
-  ваз:
+  lada:
     en: ["lada", "vaz"]
     ru: ["ваз", "лада"]
     aliases:
       - "samara"
 
-  газ:
+  gaz:
     en: ["gaz"]
     ru: ["газ"]
 
-  уаз:
+  uaz:
     en: ["uaz"]
     ru: ["уаз"]

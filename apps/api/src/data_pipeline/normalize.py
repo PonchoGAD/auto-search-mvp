@@ -417,9 +417,20 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
             except Exception:
                 pass
 
+        # fallback
         fallback = extract_mileage(source_text)
         if isinstance(fallback, int) and _valid_mileage(fallback):
             return fallback
+
+        # ещё fallback: просто любое число + км
+        m = re.search(r'(\d{4,6})\s?км', lowered)
+        if m:
+            try:
+                val = int(m.group(1))
+                if _valid_mileage(val):
+                    return val
+            except:
+                pass
 
         return None
 
@@ -666,6 +677,14 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             final_brand = taxonomy_brand
             final_model = taxonomy_model
 
+            # 🔥 fallback: вытаскиваем модель из title если не нашли
+            if final_brand and not final_model:
+                tokens = (title_text or "").lower().split()
+                for t in tokens:
+                    if len(t) >= 2 and t not in final_brand:
+                        final_model = t
+                        break
+
             if final_brand:
                 final_brand = taxonomy_service.canonicalize_brand(final_brand)
 
@@ -675,6 +694,11 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             fields = extract_fields(raw_text)
 
             sale = detect_sale_intent(raw_text)
+
+            # fallback (очень важно)
+            if sale == 0:
+                sale = int(extract_sale(raw_text))
+
             source_boost = resolve_source_boost(raw.source or "")
             quality_score = _safe_quality_score(
                 skip=skip,

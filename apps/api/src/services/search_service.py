@@ -356,6 +356,9 @@ class SearchService:
                         reasons.append("price_overflow")
                 except Exception:
                     reasons.append("price_invalid")
+            else:
+                # если нет price → штраф
+                reasons.append("price_unknown")
 
         if structured.mileage_max is not None:
             mileage_val = payload.get("mileage")
@@ -375,8 +378,11 @@ class SearchService:
                 except Exception:
                     reasons.append("year_invalid")
 
-        if route == "structured" and model_value and payload_model:
-            if not _model_soft_match(payload_model, model_value):
+        # ЖЁСТКИЙ FILTER
+        if route == "structured" and model_value:
+            if not payload_model:
+                reasons.append("model_missing")
+            elif not _model_soft_match(payload_model, model_value):
                 reasons.append("model_mismatch")
 
         return len(reasons) == 0, reasons
@@ -447,15 +453,15 @@ class SearchService:
         signals = self._compute_soft_signals(payload, structured, semantic_score, route)
 
         weights = {
-            "semantic": self._env_float("SEARCH_W_SEMANTIC", 0.35),
-            "text_match": self._env_float("SEARCH_W_TEXT", 0.15),
+            "semantic": self._env_float("SEARCH_W_SEMANTIC", 0.25),
+            "text_match": self._env_float("SEARCH_W_TEXT", 0.20),
             "freshness": self._env_float("SEARCH_W_FRESHNESS", 0.10),
             "completeness": self._env_float("SEARCH_W_COMPLETENESS", 0.08),
             "price_fit": self._env_float("SEARCH_W_PRICE", 0.08),
             "mileage_fit": self._env_float("SEARCH_W_MILEAGE", 0.06),
             "fuel_match": self._env_float("SEARCH_W_FUEL", 0.06),
             "brand_match": self._env_float("SEARCH_W_BRAND", 0.15),
-            "model_match": self._env_float("SEARCH_W_MODEL", 0.12),
+            "model_match": self._env_float("SEARCH_W_MODEL", 0.18),
             "source_quality": self._env_float("SEARCH_W_SOURCE", 0.03),
             "sale_intent": self._env_float("SEARCH_W_SALE", 0.02),
             "representation_quality": self._env_float("SEARCH_W_REPRESENTATION", 0.02),
@@ -534,10 +540,7 @@ class SearchService:
             row["score"] = round(final_blended_score, 6)
 
             if "why_match" in row:
-                parts = row["why_match"].split("+")
-                parts = [p.strip() for p in parts if not p.strip().startswith("final=")]
-                parts.append(f"final={round(final_blended_score,6)}")
-                row["why_match"] = " + ".join(parts)
+                row["why_match"] += f" + rerank={round(rerank_norm, 4)} + final={row['score']}"
 
         rerank_slice.sort(
             key=lambda x: x.get("final_blended_score", x.get("score", 0.0)),

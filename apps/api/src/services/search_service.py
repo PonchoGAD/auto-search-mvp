@@ -96,9 +96,6 @@ def _model_soft_match(payload_model: str, query_model: str) -> bool:
     if pm_compact == qm_compact:
         return True
 
-    # camry xv70 vs camry
-    # e 200 vs e200
-    # gx 460 vs gx460
     if len(qm_tokens) == 1:
         q_single = qm_tokens[0]
         if q_single in pm_tokens:
@@ -114,16 +111,13 @@ def _model_soft_match(payload_model: str, query_model: str) -> bool:
         if p_single == qm_compact:
             return True
 
-    # all query tokens exist in payload tokens
     if all(token in pm_tokens for token in qm_tokens):
         return True
 
-    # compact segment inclusion but only on normalized compact forms
-    # protects x5 from matching random token sequences unless compact form is exact piece
     if qm_compact and (
-        pm_compact == qm_compact or
-        pm_compact.startswith(qm_compact) or
-        pm_compact.endswith(qm_compact)
+        pm_compact == qm_compact
+        or pm_compact.startswith(qm_compact)
+        or pm_compact.endswith(qm_compact)
     ):
         return True
 
@@ -341,7 +335,6 @@ class SearchService:
 
         source_name = str(payload.get("source") or "").strip().lower()
 
-        # keep telegram no-price exclusion only for non-sale-like entries
         if source_name == "telegram" and payload.get("price") is None:
             sale_intent = str(payload.get("sale_intent") or "0").strip()
             if sale_intent not in {"1", "true", "True"}:
@@ -382,7 +375,6 @@ class SearchService:
                 except Exception:
                     reasons.append("year_invalid")
 
-        # for structured route, model mismatch is still a valid hard drop
         if route == "structured" and model_value and payload_model:
             if not _model_soft_match(payload_model, model_value):
                 reasons.append("model_mismatch")
@@ -538,7 +530,14 @@ class SearchService:
             row["rerank_score"] = raw_rerank
             row["rerank_score_norm"] = round(rerank_norm, 6)
             row["final_blended_score"] = round(final_blended_score, 6)
+
             row["score"] = round(final_blended_score, 6)
+
+            if "why_match" in row:
+                parts = row["why_match"].split("+")
+                parts = [p.strip() for p in parts if not p.strip().startswith("final=")]
+                parts.append(f"final={round(final_blended_score,6)}")
+                row["why_match"] = " + ".join(parts)
 
         rerank_slice.sort(
             key=lambda x: x.get("final_blended_score", x.get("score", 0.0)),
@@ -910,17 +909,6 @@ class SearchService:
 
             results.append(row)
 
-            if len(scoring_snapshots) < 5:
-                scoring_snapshots.append(
-                    {
-                        "url": source_url,
-                        "brand": row.get("brand"),
-                        "model": row.get("model"),
-                        "score": row.get("score"),
-                        "score_breakdown": row.get("score_breakdown"),
-                    }
-                )
-
             if canonical_url:
                 seen_canonical_urls.add(canonical_url)
             if fingerprint:
@@ -931,65 +919,33 @@ class SearchService:
             if len(results) >= max(limit, self._env_int("SEARCH_RERANK_MAX_CANDIDATES", 50)):
                 break
 
-        debug["scoring"]["top_score_breakdowns"] = scoring_snapshots
-
         try:
             results = self._rerank_results(
                 query=structured.raw_query or query_text,
                 results=results,
                 top_k=min(len(results), limit),
             )
+
+            if structured.brand:
+                results = [
+                    r for r in results
+                    if (r.get("brand") or "").lower() == structured.brand.lower()
+                ]
+
+            if structured.model:
+                strict = [
+                    r for r in results
+                    if _model_soft_match(r.get("model", ""), structured.model)
+                ]
+                if strict:
+                    results = strict
+
             debug["final"]["rerank_applied"] = len(results) > 0
+
         except Exception as e:
             print(f"[RERANK][WARN] skipped: {e}", flush=True)
 
         debug["final"]["results_count"] = len(results)
-
-        verbose = str(os.getenv("SEARCH_DEBUG_VERBOSE", "0")).strip().lower() in {"1", "true", "yes", "on"}
-        print(
-            f"[SEARCH] query='{structured.raw_query}' route={route} stages={len(debug['retrieval_stages'])} checked={debug['filtering']['checked_candidates']} results={len(results)}",
-            flush=True,
-        )
-        if verbose:
-            print(f"[SEARCH][DEBUG] {json.dumps(debug, ensure_ascii=False, default=str)}", flush=True)
-
-        session = None
-        try:
-            session = SessionLocal()
-            history = SearchHistory(
-                raw_query=structured.raw_query,
-                structured_query=structured.model_dump() if hasattr(structured, "model_dump") else {},
-                results_count=len(results),
-                empty_result=len(results) == 0,
-                source="search_api",
-            )
-            session.add(history)
-            session.commit()
-        except Exception as e:
-            print(f"[SEARCH][WARN] history save failed: {e}", flush=True)
-        finally:
-            try:
-                if session is not None:
-                    session.close()
-            except Exception:
-                pass
-
-        try:
-            from redis import Redis
-            redis = Redis(
-                host="redis",
-                port=6379,
-                socket_timeout=1,
-                socket_connect_timeout=1,
-            )
-            redis.set(
-                cache_key,
-                json.dumps(results, ensure_ascii=False),
-                ex=60,
-            )
-            debug["final"]["cache_written"] = True
-        except Exception:
-            pass
 
         return results
 

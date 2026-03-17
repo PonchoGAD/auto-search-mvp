@@ -53,6 +53,8 @@ RE_MILEAGE_K = re.compile(
     re.IGNORECASE,
 )
 
+MILEAGE_RE = re.compile(r'(\d{1,3})\s?(тыс|000)?\s?(км|km)', re.I)
+
 RE_FUEL = re.compile(
     r"\b("
     r"бензин|бензиновый|бенз|petrol|gasoline|mpi|fsi|tsi|tfsi|"
@@ -101,6 +103,55 @@ FUEL_MAP = {
     "газ/бензин": "gas_petrol",
     "газ бензин": "gas_petrol",
 }
+
+
+SALE_PATTERNS = [
+    "продаю",
+    "продам",
+    "продажа",
+    "selling",
+    "for sale",
+]
+
+
+def detect_sale_intent(text: str) -> int:
+    t = (text or "").lower()
+    for p in SALE_PATTERNS:
+        if p in t:
+            return 1
+    return 0
+
+
+def extract_mileage(text: str):
+    m = MILEAGE_RE.search(text or "")
+    if not m:
+        return None
+
+    val = int(m.group(1))
+
+    if m.group(2):
+        val *= 1000
+
+    return val
+
+
+def extract_fuel(text: str):
+
+    t = (text or "").lower()
+
+    if "дизель" in t or "diesel" in t:
+        return "diesel"
+
+    if "бензин" in t or "petrol" in t:
+        return "petrol"
+
+    if "гибрид" in t:
+        return "hybrid"
+
+    if "электро" in t or "electric" in t:
+        return "electric"
+
+    return None
 
 
 # =========================
@@ -367,6 +418,11 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
             except Exception:
                 pass
 
+        # additional fallback extractor
+        fallback = extract_mileage(source_text)
+        if isinstance(fallback, int) and _valid_mileage(fallback):
+            return fallback
+
         return None
 
     year = _extract_year(title_part)
@@ -397,6 +453,9 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
             fuel = "gas_petrol"
         elif normalized:
             fuel = normalized[0]
+
+    if not fuel:
+        fuel = extract_fuel(text)
 
     paint_condition = None
 
@@ -620,11 +679,11 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             # canonical fuel / numeric fields
             fields = extract_fields(raw_text)
 
-            sale = is_sale_intent(raw_text)
+            sale = detect_sale_intent(raw_text)
             source_boost = resolve_source_boost(raw.source or "")
             quality_score = _safe_quality_score(
                 skip=skip,
-                sale_intent=sale,
+                sale_intent=bool(sale),
                 brand=final_brand,
                 model=final_model,
                 fields=fields,
@@ -635,7 +694,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             meta_prefix = build_meta_prefix(
                 brand=final_brand,
                 brand_confidence=brand_conf,
-                sale_intent=sale,
+                sale_intent=bool(sale),
                 source_boost=source_boost,
             )
 
@@ -664,7 +723,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 brand=final_brand,
                 model=final_model,
                 fields=fields,
-                sale_intent=sale,
+                sale_intent=bool(sale),
                 quality_score=quality_score,
             )
 

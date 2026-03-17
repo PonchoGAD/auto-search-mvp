@@ -27,6 +27,12 @@ from db.session import SessionLocal
 from db.models import SearchHistory
 
 
+def _normalize_model_strict(v: str) -> str:
+    v = (v or "").lower()
+    v = v.replace("-", "").replace("_", "").replace(" ", "")
+    return v
+
+
 _reranker = None
 
 
@@ -78,6 +84,12 @@ def _compact_token_text(value: str) -> str:
 
 
 def _model_soft_match(payload_model: str, query_model: str) -> bool:
+    pm_strict = _normalize_model_strict(payload_model)
+    qm_strict = _normalize_model_strict(query_model)
+
+    if pm_strict and qm_strict and pm_strict == qm_strict:
+        return True
+
     pm = _normalize_token_text(payload_model)
     qm = _normalize_token_text(query_model)
 
@@ -378,9 +390,7 @@ class SearchService:
                     reasons.append("year_invalid")
 
         if route == "structured" and model_value:
-            if not payload_model:
-                reasons.append("model_missing")
-            elif not _model_soft_match(payload_model, model_value):
+            if payload_model and not _model_soft_match(payload_model, model_value):
                 reasons.append("model_mismatch")
 
         return len(reasons) == 0, reasons
@@ -421,7 +431,6 @@ class SearchService:
         else:
             signals["model_match"] = 0.5
 
-        # ❗ штраф за отсутствие модели
         if model_value and not payload_model:
             signals["model_match"] = 0.0
 
@@ -566,7 +575,7 @@ class SearchService:
         if top_k is None:
             top_k = self._env_int("SEARCH_TOP_K", 120)
 
-        min_candidates = self._env_int("SEARCH_MIN_CANDIDATES", 60)
+        min_candidates = self._env_int("SEARCH_MIN_CANDIDATES", 120)
 
         brand_conf = float(getattr(structured, "brand_confidence", 0.0) or 0.0)
 
@@ -680,9 +689,14 @@ class SearchService:
             },
             {
                 "stage_name": "no_model_fallback",
-                "enabled": False,
-                "filter": None,
-                "filter_summary": "disabled",
+                "enabled": bool(model_value),
+                "filter": self._build_stage_filter(
+                    route=route,
+                    brand=primary_brand,
+                    model=None,
+                    fuel=primary_fuel,
+                ),
+                "filter_summary": "brand_only_fallback",
             },
             {
                 "stage_name": "no_fuel_fallback",

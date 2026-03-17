@@ -357,7 +357,6 @@ class SearchService:
                 except Exception:
                     reasons.append("price_invalid")
             else:
-                # если нет price → штраф
                 reasons.append("price_unknown")
 
         if structured.mileage_max is not None:
@@ -378,7 +377,6 @@ class SearchService:
                 except Exception:
                     reasons.append("year_invalid")
 
-        # ЖЁСТКИЙ FILTER
         if route == "structured" and model_value:
             if not payload_model:
                 reasons.append("model_missing")
@@ -422,6 +420,10 @@ class SearchService:
             signals["model_match"] = 1.0 if _model_soft_match(payload_model, model_value) else 0.0
         else:
             signals["model_match"] = 0.5
+
+        # ❗ штраф за отсутствие модели
+        if model_value and not payload_model:
+            signals["model_match"] = 0.0
 
         if fuel_value:
             if not payload_fuel:
@@ -678,14 +680,9 @@ class SearchService:
             },
             {
                 "stage_name": "no_model_fallback",
-                "enabled": bool(model_value),
-                "filter": self._build_stage_filter(
-                    route=route,
-                    brand=primary_brand,
-                    model=None,
-                    fuel=primary_fuel,
-                ),
-                "filter_summary": f"brand={primary_brand},model=None,fuel={primary_fuel}",
+                "enabled": False,
+                "filter": None,
+                "filter_summary": "disabled",
             },
             {
                 "stage_name": "no_fuel_fallback",
@@ -711,7 +708,7 @@ class SearchService:
             },
             {
                 "stage_name": "global_vector_fallback",
-                "enabled": True,
+                "enabled": not model_value,
                 "filter": None,
                 "filter_summary": "brand=None,model=None,fuel=None",
             },
@@ -936,12 +933,10 @@ class SearchService:
                 ]
 
             if structured.model:
-                strict = [
+                results = [
                     r for r in results
-                    if _model_soft_match(r.get("model", ""), structured.model)
+                    if r.get("model") and _model_soft_match(r.get("model", ""), structured.model)
                 ]
-                if strict:
-                    results = strict
 
             debug["final"]["rerank_applied"] = len(results) > 0
 

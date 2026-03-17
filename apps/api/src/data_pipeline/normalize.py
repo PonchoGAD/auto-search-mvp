@@ -19,6 +19,37 @@ from services.taxonomy_service import taxonomy_service
 
 
 # =========================
+# ADDED EXTRACTION HELPERS
+# =========================
+
+def extract_mileage(text):
+    import re
+    m = re.search(r'(\d{2,3})\s?000\s?км', (text or "").lower())
+    if m:
+        return int(m.group(1)) * 1000
+    return None
+
+
+def extract_fuel(text):
+    text = (text or "").lower()
+    if "бензин" in text:
+        return "petrol"
+    if "дизель" in text:
+        return "diesel"
+    if "гибрид" in text:
+        return "hybrid"
+    if "электро" in text:
+        return "electric"
+    return None
+
+
+def extract_sale(text):
+    if any(x in (text or "").lower() for x in ["продам", "продаю", "цена", "₽"]):
+        return "1"
+    return "0"
+
+
+# =========================
 # META PARSING
 # =========================
 
@@ -120,38 +151,6 @@ def detect_sale_intent(text: str) -> int:
         if p in t:
             return 1
     return 0
-
-
-def extract_mileage(text: str):
-    m = MILEAGE_RE.search(text or "")
-    if not m:
-        return None
-
-    val = int(m.group(1))
-
-    if m.group(2):
-        val *= 1000
-
-    return val
-
-
-def extract_fuel(text: str):
-
-    t = (text or "").lower()
-
-    if "дизель" in t or "diesel" in t:
-        return "diesel"
-
-    if "бензин" in t or "petrol" in t:
-        return "petrol"
-
-    if "гибрид" in t:
-        return "hybrid"
-
-    if "электро" in t or "electric" in t:
-        return "electric"
-
-    return None
 
 
 # =========================
@@ -418,7 +417,6 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
             except Exception:
                 pass
 
-        # additional fallback extractor
         fallback = extract_mileage(source_text)
         if isinstance(fallback, int) and _valid_mileage(fallback):
             return fallback
@@ -651,7 +649,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             raw_text = f"{title_text}\n{body_text}".strip()
             raw_text = raw_text.replace("₽", " ₽ ")
 
-            # 1. quality gate
             skip, _skip_meta = should_skip_doc(
                 text=raw_text,
                 source=raw.source or "",
@@ -661,7 +658,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 skipped += 1
                 continue
 
-            # 2. canonical extraction
             taxonomy_brand, taxonomy_model, brand_conf = _extract_canonical_entities(
                 title_text=title_text,
                 body_text=body_text,
@@ -676,7 +672,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             if final_brand and final_model:
                 final_model = taxonomy_service.canonicalize_model(final_brand, final_model)
 
-            # canonical fuel / numeric fields
             fields = extract_fields(raw_text)
 
             sale = detect_sale_intent(raw_text)
@@ -690,7 +685,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 source_boost=source_boost,
             )
 
-            # 3. normalized_text/meta prefix
             meta_prefix = build_meta_prefix(
                 brand=final_brand,
                 brand_confidence=brand_conf,
@@ -702,7 +696,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             _meta, content_wo_meta = parse_meta(enriched_content)
             normalized_text = clean_text(content_wo_meta)
 
-            # 4. counters
             if final_brand:
                 counters["extracted_brand_count"] += 1
             else:
@@ -716,7 +709,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             if final_brand and not final_model:
                 counters["ambiguous_brand_model_count"] += 1
 
-            # 5. db save
             doc_kwargs = _build_normalized_document_kwargs(
                 raw=raw,
                 normalized_text=normalized_text,

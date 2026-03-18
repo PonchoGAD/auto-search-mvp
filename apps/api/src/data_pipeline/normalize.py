@@ -694,7 +694,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 final_model = taxonomy_service.canonicalize_model(final_brand, final_model)
 
             if final_model:
-                final_model = final_model.replace("-", "").strip()
+                final_model = final_model.strip()
 
             fields = extract_fields(raw_text)
 

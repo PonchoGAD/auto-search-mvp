@@ -35,13 +35,33 @@ def _normalize_model_strict(v: str) -> str:
     return v
 
 
-def _bm25_score(query: str, docs: List[str]) -> List[float]:
+def _bm25_score(query: str, docs: List[str]) -> float:
     if not docs:
-        return []
+        return 0.0
 
-    tokenized = [d.split() for d in docs]
-    bm25 = BM25Okapi(tokenized)
-    return bm25.get_scores(query.split())
+    query_norm = _normalize_token_text(query)
+    if not query_norm:
+        return 0.0
+
+    prepared_docs = [_normalize_token_text(d) for d in docs if d]
+    prepared_docs = [d for d in prepared_docs if d]
+    if not prepared_docs:
+        return 0.0
+
+    tokenized_docs = [d.split() for d in prepared_docs]
+    tokenized_query = query_norm.split()
+    if not tokenized_query:
+        return 0.0
+
+    try:
+        bm25 = BM25Okapi(tokenized_docs)
+        raw_scores = bm25.get_scores(tokenized_query)
+        raw_max = max(raw_scores) if len(raw_scores) else 0.0
+
+        # safe normalization to [0..1]
+        return max(0.0, min(1.0, raw_max / 8.0))
+    except Exception:
+        return 0.0
 
 
 _reranker = None
@@ -311,7 +331,7 @@ class SearchService:
     ) -> Optional[Filter]:
         must_conditions: List[FieldCondition] = []
 
-        if brand:
+        if brand and brand in WHITELIST_SET:
             must_conditions.append(
                 FieldCondition(
                     key="brand",
@@ -319,6 +339,7 @@ class SearchService:
                 )
             )
 
+        # model filter only with canonical raw payload value, never normalized token text
         if route == "structured" and model:
             must_conditions.append(
                 FieldCondition(
@@ -350,11 +371,11 @@ class SearchService:
 
         brand_value = _normalize_token_text(structured.brand or "")
         fuel_value = _normalize_token_text(structured.fuel or "")
-        model_value = _normalize_token_text(structured.model or "")
+        model_value = _normalize_model_strict(structured.model or "")
 
         payload_brand = _normalize_token_text(str(payload.get("brand") or ""))
         payload_fuel = _normalize_token_text(str(payload.get("fuel") or ""))
-        payload_model = _normalize_token_text(str(payload.get("model") or ""))
+        payload_model = str(payload.get("model") or "")
 
         source_name = str(payload.get("source") or "").strip().lower()
 
@@ -417,11 +438,11 @@ class SearchService:
 
         brand_value = _normalize_token_text(structured.brand or "")
         fuel_value = _normalize_token_text(structured.fuel or "")
-        model_value = _normalize_token_text(structured.model or "")
+        model_value = _normalize_model_strict(structured.model or "")
 
         payload_brand = _normalize_token_text(str(payload.get("brand") or ""))
         payload_fuel = _normalize_token_text(str(payload.get("fuel") or ""))
-        payload_model = _normalize_token_text(str(payload.get("model") or ""))
+        payload_model = str(payload.get("model") or "")
 
         signals["semantic"] = max(0.0, min(1.0, float(semantic_score or 0.0)))
         signals["text_match"] = self._text_score(payload, structured)
@@ -479,8 +500,7 @@ class SearchService:
             if payload.get(key):
                 docs.append(str(payload.get(key)))
 
-        bm25_scores = _bm25_score(structured.raw_query or "", docs) if docs else [0.0]
-        signals["bm25"] = max(bm25_scores) if bm25_scores else 0.0
+        signals["bm25"] = _bm25_score(structured.raw_query or self._build_query_text(structured), docs)
 
         weights = {
             "semantic": self._env_float("SEARCH_W_SEMANTIC", 0.25),
@@ -495,7 +515,7 @@ class SearchService:
             "source_quality": self._env_float("SEARCH_W_SOURCE", 0.03),
             "sale_intent": self._env_float("SEARCH_W_SALE", 0.02),
             "representation_quality": self._env_float("SEARCH_W_REPRESENTATION", 0.02),
-            "bm25": 0.15,
+            "bm25": self._env_float("SEARCH_W_BM25", 0.08),
         }
 
         final_score = 0.0
@@ -503,6 +523,61 @@ class SearchService:
             final_score += signals.get(key, 0.0) * weight
 
         return final_score, signals
+
+    def _rerank_results(
+        self,
+        query: str,
+        results: List[Dict[str, Any]],
+        top_k: int = 20,
+    ) -> List[Dict[str, Any]]:
+        if not results:
+            return results
+
+        reranker = get_reranker()
+        max_rerank = min(len(results), self._env_int("SEARCH_RERANK_MAX_CANDIDATES", 50))
+        blend = self._env_float("SEARCH_RERANK_BLEND", 0.20)
+
+        rerank_slice = results[:max_rerank]
+        tail_slice = results[max_rerank:]
+
+        pairs = []
+        for r in rerank_slice:
+            text_parts = []
+            for key in ("brand", "model", "year", "fuel", "mileage", "price"):
+                value = r.get(key)
+                if value is not None:
+                    text_parts.append(str(value))
+            pairs.append((query, " ".join(text_parts)[:300]))
+
+        try:
+            rerank_scores = [float(x) for x in reranker.predict(pairs)]
+        except Exception as e:
+            print(f"[RERANK][WARN] failed: {e}", flush=True)
+            return results[:top_k]
+
+        min_score = min(rerank_scores) if rerank_scores else 0.0
+        max_score = max(rerank_scores) if rerank_scores else 0.0
+        denom = max_score - min_score
+
+        for idx, row in enumerate(rerank_slice):
+            base_score = float(row.get("score", 0.0) or 0.0)
+            raw_rerank = rerank_scores[idx]
+
+            rerank_norm = 0.5 if denom == 0 else (raw_rerank - min_score) / denom
+            final_score = (base_score * (1.0 - blend)) + (rerank_norm * blend)
+
+            row["base_score"] = round(base_score, 6)
+            row["rerank_score"] = round(raw_rerank, 6)
+            row["rerank_score_norm"] = round(rerank_norm, 6)
+            row["score"] = round(final_score, 6)
+
+            if "why_match" in row:
+                row["why_match"] = re.sub(r"\s*\+\s*final=\d+(?:\.\d+)?", "", row["why_match"])
+                row["why_match"] += f" + base_score={row['base_score']} + rerank={round(rerank_norm, 4)} + final={row['score']}"
+
+        rerank_slice.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+        merged = rerank_slice + tail_slice
+        return merged[:top_k]
 
     def search(
         self,
@@ -529,9 +604,16 @@ class SearchService:
             else structured.model
         )
 
+        # exact values for qdrant payload filters
+        brand_filter_value = (canonical_brand or "").strip().lower()
+        model_filter_value = (canonical_model or "").strip().lower()
+        fuel_filter_value = (structured.fuel or "").strip().lower()
+
+        # normalized values for python-side scoring/matching
         brand_value = _normalize_token_text(canonical_brand or "")
         fuel_value = _normalize_token_text(structured.fuel or "")
-        model_value = _normalize_token_text(canonical_model or "")
+        model_match_value = _normalize_model_strict(canonical_model or "")
+
         route = route_query(structured)
 
         if canonical_brand:
@@ -542,7 +624,7 @@ class SearchService:
 
         cache_key = (
             f"search:{structured.raw_query}:"
-            f"{brand_value}:{model_value}:{structured.price_max}:"
+            f"{brand_value}:{model_match_value}:{structured.price_max}:"
             f"{structured.mileage_max}:{fuel_value}:{structured.year_min}"
         )
 
@@ -612,11 +694,11 @@ class SearchService:
             except Exception:
                 pass
 
-        strict_brand = bool(brand_value and brand_conf >= 0.9)
+        strict_brand = bool(brand_filter_value and brand_conf >= 0.9)
 
-        primary_brand = brand_value if route in {"structured", "brand_only"} else None
-        primary_model = model_value if route == "structured" else None
-        primary_fuel = fuel_value if fuel_value else None
+        primary_brand = brand_filter_value if route in {"structured", "brand_only"} else None
+        primary_model = model_filter_value if route == "structured" else None
+        primary_fuel = fuel_filter_value if fuel_filter_value else None
 
         stages: List[Dict[str, Any]] = [
             {
@@ -632,7 +714,7 @@ class SearchService:
             },
             {
                 "stage_name": "no_model_fallback",
-                "enabled": bool(model_value),
+                "enabled": bool(model_filter_value),
                 "filter": self._build_stage_filter(
                     route=route,
                     brand=primary_brand,
@@ -643,7 +725,7 @@ class SearchService:
             },
             {
                 "stage_name": "no_fuel_fallback",
-                "enabled": bool(fuel_value),
+                "enabled": bool(fuel_filter_value),
                 "filter": self._build_stage_filter(
                     route=route,
                     brand=primary_brand,
@@ -654,18 +736,18 @@ class SearchService:
             },
             {
                 "stage_name": "weak_brand_fallback",
-                "enabled": bool(brand_value and not strict_brand),
+                "enabled": bool(brand_filter_value and not strict_brand),
                 "filter": self._build_stage_filter(
                     route="semantic",
                     brand=None,
-                    model=primary_model if model_value else None,
+                    model=primary_model if model_filter_value else None,
                     fuel=primary_fuel,
                 ),
-                "filter_summary": f"brand=None,model={primary_model if model_value else None},fuel={primary_fuel}",
+                "filter_summary": f"brand=None,model={primary_model if model_filter_value else None},fuel={primary_fuel}",
             },
             {
                 "stage_name": "global_vector_fallback",
-                "enabled": not model_value,
+                "enabled": True,
                 "filter": None,
                 "filter_summary": "brand=None,model=None,fuel=None",
             },
@@ -682,6 +764,7 @@ class SearchService:
                         vector=vec,
                         limit=top_k,
                         query_filter=stage_filter,
+                        query_text=query_text,
                     )
                     stage_hits.extend(sub_hits)
                 except Exception:
@@ -889,10 +972,10 @@ class SearchService:
                     if (r.get("brand") or "").lower() == structured.brand.lower()
                 ]
 
-            if structured.model:
+            if canonical_model:
                 results = [
                     r for r in results
-                    if r.get("model") and _model_soft_match(r.get("model", ""), structured.model)
+                    if r.get("model") and _model_soft_match(r.get("model", ""), canonical_model)
                 ]
 
             debug["final"]["rerank_applied"] = len(results) > 0

@@ -76,9 +76,11 @@ def extract_price(text: str):
     if not text:
         return None
 
-    # ❗ НЕ ПУТАЕМ С ПРОБЕГОМ
-    if re.search(r"\d+\s*(км|km|тыс)", text.lower()):
-        return None
+    # ❗ игнорим только если рядом с числом явно пробег
+    if re.search(r"\d+\s*(км|km)", text.lower()):
+        # но если есть ₽ → это точно цена
+        if "₽" not in text and "руб" not in text:
+            return None
 
     t = text.replace("\xa0", " ")
 

@@ -259,7 +259,9 @@ def _extract_mileage_max(text: str) -> Optional[int]:
 
 def _extract_price_max(text: str, mileage_context: bool) -> Optional[int]:
     if mileage_context:
-        return None
+        # ❗ если есть пробег — цену НЕ трогаем
+        if re.search(r"\d+\s*(км|km|тыс)", text.lower()):
+            return None
 
     patterns_with_limit = [
         r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(млн)\b",

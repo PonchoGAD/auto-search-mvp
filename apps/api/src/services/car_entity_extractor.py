@@ -1,12 +1,6 @@
 import re
 
-from services.brand_detector import detect_brand
-from services.model_resolver import resolve_model
-
-try:
-    from services.taxonomy_service import taxonomy_service
-except Exception:
-    taxonomy_service = None
+from services.taxonomy_service import taxonomy_service
 
 
 def _norm(text: str) -> str:
@@ -78,99 +72,12 @@ FUEL_MAP = {
 }
 
 
-def _normalize_model(model: str | None) -> str | None:
-    if not model:
-        return None
-    m = model.strip().lower().replace("_", "-")
-    m = re.sub(r"\s+", " ", m)
-    m = re.sub(r"\b([a-zа-я]+)\s+(\d{1,4})\b", r"\1\2", m, flags=re.IGNORECASE)
-    m = m.replace(" ", "-")
-    m = re.sub(r"-{2,}", "-", m)
-    return m.strip("-") or None
-
-
-def _detect_brand_with_fallback(title: str, content: str, text: str):
-    brand = None
-
-    try:
-        detected = detect_brand(title=title or "", text=content or text)
-    except TypeError:
-        try:
-            detected = detect_brand(text)
-        except Exception:
-            detected = None
-    except Exception:
-        detected = None
-
-    brand_conf = None
-
-    if isinstance(detected, tuple):
-        brand = detected[0] if len(detected) > 0 else None
-        brand_conf = detected[1] if len(detected) > 1 else None
-    else:
-        brand = detected
-
-    if brand:
-        return brand, brand_conf
-
-    if taxonomy_service:
-        for method_name in [
-            "detect_brand_by_model_alias",
-            "resolve_brand_by_model_alias",
-            "detect_brand",
-        ]:
-            try:
-                if hasattr(taxonomy_service, method_name):
-                    inferred = getattr(taxonomy_service, method_name)(text)
-                    if isinstance(inferred, tuple):
-                        inferred = inferred[0] if inferred else None
-                    if inferred:
-                        return inferred, brand_conf
-            except Exception:
-                pass
-
-    return None, brand_conf
-
-
-def _resolve_model_with_fallback(brand: str | None, text: str):
-    model = None
-
-    if brand:
-        try:
-            model = resolve_model(brand, text)
-        except Exception:
-            model = None
-
-    if model:
-        return _normalize_model(model)
-
-    if taxonomy_service:
-        try:
-            if hasattr(taxonomy_service, "resolve_model"):
-                model = taxonomy_service.resolve_model(brand, text)
-                if model:
-                    return _normalize_model(model)
-        except Exception:
-            pass
-
-        if not brand:
-            try:
-                if hasattr(taxonomy_service, "resolve_model_with_brand"):
-                    resolved = taxonomy_service.resolve_model_with_brand(text)
-                    if isinstance(resolved, tuple):
-                        inferred_model = resolved[1] if len(resolved) > 1 else None
-                        if inferred_model:
-                            return _normalize_model(inferred_model)
-                    elif resolved:
-                        return _normalize_model(resolved)
-            except Exception:
-                pass
-
-    return None
-
-
 def extract_price(text: str):
     if not text:
+        return None
+
+    # ❗ НЕ ПУТАЕМ С ПРОБЕГОМ
+    if re.search(r"\d+\s*(км|km|тыс)", text.lower()):
         return None
 
     t = text.replace("\xa0", " ")
@@ -316,42 +223,21 @@ def extract_fuel(text):
 def extract_car_entities(title, content):
     text = f"{title or ''} {content or ''}".strip()
 
-    brand, _brand_conf = _detect_brand_with_fallback(
-        title=title or "",
-        content=content or text,
-        text=text,
-    )
+    brand = None
+    model = None
 
-    model = _resolve_model_with_fallback(brand, text)
-
-    if not brand and model and taxonomy_service:
-        for method_name in [
-            "detect_brand_by_model_alias",
-            "resolve_brand_by_model_alias",
-            "get_brand_by_model",
-        ]:
-            try:
-                if hasattr(taxonomy_service, method_name):
-                    if method_name == "get_brand_by_model":
-                        inferred = getattr(taxonomy_service, method_name)(model)
-                    else:
-                        inferred = getattr(taxonomy_service, method_name)(text)
-                    if inferred:
-                        brand = inferred
-                        break
-            except Exception:
-                pass
-
-    price = extract_price(text)
-    year = extract_year(text)
-    mileage = extract_mileage(text)
-    fuel = extract_fuel(text)
+    # ✅ используем ТОЛЬКО taxonomy
+    if taxonomy_service:
+        try:
+            brand, model, _ = taxonomy_service.resolve_entities(text)
+        except Exception:
+            pass
 
     return {
-        "brand": brand or None,
-        "model": model or None,
-        "price": price,
-        "year": year,
-        "mileage": mileage,
-        "fuel": fuel or None,
+        "brand": brand,
+        "model": model,
+        "price": extract_price(text),
+        "year": extract_year(text),
+        "mileage": extract_mileage(text),
+        "fuel": extract_fuel(text),
     }

@@ -115,6 +115,10 @@ def _compact_token_text(value: str) -> str:
 
 
 def _model_soft_match(payload_model: str, query_model: str) -> bool:
+    # ❗ строгий режим если есть цифры (x5, x6 и т.д.)
+    if re.search(r"\d", query_model):
+        return _normalize_model_strict(payload_model) == _normalize_model_strict(query_model)
+
     pm_strict = _normalize_model_strict(payload_model)
     qm_strict = _normalize_model_strict(query_model)
 
@@ -593,7 +597,7 @@ class SearchService:
         if top_k is None:
             top_k = self._env_int("SEARCH_TOP_K", 120)
 
-        min_candidates = self._env_int("SEARCH_MIN_CANDIDATES", 200)
+        min_candidates = self._env_int("SEARCH_MIN_CANDIDATES", 120)
 
         brand_conf = float(getattr(structured, "brand_confidence", 0.0) or 0.0)
 
@@ -687,6 +691,23 @@ class SearchService:
         expanded_queries = expand_query(structured.raw_query or "")
         vectors = [query_vector]
 
+        prefilter_must = []
+
+        if brand_filter_value:
+            prefilter_must.append(
+                FieldCondition(key="brand", match=MatchValue(value=brand_filter_value))
+            )
+
+        if model_filter_value:
+            prefilter_must.append(
+                FieldCondition(key="model", match=MatchValue(value=model_filter_value))
+            )
+
+        prefilter = Filter(must=prefilter_must) if prefilter_must else None
+
+        bm25_queries = expand_query(structured.raw_query or "")
+        bm25_hits = []
+
         for q in expanded_queries:
             try:
                 vec = embed_text(q)
@@ -758,12 +779,21 @@ class SearchService:
 
         def _search_stage(stage_filter: Optional[Filter]) -> List[Any]:
             stage_hits = []
-            for vec in vectors:
+            for vec in vectors[:2]:  # ❗ ограничение
                 try:
+                    final_filter = None
+
+                    if stage_filter and prefilter:
+                        final_filter = Filter(must=stage_filter.must + prefilter.must)
+                    elif stage_filter:
+                        final_filter = stage_filter
+                    elif prefilter:
+                        final_filter = prefilter
+
                     sub_hits = self.store.search(
                         vector=vec,
                         limit=top_k,
-                        query_filter=stage_filter,
+                        query_filter=final_filter,
                         query_text=query_text,
                     )
                     stage_hits.extend(sub_hits)
@@ -806,6 +836,8 @@ class SearchService:
         except Exception as e:
             print(f"[SEARCH][WARN] qdrant unavailable: {e}", flush=True)
             return []
+
+        # merge bm25 later (Stage 4)
 
         doc_scores: Dict[str, float] = {}
         doc_payloads: Dict[str, Dict[str, Any]] = {}

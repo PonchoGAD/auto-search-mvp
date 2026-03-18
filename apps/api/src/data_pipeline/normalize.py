@@ -83,6 +83,27 @@ def extract_sale(text: str) -> str:
     return "0"
 
 
+# 🔥 ЖЁСТКАЯ НОРМАЛИЗАЦИЯ FUEL (ЕДИНАЯ ТОЧКА ИСТИНЫ)
+def _normalize_fuel_value(v: Optional[str]) -> Optional[str]:
+    if not v:
+        return None
+
+    v = v.strip().lower()
+
+    fuel_map = {
+        "бензин": "petrol",
+        "дизель": "diesel",
+        "электро": "electric",
+        "электр": "electric",
+        "гибрид": "hybrid",
+        "газ": "gas",
+        "газ бензин": "gas_petrol",
+        "газ/бензин": "gas_petrol",
+    }
+
+    return fuel_map.get(v, v if v in {"petrol", "diesel", "electric", "hybrid", "gas", "gas_petrol"} else None)
+
+
 # =========================
 # META PARSING
 # =========================
@@ -670,7 +691,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             final_brand = taxonomy_brand
             final_model = taxonomy_model
 
-            # ✅ fallback extractor (ТОЛЬКО ЕСЛИ НЕ ХВАТАЕТ)
             entities = None
             if not final_brand or not final_model:
                 from services.car_entity_extractor import extract_car_entities
@@ -690,12 +710,19 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
 
             fields = extract_fields(raw_text)
 
+            # 🔥 ФИНАЛЬНАЯ НОРМАЛИЗАЦИЯ FUEL
+            if fields.get("fuel"):
+                fields["fuel"] = _normalize_fuel_value(fields.get("fuel"))
+
             if entities:
                 if not fields.get("mileage") and entities.get("mileage") is not None:
-                    fields["mileage"] = entities.get("mileage")
+                    try:
+                        fields["mileage"] = int(entities.get("mileage"))
+                    except Exception:
+                        pass
 
                 if not fields.get("fuel") and entities.get("fuel"):
-                    fields["fuel"] = entities.get("fuel")
+                    fields["fuel"] = _normalize_fuel_value(entities.get("fuel"))
 
                 if not fields.get("price") and entities.get("price") is not None:
                     fields["price"] = entities.get("price")
@@ -728,6 +755,15 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             enriched_content = apply_meta_prefix(raw_text, meta_prefix)
             _meta, content_wo_meta = parse_meta(enriched_content)
             normalized_text = clean_text(content_wo_meta)
+
+            # 🔥 DEBUG
+            print("[DEBUG NORMALIZE]", {
+                "brand": final_brand,
+                "model": final_model,
+                "fuel": fields.get("fuel"),
+                "mileage": fields.get("mileage"),
+                "price": fields.get("price"),
+            })
 
             doc_kwargs = _build_normalized_document_kwargs(
                 raw=raw,

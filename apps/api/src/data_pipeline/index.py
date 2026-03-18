@@ -187,8 +187,26 @@ def _validate_canonical_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     fuel = payload.get("fuel")
     fuel = fuel if isinstance(fuel, str) and fuel.strip() else None
+
+    # 🔥 нормализация топлива (RU → EN)
+    FUEL_MAP = {
+        "бензин": "petrol",
+        "дизель": "diesel",
+        "электро": "electric",
+        "электр": "electric",
+        "гибрид": "hybrid",
+        "газ": "gas",
+    }
+
+    if isinstance(fuel, str):
+        fuel_norm = fuel.strip().lower()
+
+        if fuel_norm in FUEL_MAP:
+            fuel = FUEL_MAP[fuel_norm]
+
     if fuel not in ALLOWED_FUELS:
         fuel = None
+
     payload["fuel"] = fuel
 
     payload["price"] = _norm_int(payload.get("price"))
@@ -293,10 +311,6 @@ def _should_index_listing_doc(doc: NormalizedDocument, chunk: DocumentChunk) -> 
 # =====================================================
 
 def build_structured_text(doc: NormalizedDocument) -> str:
-    """
-    Structured semantic representation built only from normalized canonical data.
-    """
-
     parts = []
 
     brand = _norm_str(getattr(doc, "brand", None))
@@ -342,13 +356,6 @@ def index_document_chunks(
     limit: int = 2000,
     force_rebuild: bool = False
 ) -> int:
-    """
-    Index pipeline:
-    NormalizedDocument -> DocumentChunk -> embedding(chunk_text) -> Qdrant payload
-
-    Consumes only normalized canonical fields.
-    No extraction or taxonomy business logic here.
-    """
 
     Base.metadata.create_all(bind=engine)
     session = SessionLocal()
@@ -469,6 +476,13 @@ title {title_text}
             if not currency:
                 currency = "RUB"
 
+            print("[DEBUG BEFORE VALIDATE]", {
+                "brand": getattr(doc, "brand", None),
+                "model": getattr(doc, "model", None),
+                "fuel": getattr(doc, "fuel", None),
+                "mileage": getattr(doc, "mileage", None),
+            })
+
             payload = _validate_canonical_payload({
                 "source": getattr(doc, "source", None),
                 "source_url": source_url,
@@ -501,7 +515,6 @@ title {title_text}
 
             doc_quality = (
                 (1 if payload.get("price") else 0)
-                + (1 if payload.get("mileage") else 0)
                 + (1 if payload.get("year") else 0)
             )
             payload["doc_quality"] = doc_quality

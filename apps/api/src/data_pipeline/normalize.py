@@ -676,7 +676,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             final_model = taxonomy_model
 
             # ✅ fallback extractor (ТОЛЬКО ЕСЛИ НЕ ХВАТАЕТ)
-            if not final_brand or not final_model:
+            if not final_model:
                 from services.car_entity_extractor import extract_car_entities
 
                 entities = extract_car_entities(title_text, body_text)

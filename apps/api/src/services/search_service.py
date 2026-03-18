@@ -8,6 +8,8 @@ import os
 import json
 import re
 
+from rank_bm25 import BM25Okapi
+
 try:
     from qdrant_client.models import Filter, FieldCondition, MatchValue
 except ImportError:
@@ -31,6 +33,15 @@ def _normalize_model_strict(v: str) -> str:
     v = (v or "").lower()
     v = v.replace("-", "").replace("_", "").replace(" ", "")
     return v
+
+
+def _bm25_score(query: str, docs: List[str]) -> List[float]:
+    if not docs:
+        return []
+
+    tokenized = [d.split() for d in docs]
+    bm25 = BM25Okapi(tokenized)
+    return bm25.get_scores(query.split())
 
 
 _reranker = None
@@ -300,7 +311,7 @@ class SearchService:
     ) -> Optional[Filter]:
         must_conditions: List[FieldCondition] = []
 
-        if route in {"structured", "brand_only"} and brand:
+        if brand:
             must_conditions.append(
                 FieldCondition(
                     key="brand",
@@ -360,16 +371,14 @@ class SearchService:
             if payload_fuel and payload_fuel != fuel_value:
                 reasons.append("fuel_mismatch")
 
+        # ❗ PRICE НЕ РЕЖЕМ ЖЁСТКО
         if structured.price_max is not None:
             price_val = payload.get("price")
             if price_val is not None:
                 try:
-                    if float(price_val) > float(structured.price_max):
-                        reasons.append("price_overflow")
+                    float(price_val)
                 except Exception:
                     reasons.append("price_invalid")
-            else:
-                reasons.append("price_unknown")
 
         if structured.mileage_max is not None:
             mileage_val = payload.get("mileage")
@@ -390,7 +399,9 @@ class SearchService:
                     reasons.append("year_invalid")
 
         if route == "structured" and model_value:
-            if payload_model and not _model_soft_match(payload_model, model_value):
+            if not payload_model:
+                reasons.append("model_missing")
+            elif not _model_soft_match(payload_model, model_value):
                 reasons.append("model_mismatch")
 
         return len(reasons) == 0, reasons
@@ -463,6 +474,14 @@ class SearchService:
     ) -> Tuple[float, Dict[str, float]]:
         signals = self._compute_soft_signals(payload, structured, semantic_score, route)
 
+        docs = []
+        for key in ("title", "title_text", "content"):
+            if payload.get(key):
+                docs.append(str(payload.get(key)))
+
+        bm25_scores = _bm25_score(structured.raw_query or "", docs) if docs else [0.0]
+        signals["bm25"] = max(bm25_scores) if bm25_scores else 0.0
+
         weights = {
             "semantic": self._env_float("SEARCH_W_SEMANTIC", 0.25),
             "text_match": self._env_float("SEARCH_W_TEXT", 0.20),
@@ -476,6 +495,7 @@ class SearchService:
             "source_quality": self._env_float("SEARCH_W_SOURCE", 0.03),
             "sale_intent": self._env_float("SEARCH_W_SALE", 0.02),
             "representation_quality": self._env_float("SEARCH_W_REPRESENTATION", 0.02),
+            "bm25": 0.15,
         }
 
         final_score = 0.0
@@ -483,83 +503,6 @@ class SearchService:
             final_score += signals.get(key, 0.0) * weight
 
         return final_score, signals
-
-    def _rerank_results(
-        self,
-        query: str,
-        results: List[Dict[str, Any]],
-        top_k: int = 20,
-    ) -> List[Dict[str, Any]]:
-        if not results:
-            return results
-
-        reranker = get_reranker()
-        max_rerank = min(len(results), self._env_int("SEARCH_RERANK_MAX_CANDIDATES", 50))
-        blend = self._env_float("SEARCH_RERANK_BLEND", 0.25)
-
-        rerank_slice = results[:max_rerank]
-        tail_slice = results[max_rerank:]
-
-        pairs = []
-        for r in rerank_slice:
-            text = ""
-            if r.get("brand"):
-                text += f"{r['brand']} "
-            if r.get("model"):
-                text += f"{r['model']} "
-            if r.get("year"):
-                text += f"{r['year']} "
-            if r.get("fuel"):
-                text += f"{r['fuel']} "
-            if r.get("mileage") is not None:
-                text += f"{r['mileage']} km "
-            if r.get("price") is not None:
-                text += f"{r['price']} rub "
-            pairs.append((query, text.strip()[:300]))
-
-        try:
-            rerank_scores = [float(x) for x in reranker.predict(pairs)]
-        except Exception as e:
-            print(f"[RERANK][WARN] failed: {e}", flush=True)
-            return results[:top_k]
-
-        if rerank_scores:
-            min_score = min(rerank_scores)
-            max_score = max(rerank_scores)
-        else:
-            min_score = 0.0
-            max_score = 0.0
-
-        denom = max_score - min_score
-
-        for idx, row in enumerate(rerank_slice):
-            original_score = float(row.get("score", 0.0) or 0.0)
-            raw_rerank = rerank_scores[idx]
-
-            if denom == 0:
-                rerank_norm = 0.5
-            else:
-                rerank_norm = (raw_rerank - min_score) / denom
-
-            final_blended_score = (original_score * (1.0 - blend)) + (rerank_norm * blend)
-
-            row["original_score"] = original_score
-            row["rerank_score"] = raw_rerank
-            row["rerank_score_norm"] = round(rerank_norm, 6)
-            row["final_blended_score"] = round(final_blended_score, 6)
-
-            row["score"] = round(final_blended_score, 6)
-
-            if "why_match" in row:
-                row["why_match"] += f" + rerank={round(rerank_norm, 4)} + final={row['score']}"
-
-        rerank_slice.sort(
-            key=lambda x: x.get("final_blended_score", x.get("score", 0.0)),
-            reverse=True,
-        )
-
-        merged = rerank_slice + tail_slice
-        return merged[:top_k]
 
     def search(
         self,
@@ -575,7 +518,7 @@ class SearchService:
         if top_k is None:
             top_k = self._env_int("SEARCH_TOP_K", 120)
 
-        min_candidates = self._env_int("SEARCH_MIN_CANDIDATES", 120)
+        min_candidates = self._env_int("SEARCH_MIN_CANDIDATES", 200)
 
         brand_conf = float(getattr(structured, "brand_confidence", 0.0) or 0.0)
 

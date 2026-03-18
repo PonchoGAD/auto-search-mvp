@@ -35,7 +35,9 @@ def route_query(structured: StructuredQuery) -> RouteType:
             for k in keywords
         )
 
-    if has_brand and (has_model or has_numeric or has_fuel or has_city or has_paint):
+    # ✅ FIX: убрали жесткую привязку model → structured
+    # и numeric теперь НЕ отправляет автоматически в structured
+    if has_brand and (has_fuel or has_city or has_paint):
         return "structured"
 
     if has_brand and has_model:

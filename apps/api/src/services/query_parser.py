@@ -70,13 +70,11 @@ def _normalize_parse_text(text: str) -> str:
 
 
 def _normalize_model_token(value: str) -> str:
-    value = (value or "").strip().lower()
-    value = value.replace("_", "-")
-    value = re.sub(r"\s+", " ", value)
-    value = re.sub(r"\b([a-zа-я]+)\s+(\d{1,4})\b", r"\1\2", value, flags=re.IGNORECASE)
-    value = value.replace(" ", "-")
-    value = re.sub(r"-{2,}", "-", value)
-    return value.strip("-")
+    value = (value or "").lower().strip()
+    value = value.replace("-", "")
+    value = value.replace("_", "")
+    value = value.replace(" ", "")
+    return value
 
 
 def _looks_like_model_token(token: str) -> bool:
@@ -260,6 +258,9 @@ def _extract_mileage_max(text: str) -> Optional[int]:
 
 
 def _extract_price_max(text: str, mileage_context: bool) -> Optional[int]:
+    if mileage_context:
+        return None
+
     patterns_with_limit = [
         r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(млн)\b",
         r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(тыс|к)\b",

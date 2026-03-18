@@ -291,6 +291,7 @@ class QdrantStore:
 
         for p in points:
             payload = self.build_payload(p.payload or {})
+            print(f"[DEBUG][UPSERT] brand={payload.get('brand')} model={payload.get('model')}", flush=True)
 
             normalized_points.append(
                 PointStruct(

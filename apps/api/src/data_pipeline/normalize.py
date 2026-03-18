@@ -417,12 +417,10 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
             except Exception:
                 pass
 
-        # fallback
         fallback = extract_mileage(source_text)
         if isinstance(fallback, int) and _valid_mileage(fallback):
             return fallback
 
-        # ещё fallback: просто любое число + км
         m = re.search(r'(\d{4,6})\s?км', lowered)
         if m:
             try:
@@ -677,13 +675,17 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             final_brand = taxonomy_brand
             final_model = taxonomy_model
 
-            # 🔥 fallback: вытаскиваем модель из title если не нашли
-            if final_brand and not final_model:
-                tokens = (title_text or "").lower().split()
-                for t in tokens:
-                    if len(t) >= 2 and t not in final_brand:
-                        final_model = t
-                        break
+            # ✅ fallback extractor (ТОЛЬКО ЕСЛИ НЕ ХВАТАЕТ)
+            if not final_brand or not final_model:
+                from services.car_entity_extractor import extract_car_entities
+
+                entities = extract_car_entities(title_text, body_text)
+
+                if not final_brand:
+                    final_brand = entities.get("brand")
+
+                if final_brand and not final_model:
+                    final_model = entities.get("model")
 
             if final_brand:
                 final_brand = taxonomy_service.canonicalize_brand(final_brand)
@@ -691,11 +693,13 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             if final_brand and final_model:
                 final_model = taxonomy_service.canonicalize_model(final_brand, final_model)
 
+            if final_model:
+                final_model = final_model.replace("-", "").strip()
+
             fields = extract_fields(raw_text)
 
             sale = detect_sale_intent(raw_text)
 
-            # fallback (очень важно)
             if sale == 0:
                 sale = int(extract_sale(raw_text))
 

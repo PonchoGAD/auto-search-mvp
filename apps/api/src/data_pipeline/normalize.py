@@ -22,29 +22,63 @@ from services.taxonomy_service import taxonomy_service
 # ADDED EXTRACTION HELPERS
 # =========================
 
-def extract_mileage(text):
-    import re
-    m = re.search(r'(\d{2,3})\s?000\s?км', (text or "").lower())
-    if m:
-        return int(m.group(1)) * 1000
+def extract_mileage(text: str) -> Optional[int]:
+    text = (text or "").lower().replace("\u00A0", " ").replace("\xa0", " ")
+
+    if _is_speed_noise(text):
+        return None
+
+    patterns = [
+        r"\bпробег[:\s]+(\d[\d\s]{2,10})\b",
+        r"\b(\d[\d\s]{2,10})\s*(км|km)\b",
+        r"\b(\d{1,3}(?:[.,]\d+)?)\s*(тыс\.?\s*км|тыс\.?|т\.км|k)\b",
+        r"\b(\d{4,6})\s?км\b",
+    ]
+
+    for p in patterns:
+        m = re.search(p, text, re.IGNORECASE)
+        if not m:
+            continue
+
+        try:
+            raw = m.group(1).replace(" ", "").replace(",", ".")
+            if any(x in p for x in ["тыс", "т\\.км", "k"]):
+                value = int(float(raw) * 1000)
+            else:
+                value = int(float(raw))
+
+            if 0 <= value <= 500_000:
+                return value
+        except Exception:
+            continue
+
     return None
 
 
-def extract_fuel(text):
+def extract_fuel(text: str) -> Optional[str]:
     text = (text or "").lower()
-    if "бензин" in text:
-        return "petrol"
-    if "дизель" in text:
-        return "diesel"
-    if "гибрид" in text:
-        return "hybrid"
-    if "электро" in text:
-        return "electric"
+
+    if re.search(r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ|газ\s+бензин|бензин\s+газ)\b", text):
+        return "gas_petrol"
+
+    fuel_patterns = [
+        (r"\b(бензин|бензиновый|бенз|petrol|gasoline|mpi|fsi|tsi|tfsi)\b", "petrol"),
+        (r"\b(дизель|дизельный|диз|diesel|tdi|dci|cdi)\b", "diesel"),
+        (r"\b(гибрид|hybrid|phev|hev)\b", "hybrid"),
+        (r"\b(электро|электр|electric|ev|электромобиль)\b", "electric"),
+        (r"\b(газ|lpg|gbo|cng)\b", "gas"),
+    ]
+
+    for pattern, fuel_value in fuel_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            return fuel_value
+
     return None
 
 
-def extract_sale(text):
-    if any(x in (text or "").lower() for x in ["продам", "продаю", "цена", "₽"]):
+def extract_sale(text: str) -> str:
+    lower = (text or "").lower()
+    if any(x in lower for x in ["продам", "продаю", "продажа", "цена", "₽", "руб"]):
         return "1"
     return "0"
 
@@ -287,7 +321,7 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     lower = text.lower()
     current_year = datetime.utcnow().year
 
-    title_part = text[:140]
+    title_part = text[:180]
 
     def _valid_year(value: int) -> bool:
         return 1985 <= value <= current_year + 1
@@ -303,20 +337,15 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         if not matches:
             return None
 
-        valid = []
         for y in matches:
             try:
                 y_int = int(y)
                 if _valid_year(y_int):
-                    valid.append(y_int)
+                    return y_int
             except Exception:
                 continue
 
-        if not valid:
-            return None
-
-        title_year = valid[0]
-        return title_year
+        return None
 
     def _extract_price(source_text: str) -> Optional[int]:
         m = RE_PRICE.search(source_text)
@@ -361,17 +390,17 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         if val < 100_000:
             return None
 
-        if _valid_mileage(val):
-            prefix = source_text[:m.start(1)].lower()
-            nearby = source_text[max(0, m.start(1) - 20):m.end(1) + 20].lower()
-            if (
-                "км" in nearby
-                or "km" in nearby
-                or "тыс" in nearby
-                or "т.км" in nearby
-                or "пробег" in prefix
-            ):
-                return None
+        nearby = source_text[max(0, m.start(1) - 20):m.end(1) + 20].lower()
+        prefix = source_text[:m.start(1)].lower()
+
+        if (
+            "км" in nearby
+            or "km" in nearby
+            or "тыс" in nearby
+            or "т.км" in nearby
+            or "пробег" in prefix
+        ):
+            return None
 
         if _valid_price(val):
             return val
@@ -384,11 +413,10 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
 
         lowered = (source_text or "").lower()
 
-        m = re.search(r"пробег[:\s]+(\d[\d\s\u00A0]{2,10})\b", lowered, re.IGNORECASE)
+        m = re.search(r"\bпробег[:\s]+(\d[\d\s\u00A0]{2,10})\b", lowered, re.IGNORECASE)
         if m:
-            raw = _digits_only(m.group(1))
             try:
-                val = int(raw)
+                val = int(_digits_only(m.group(1)))
                 if _valid_mileage(val):
                     return val
             except Exception:
@@ -409,8 +437,8 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
 
         m = RE_MILEAGE_K.search(lowered)
         if m:
-            raw = m.group(1).replace(",", ".")
             try:
+                raw = m.group(1).replace(",", ".")
                 val = int(float(raw) * 1000)
                 if _valid_mileage(val):
                     return val
@@ -420,15 +448,6 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         fallback = extract_mileage(source_text)
         if isinstance(fallback, int) and _valid_mileage(fallback):
             return fallback
-
-        m = re.search(r'(\d{4,6})\s?км', lowered)
-        if m:
-            try:
-                val = int(m.group(1))
-                if _valid_mileage(val):
-                    return val
-            except:
-                pass
 
         return None
 
@@ -450,9 +469,9 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     fuel_matches = RE_FUEL.findall(lower)
     if fuel_matches:
         normalized = []
-        for raw in fuel_matches:
-            raw_fuel = str(raw).lower().strip()
-            mapped = FUEL_MAP.get(raw_fuel)
+        for raw_fuel in fuel_matches:
+            value = str(raw_fuel).lower().strip()
+            mapped = FUEL_MAP.get(value)
             if mapped:
                 normalized.append(mapped)
 
@@ -465,7 +484,6 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         fuel = extract_fuel(text)
 
     paint_condition = None
-
     if (
         "без окраса" in lower
         or "без окрасов" in lower
@@ -619,12 +637,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
     skipped = 0
 
     counters = Counter()
-    counters["extracted_brand_count"] = 0
-    counters["extracted_model_count"] = 0
-    counters["missing_brand_count"] = 0
-    counters["missing_model_count"] = 0
-    counters["ambiguous_brand_model_count"] = 0
-    counters["conflict_count"] = 0
 
     try:
         for raw in raws:
@@ -641,28 +653,11 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 session.delete(exists)
                 session.flush()
 
-            if (raw.source or "").strip().lower() in {"dev_seed", "seed", "test", "debug"}:
-                skipped += 1
-                continue
-
-            if raw.source_url and (
-                "seed.local" in raw.source_url
-                or "localhost" in raw.source_url
-                or "example.com" in raw.source_url
-            ):
-                skipped += 1
-                continue
-
             title_text = normalize_title_format((raw.title or "").strip())
             body_text = strip_drom_noise((raw.content or "").strip())
             raw_text = f"{title_text}\n{body_text}".strip()
-            raw_text = raw_text.replace("₽", " ₽ ")
 
-            skip, _skip_meta = should_skip_doc(
-                text=raw_text,
-                source=raw.source or "",
-            )
-
+            skip, _ = should_skip_doc(text=raw_text, source=raw.source or "")
             if skip:
                 skipped += 1
                 continue
@@ -676,9 +671,9 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             final_model = taxonomy_model
 
             # ✅ fallback extractor (ТОЛЬКО ЕСЛИ НЕ ХВАТАЕТ)
-            if not final_model:
+            entities = None
+            if not final_brand or not final_model:
                 from services.car_entity_extractor import extract_car_entities
-
                 entities = extract_car_entities(title_text, body_text)
 
                 if not final_brand:
@@ -693,13 +688,23 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             if final_brand and final_model:
                 final_model = taxonomy_service.canonicalize_model(final_brand, final_model)
 
-            if final_model:
-                final_model = final_model.strip()
-
             fields = extract_fields(raw_text)
 
-            sale = detect_sale_intent(raw_text)
+            if entities:
+                if not fields.get("mileage") and entities.get("mileage") is not None:
+                    fields["mileage"] = entities.get("mileage")
 
+                if not fields.get("fuel") and entities.get("fuel"):
+                    fields["fuel"] = entities.get("fuel")
+
+                if not fields.get("price") and entities.get("price") is not None:
+                    fields["price"] = entities.get("price")
+                    fields["currency"] = "RUB"
+
+                if not fields.get("year") and entities.get("year") is not None:
+                    fields["year"] = entities.get("year")
+
+            sale = detect_sale_intent(raw_text)
             if sale == 0:
                 sale = int(extract_sale(raw_text))
 
@@ -724,19 +729,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             _meta, content_wo_meta = parse_meta(enriched_content)
             normalized_text = clean_text(content_wo_meta)
 
-            if final_brand:
-                counters["extracted_brand_count"] += 1
-            else:
-                counters["missing_brand_count"] += 1
-
-            if final_model:
-                counters["extracted_model_count"] += 1
-            else:
-                counters["missing_model_count"] += 1
-
-            if final_brand and not final_model:
-                counters["ambiguous_brand_model_count"] += 1
-
             doc_kwargs = _build_normalized_document_kwargs(
                 raw=raw,
                 normalized_text=normalized_text,
@@ -754,20 +746,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         session.commit()
 
     finally:
-        try:
-            session.close()
-        except Exception:
-            pass
+        session.close()
 
-    print(
-        "[NORMALIZE] "
-        f"docs_saved={saved} skipped={skipped} total={len(raws)} "
-        f"extracted_brand_count={counters['extracted_brand_count']} "
-        f"extracted_model_count={counters['extracted_model_count']} "
-        f"missing_brand_count={counters['missing_brand_count']} "
-        f"missing_model_count={counters['missing_model_count']} "
-        f"ambiguous_brand_model_count={counters['ambiguous_brand_model_count']} "
-        f"conflict_count={counters['conflict_count']}",
-        flush=True,
-    )
     return saved

@@ -44,7 +44,7 @@ def _bm25_score(query: str, docs: List[str]) -> float:
         return 0.0
 
     prepared_docs = [_normalize_token_text(d) for d in docs if d]
-    prepared_docs = [d for d in prepared_docs if d]
+    prepared_docs =[d for d in prepared_docs if d]
     if not prepared_docs:
         return 0.0
 
@@ -58,7 +58,7 @@ def _bm25_score(query: str, docs: List[str]) -> float:
         raw_scores = bm25.get_scores(tokenized_query)
         raw_max = max(raw_scores) if len(raw_scores) else 0.0
 
-        # safe normalization to [0..1]
+        # safe normalization to[0..1]
         return max(0.0, min(1.0, raw_max / 8.0))
     except Exception:
         return 0.0
@@ -229,7 +229,7 @@ class SearchService:
                 "referrer",
             )
 
-            filtered_query = []
+            filtered_query =[]
             for k, v in parse_qsl(parsed.query, keep_blank_values=True):
                 key_norm = (k or "").strip().lower()
                 if key_norm.startswith(tracking_prefixes):
@@ -290,7 +290,7 @@ class SearchService:
             return 0.50
 
     def _build_query_text(self, structured: StructuredQuery) -> str:
-        parts: List[str] = []
+        parts: List[str] =[]
         seen = set()
 
         def add(part: Optional[str]):
@@ -318,7 +318,7 @@ class SearchService:
         if structured.mileage_max:
             add(f"mileage under {structured.mileage_max}")
 
-        for kw in getattr(structured, "keywords", []) or []:
+        for kw in getattr(structured, "keywords", []) or[]:
             add(str(kw))
 
         if not parts:
@@ -333,7 +333,7 @@ class SearchService:
         model: str = None,
         fuel: str = None,
     ) -> Optional[Filter]:
-        must_conditions: List[FieldCondition] = []
+        must_conditions: List[FieldCondition] =[]
 
         if brand and brand in WHITELIST_SET:
             must_conditions.append(
@@ -371,7 +371,7 @@ class SearchService:
         structured: StructuredQuery,
         route: str,
     ) -> Tuple[bool, List[str]]:
-        reasons: List[str] = []
+        reasons: List[str] =[]
 
         brand_value = _normalize_token_text(structured.brand or "")
         fuel_value = _normalize_token_text(structured.fuel or "")
@@ -392,8 +392,11 @@ class SearchService:
             if payload_brand and payload_brand != brand_value:
                 reasons.append("brand_mismatch")
 
+        # 🔥 ЖЁСТКИЙ FUEL FILTER
         if fuel_value:
-            if payload_fuel and payload_fuel != fuel_value:
+            if not payload_fuel:
+                reasons.append("fuel_missing")
+            elif payload_fuel != fuel_value:
                 reasons.append("fuel_mismatch")
 
         # ❗ PRICE НЕ РЕЖЕМ ЖЁСТКО
@@ -405,9 +408,13 @@ class SearchService:
                 except Exception:
                     reasons.append("price_invalid")
 
+        # 🔥 ЖЁСТКИЙ ПРОБЕГ (КРИТИЧНО)
         if structured.mileage_max is not None:
             mileage_val = payload.get("mileage")
-            if mileage_val is not None:
+
+            if mileage_val is None:
+                reasons.append("mileage_missing")
+            else:
                 try:
                     if float(mileage_val) > float(structured.mileage_max):
                         reasons.append("mileage_overflow")
@@ -499,7 +506,7 @@ class SearchService:
     ) -> Tuple[float, Dict[str, float]]:
         signals = self._compute_soft_signals(payload, structured, semantic_score, route)
 
-        docs = []
+        docs =[]
         for key in ("title", "title_text", "content"):
             if payload.get(key):
                 docs.append(str(payload.get(key)))
@@ -513,13 +520,13 @@ class SearchService:
             "completeness": self._env_float("SEARCH_W_COMPLETENESS", 0.08),
             "price_fit": self._env_float("SEARCH_W_PRICE", 0.08),
             "mileage_fit": self._env_float("SEARCH_W_MILEAGE", 0.06),
-            "fuel_match": self._env_float("SEARCH_W_FUEL", 0.06),
+            "fuel_match": self._env_float("SEARCH_W_FUEL", 0.12),
             "brand_match": self._env_float("SEARCH_W_BRAND", 0.15),
             "model_match": self._env_float("SEARCH_W_MODEL", 0.18),
             "source_quality": self._env_float("SEARCH_W_SOURCE", 0.03),
             "sale_intent": self._env_float("SEARCH_W_SALE", 0.02),
             "representation_quality": self._env_float("SEARCH_W_REPRESENTATION", 0.02),
-            "bm25": self._env_float("SEARCH_W_BM25", 0.08),
+            "bm25": self._env_float("SEARCH_W_BM25", 0.15),
         }
 
         final_score = 0.0
@@ -544,9 +551,9 @@ class SearchService:
         rerank_slice = results[:max_rerank]
         tail_slice = results[max_rerank:]
 
-        pairs = []
+        pairs =[]
         for r in rerank_slice:
-            text_parts = []
+            text_parts =[]
             for key in ("brand", "model", "year", "fuel", "mileage", "price"):
                 value = r.get(key)
                 if value is not None:
@@ -643,7 +650,7 @@ class SearchService:
                 "year_min": structured.year_min,
             },
             "route": route,
-            "retrieval_stages": [],
+            "retrieval_stages":[],
             "filtering": {
                 "checked_candidates": 0,
                 "discarded_candidates": 0,
@@ -655,7 +662,7 @@ class SearchService:
                 "completeness_avg": 0.0,
                 "price_fit_avg": 0.0,
                 "mileage_fit_avg": 0.0,
-                "top_score_breakdowns": [],
+                "top_score_breakdowns":[],
             },
             "dedup": {
                 "skipped_by_point_id_duplicate": 0,
@@ -691,22 +698,30 @@ class SearchService:
         expanded_queries = expand_query(structured.raw_query or "")
         vectors = [query_vector]
 
-        prefilter_must = []
+        prefilter_must =[]
 
+        # 🔥 BRAND PREFILTER (ОБЯЗАТЕЛЬНО)
         if brand_filter_value:
             prefilter_must.append(
                 FieldCondition(key="brand", match=MatchValue(value=brand_filter_value))
             )
 
+        # 🔥 MODEL PREFILTER (если есть)
         if model_filter_value:
             prefilter_must.append(
                 FieldCondition(key="model", match=MatchValue(value=model_filter_value))
             )
 
+        # 🔥 FUEL PREFILTER (НОВЫЙ КЛЮЧ)
+        if fuel_filter_value:
+            prefilter_must.append(
+                FieldCondition(key="fuel", match=MatchValue(value=fuel_filter_value))
+            )
+
         prefilter = Filter(must=prefilter_must) if prefilter_must else None
 
         bm25_queries = expand_query(structured.raw_query or "")
-        bm25_hits = []
+        bm25_hits =[]
 
         for q in expanded_queries:
             try:
@@ -721,7 +736,7 @@ class SearchService:
         primary_model = model_filter_value if route == "structured" else None
         primary_fuel = fuel_filter_value if fuel_filter_value else None
 
-        stages: List[Dict[str, Any]] = [
+        stages: List[Dict[str, Any]] =[
             {
                 "stage_name": "strict_primary",
                 "enabled": True,
@@ -774,7 +789,7 @@ class SearchService:
             },
         ]
 
-        all_hits = []
+        all_hits =[]
         seen_point_ids = set()
 
         def _search_stage(stage_filter: Optional[Filter]) -> List[Any]:
@@ -835,7 +850,7 @@ class SearchService:
 
         except Exception as e:
             print(f"[SEARCH][WARN] qdrant unavailable: {e}", flush=True)
-            return []
+            return[]
 
         # merge bm25 later (Stage 4)
 
@@ -864,15 +879,15 @@ class SearchService:
                 doc_scores[doc_key] = score
                 doc_payloads[doc_key] = payload
 
-        scored_results: List[Tuple[float, Dict[str, Any], Dict[str, float], List[str]]] = []
+        scored_results: List[Tuple[float, Dict[str, Any], Dict[str, float], List[str]]] =[]
         discard_counter = Counter()
         scoring_snapshots = []
 
         semantic_values = []
-        freshness_values = []
+        freshness_values =[]
         completeness_values = []
         price_fit_values = []
-        mileage_fit_values = []
+        mileage_fit_values =[]
 
         for doc_key, payload in doc_payloads.items():
             debug["filtering"]["checked_candidates"] += 1
@@ -902,7 +917,7 @@ class SearchService:
             price_fit_values.append(signals.get("price_fit", 0.0))
             mileage_fit_values.append(signals.get("mileage_fit", 0.0))
 
-            reasons_list = [
+            reasons_list =[
                 f"semantic={round(signals.get('semantic', 0.0), 4)}",
                 f"text_match={round(signals.get('text_match', 0.0), 4)}",
                 f"freshness={round(signals.get('freshness', 0.0), 4)}",
@@ -935,7 +950,7 @@ class SearchService:
 
         scored_results.sort(key=lambda x: x[0], reverse=True)
 
-        results: List[Dict[str, Any]] = []
+        results: List[Dict[str, Any]] =[]
         seen_canonical_urls = set()
         seen_fingerprints = set()
         source_counter: Dict[str, int] = {}
@@ -999,13 +1014,20 @@ class SearchService:
             )
 
             if structured.brand:
-                results = [
+                results =[
                     r for r in results
                     if (r.get("brand") or "").lower() == structured.brand.lower()
                 ]
 
+            # 🔥 FINAL FUEL CLEAN (последний щит)
+            if structured.fuel:
+                results =[
+                    r for r in results
+                    if (r.get("fuel") or "").lower() == structured.fuel.lower()
+                ]
+
             if canonical_model:
-                results = [
+                results =[
                     r for r in results
                     if r.get("model") and _model_soft_match(r.get("model", ""), canonical_model)
                 ]
@@ -1020,7 +1042,7 @@ class SearchService:
         return results
 
     def _text_score(self, payload: Dict[str, Any], structured: StructuredQuery) -> float:
-        text_parts: List[str] = []
+        text_parts: List[str] =[]
 
         for key in ("brand", "model", "title", "title_text", "content"):
             value = payload.get(key)
@@ -1034,12 +1056,12 @@ class SearchService:
         score = 0.0
 
         if structured.brand and _normalize_token_text(structured.brand) in text:
-            score += 1.2
+            score += 1.5
 
         if structured.model:
             model_norm = _normalize_token_text(structured.model)
             if model_norm in text or _compact_token_text(model_norm) in _compact_token_text(text):
-                score += 1.2
+                score += 1.5
 
         if structured.fuel:
             fuel_value = _normalize_token_text(structured.fuel)
@@ -1048,7 +1070,7 @@ class SearchService:
                 if payload_fuel == fuel_value:
                     score += 0.8
 
-        for kw in getattr(structured, "keywords", []) or []:
+        for kw in getattr(structured, "keywords", []) or[]:
             kw_norm = _normalize_token_text(str(kw))
             if kw_norm and kw_norm in text:
                 score += 0.15
@@ -1073,7 +1095,7 @@ class SearchService:
             return 0.0
 
     def _completeness_score(self, payload: Dict[str, Any]) -> float:
-        keys = ["price", "mileage", "year", "brand", "model", "fuel"]
+        keys =["price", "mileage", "year", "brand", "model", "fuel"]
         present = 0
         for k in keys:
             if payload.get(k) is not None:
@@ -1100,6 +1122,10 @@ class SearchService:
                 return 0.0
 
             ratio = price_val / denom
+
+            if ratio > 1.0:
+                return 0.05  # ❗ мягкий штраф, но не убиваем
+
             return max(0.0, min(1.0, 1.0 - ratio))
 
         denom = 5_000_000.0

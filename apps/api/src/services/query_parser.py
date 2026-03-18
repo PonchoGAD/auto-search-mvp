@@ -181,7 +181,7 @@ def _parse_mileage_value(num_str: str, unit: str | None) -> Optional[int]:
 def _has_mileage_context(text: str) -> bool:
     return bool(
         re.search(
-            r"\b(пробег|км|km|т\.км|тыс\s*км|\d+км|\d+к)\b",
+            r"\b(пробег|км|km|т\.км|тыс\s*км|\d+\s*км|\d+\s*km|\d+\s*тыс)\b",
             text,
             re.IGNORECASE,
         )
@@ -214,25 +214,25 @@ def _extract_year_min(text: str, current_year: int) -> Optional[int]:
 def _extract_fuel(text: str) -> Optional[str]:
     fuel_patterns = [
         (r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ|газ\s+бензин|бензин\s+газ)\b", "gas_petrol"),
-        (r"\b(бенз|бензин|petrol|gasoline)\b", "petrol"),
-        (r"\b(диз|дизель|diesel)\b", "diesel"),
-        (r"\b(гибрид|hybrid|phev)\b", "hybrid"),
-        (r"\b(электро|электр|electric|ev)\b", "electric"),
+        (r"\b(бензин|бенз|petrol|gasoline)\b", "petrol"),
+        (r"\b(дизель|диз|diesel)\b", "diesel"),
+        (r"\b(гибрид|hybrid|phev|hev)\b", "hybrid"),
+        (r"\b(электро|электр|electric|ev|электромобиль)\b", "electric"),
     ]
 
     for pattern, fuel_value in fuel_patterns:
         if re.search(pattern, text, re.IGNORECASE):
             return fuel_value
+
     return None
 
 
 def _extract_mileage_max(text: str) -> Optional[int]:
     patterns = [
         r"\bпробег\s*до\s*(\d+(?:[\s.,]\d+)?)\s*(тыс|т\.км|tkm|k|к|км|km)?\b",
-        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(тыс\s*км|т\.км|tkm|kм|km|км|тыс|к)\b",
+        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(тыс\s*км|т\.км|tkm|km|км|тыс|к)\b",
         r"\bдо\s*(\d{2,6})\s*(км|km)\b",
-        r"\bдо\s*(\d+(?:[.,]\d+)?)к\b",
-        r"\b(\d+(?:[\s.,]\d+)?)\s*т\.км\b",
+        r"\b(\d+(?:[\s.,]\d+)?)\s*(тыс\s*км|т\.км)\b",
         r"\bпробег\s*(\d+(?:[\s.,]\d+)?)\s*тыс\s*км\b",
     ]
 
@@ -247,7 +247,7 @@ def _extract_mileage_max(text: str) -> Optional[int]:
 
         if unit_norm in {"тыскм", "тыс"}:
             unit_norm = "тыс"
-        elif unit_norm in {"kм", "km"}:
+        elif unit_norm in {"km"}:
             unit_norm = "км"
 
         value = _parse_mileage_value(num, unit_norm)
@@ -258,10 +258,9 @@ def _extract_mileage_max(text: str) -> Optional[int]:
 
 
 def _extract_price_max(text: str, mileage_context: bool) -> Optional[int]:
-    if mileage_context:
-        # ❗ если есть пробег — цену НЕ трогаем
-        if re.search(r"\d+\s*(км|km|тыс)", text.lower()):
-            return None
+    # если в запросе есть явный пробег — не трогаем цену по голому числу
+    if mileage_context and re.search(r"\b\d+(?:[\s.,]\d+)?\s*(км|km|тыс\s*км|т\.км)\b", text, re.IGNORECASE):
+        return None
 
     patterns_with_limit = [
         r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(млн)\b",
@@ -276,22 +275,21 @@ def _extract_price_max(text: str, mileage_context: bool) -> Optional[int]:
             continue
 
         matched = m.group(0).lower()
-
-        if "км" in matched or "km" in matched:
-            continue
-
-        unit_candidate = m.group(2).lower() if len(m.groups()) > 1 and m.group(2) else ""
-        if mileage_context and unit_candidate in {"к", "тыс"}:
+        if "км" in matched or "km" in matched or "т.км" in matched:
             continue
 
         unit = m.group(2) if len(m.groups()) > 1 else None
+        unit_candidate = (unit or "").lower()
+
+        if mileage_context and unit_candidate in {"к", "тыс"}:
+            continue
+
         value = _parse_price_value(m.group(1), unit)
         if value is not None:
             return value
 
     soft_patterns = [
         r"\b(\d+(?:[\s.,]\d+)?)\s*(млн)\b",
-        r"\b(\d+(?:[\s.,]\d+)?)\s*(тыс)\b",
         r"\b(\d+(?:[\s.,]\d+)?)\s*(₽|руб|р\.?|р)\b",
     ]
 
@@ -388,10 +386,10 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     mileage_context = _has_mileage_context(text)
     result.mileage_max = _extract_mileage_max(text)
 
-    if result.mileage_max is None:
-        result.price_max = _extract_price_max(text, mileage_context=mileage_context)
+    if result.mileage_max is not None:
+        result.price_max = None
     else:
-        result.price_max = _extract_price_max(text, mileage_context=True)
+        result.price_max = _extract_price_max(text, mileage_context=mileage_context)
 
     if "без окрас" in text or "без окраса" in text or "не бит" in text or "родная краска" in text:
         result.paint_condition = "original"

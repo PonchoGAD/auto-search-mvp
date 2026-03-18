@@ -77,5 +77,9 @@ def normalize_query(raw_text: str) -> str:
     text = text.replace("пробегом", "пробег")
     text = text.replace("пробега", "пробег")
 
+    # normalize km dots
+    text = text.replace("км.", "км")
+    text = text.replace("km.", "km")
+
     text = re.sub(r"\s+", " ", text).strip()
     return text

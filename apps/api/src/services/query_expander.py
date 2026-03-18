@@ -9,8 +9,12 @@ def _norm(q: str) -> str:
     return q
 
 
-def expand_query(query):
+def expand_query(query, structured=None):
     if not query:
+        return []
+
+    # ✅ Рекомендация: не расширяем точный запрос
+    if structured and getattr(structured, "model", None):
         return []
 
     q = _norm(query)
@@ -173,8 +177,13 @@ def expand_query(query):
     expansions = []
     seen = set()
 
+    # ✅ FIX: работаем через токены
+    tokens = set(q.split())
+
     for key, values in expansions_map.items():
-        if key in q:
+        key_tokens = set(_norm(key).split())
+
+        if key_tokens.issubset(tokens):
             for v in values:
                 nv = _norm(v)
                 if nv != q and nv not in seen:

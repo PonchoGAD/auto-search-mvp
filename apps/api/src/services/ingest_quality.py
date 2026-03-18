@@ -7,7 +7,7 @@ from services.brand_detector import detect_brand as detect_brand_main
 
 
 DEFAULT_MIN_SALE_SCORE = int(os.getenv("MIN_SALE_SCORE", "2"))
-DEFAULT_MIN_TEXT_LEN = int(os.getenv("MIN_TEXT_LEN", "80"))
+DEFAULT_MIN_TEXT_LEN = int(os.getenv("MIN_TEXT_LEN", "40"))
 DEFAULT_MIN_PRICE_RUB = int(os.getenv("MIN_PRICE_RUB", "150000"))
 DEFAULT_MAX_PRICE_RUB = int(os.getenv("MAX_PRICE_RUB", "20000000"))
 DEFAULT_MIN_YEAR = int(os.getenv("MIN_YEAR", "1995"))
@@ -395,7 +395,7 @@ def should_skip_doc(
                         pass
 
         if is_tg:
-            if strong_signals < 2 and not sale:
+            if strong_signals < 1 and not sale:
                 meta["reason"] = "low_entity_signal"
                 if stats:
                     stats.add(True, "low_entity_signal")

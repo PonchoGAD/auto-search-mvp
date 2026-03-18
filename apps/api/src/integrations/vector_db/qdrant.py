@@ -71,6 +71,7 @@ class QdrantStore:
                 hnsw_config={
                     "m": 32,
                     "ef_construct": 256,
+                    "full_scan_threshold": 1000,
                 },
             )
             print(f"[QDRANT] collection created: {COLLECTION_NAME}", flush=True)
@@ -345,7 +346,7 @@ class QdrantStore:
             "limit": requested_limit,
             "with_payload": True,
             "search_params": SearchParams(
-                hnsw_ef=max(256, requested_limit * 4),
+                hnsw_ef=max(512, requested_limit * 6),
                 exact=False,
             ),
         }

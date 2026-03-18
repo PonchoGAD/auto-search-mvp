@@ -76,13 +76,13 @@ def extract_price(text: str):
     if not text:
         return None
 
-    # ❗ игнорим только если рядом с числом явно пробег
-    if re.search(r"\d+\s*(км|km)", text.lower()):
-        # но если есть ₽ → это точно цена
-        if "₽" not in text and "руб" not in text:
-            return None
-
     t = text.replace("\xa0", " ")
+
+    # если в тексте есть явный пробег, но нет валюты и нет млн/к,
+    # не считаем число ценой
+    if re.search(r"\d+\s*(км|km)", t.lower()):
+        if "₽" not in t and "руб" not in t and not re.search(r"\b\d+(?:[.,]\d+)?\s*(млн|м|k|к)\b", t.lower()):
+            return None
 
     lemon_match = re.search(r"(\d+(?:[.,]\d+)?)\s?🍋", t)
     if lemon_match:
@@ -94,21 +94,21 @@ def extract_price(text: str):
         except Exception:
             pass
 
-    k_match = re.search(r"(\d+(?:[.,]\d+)?)\s?[kк]\b", t.lower())
-    if k_match:
-        try:
-            value = float(k_match.group(1).replace(",", "."))
-            price = int(value * 1000)
-            if 10_000 < price < 200_000_000:
-                return price
-        except Exception:
-            pass
-
     m_match = re.search(r"(\d+(?:[.,]\d+)?)\s?[mм]\b", t.lower())
     if m_match:
         try:
             value = float(m_match.group(1).replace(",", "."))
             price = int(value * 1_000_000)
+            if 10_000 < price < 200_000_000:
+                return price
+        except Exception:
+            pass
+
+    k_match = re.search(r"(\d+(?:[.,]\d+)?)\s?[kк]\b", t.lower())
+    if k_match:
+        try:
+            value = float(k_match.group(1).replace(",", "."))
+            price = int(value * 1000)
             if 10_000 < price < 200_000_000:
                 return price
         except Exception:
@@ -184,7 +184,11 @@ def extract_mileage(text):
     m = RE_MILEAGE.search(t)
     if m:
         try:
-            val = int(_digits_only(m.group(1)))
+            raw = _digits_only(m.group(1))
+            unit = (m.group(2) or "").lower()
+            val = int(raw)
+            if "тыс" in unit or "т.км" in unit:
+                val *= 1000
             if 0 <= val <= 500_000:
                 return val
         except Exception:
@@ -200,6 +204,15 @@ def extract_mileage(text):
         except Exception:
             pass
 
+    m = re.search(r"\b(\d{4,6})\s?(км|km)\b", t.lower())
+    if m:
+        try:
+            val = int(m.group(1))
+            if 0 <= val <= 500_000:
+                return val
+        except Exception:
+            pass
+
     return None
 
 
@@ -209,15 +222,20 @@ def extract_fuel(text):
 
     t = _norm(text)
 
-    if "газ/бензин" in t or "газ бензин" in t or "бензин/газ" in t or "бензин газ" in t:
+    if re.search(r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ|газ\s+бензин|бензин\s+газ)\b", t):
         return "gas_petrol"
 
-    if "plug in hybrid" in t or "phev" in t:
-        return "hybrid"
+    fuel_patterns = [
+        (r"\b(бензин|бензиновый|бенз|petrol|gasoline)\b", "petrol"),
+        (r"\b(дизель|дизельный|диз|diesel)\b", "diesel"),
+        (r"\b(гибрид|hybrid|plug in hybrid|phev)\b", "hybrid"),
+        (r"\b(электро|электр|электрический|электромобиль|electric|ev)\b", "electric"),
+        (r"\b(газ|гбо|lpg)\b", "gas"),
+    ]
 
-    for k, v in FUEL_MAP.items():
-        if f" {k} " in f" {t} ":
-            return v
+    for pattern, fuel_value in fuel_patterns:
+        if re.search(pattern, t, re.IGNORECASE):
+            return fuel_value
 
     return None
 
@@ -228,7 +246,6 @@ def extract_car_entities(title, content):
     brand = None
     model = None
 
-    # ✅ используем ТОЛЬКО taxonomy
     if taxonomy_service:
         try:
             brand, model, _ = taxonomy_service.resolve_entities(text)
@@ -236,8 +253,8 @@ def extract_car_entities(title, content):
             pass
 
     return {
-        "brand": brand,
-        "model": model,
+        "brand": brand or None,
+        "model": model or None,
         "price": extract_price(text),
         "year": extract_year(text),
         "mileage": extract_mileage(text),

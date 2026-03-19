@@ -198,16 +198,31 @@ class QdrantStore:
         model = self._norm_str(payload.get("model"))
         fuel = self._norm_str(payload.get("fuel"))
 
-        if fuel not in self.ALLOWED_FUELS:
-            fuel = None
+        if fuel:
+            fuel = fuel.strip().lower()
+
+            fuel_map = {
+                "бензин": "petrol",
+                "дизель": "diesel",
+                "электро": "electric",
+                "электр": "electric",
+                "гибрид": "hybrid",
+                "газ": "gas"
+            }
+
+            fuel = fuel_map.get(fuel, fuel)
+
+            if fuel not in self.ALLOWED_FUELS:
+                fuel = None
 
         price = self._norm_int(payload.get("price"))
         if price is not None and (price <= 0 or price < 10_000 or price > 200_000_000):
             price = None
 
         mileage = self._norm_int(payload.get("mileage"))
-        if mileage is not None and (mileage < 0 or mileage > 500_000):
-            mileage = None
+        if mileage is not None:
+            if mileage < 0 or mileage > 700_000:
+                mileage = None
 
         year = self._norm_int(payload.get("year"))
         if year is not None and (year < 1985 or year > current_year + 1):

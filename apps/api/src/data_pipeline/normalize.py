@@ -17,6 +17,22 @@ from services.ingest_quality import (
 from services.taxonomy_service import taxonomy_service
 
 
+CITY_BLACKLIST = {
+    "moscow",
+    "moskva",
+    "москва",
+    "khimki",
+    "himki",
+    "мытищи",
+    "mytishchi",
+    "ramenskoe",
+    "korolev",
+    "shchelkovo",
+    "domodedovo",
+    "krasnogorsk",
+}
+
+
 def extract_mileage(text: str) -> Optional[int]:
     text = (text or "").lower().replace("\u00A0", " ").replace("\xa0", " ")
 
@@ -710,6 +726,31 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             body_text = strip_drom_noise(raw_body_text)
 
             raw_text = f"{title_text}\n{raw_body_text}".strip()
+
+            # 🔥 TELEGRAM HARD PARSE
+            fields = {}
+            if "t.me" in (raw.source_url or ""):
+                tg_text = f"{title_text} {raw_body_text}".lower()
+
+                # mileage
+                m = re.search(r"(\d{2,3})\s?тыс", tg_text)
+                if m:
+                    try:
+                        fields["mileage"] = int(m.group(1)) * 1000
+                    except:
+                        pass
+
+                # fuel
+                if not fields.get("fuel"):
+                    if "диз" in tg_text:
+                        fields["fuel"] = "diesel"
+                    elif "электро" in tg_text:
+                        fields["fuel"] = "electric"
+                    elif "гибрид" in tg_text:
+                        fields["fuel"] = "hybrid"
+                    elif "бенз" in tg_text:
+                        fields["fuel"] = "petrol"
+
             clean_pipeline_text = f"{title_text}\n{body_text}".strip()
 
             skip, _ = should_skip_doc(text=clean_pipeline_text or raw_text, source=raw.source or "")
@@ -760,6 +801,10 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             if final_brand:
                 final_brand = taxonomy_service.canonicalize_brand(final_brand)
 
+            # 🔥 FIX — убираем города из бренда
+            if final_brand in CITY_BLACKLIST:
+                final_brand = None
+
             if final_brand and final_model:
                 try:
                     final_model = taxonomy_service.canonicalize_model(final_brand, final_model)
@@ -767,8 +812,8 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                     pass
 
             if final_brand and not _brand_is_explicit_in_text(final_brand, raw_text):
-                    if not _brand_is_explicit_in_text(final_brand, title_text):
-                        final_brand = final_brand
+                if not _brand_is_explicit_in_text(final_brand, title_text):
+                    final_brand = final_brand
 
             title_lower = (raw.title or "").lower()
             if not final_brand:
@@ -806,7 +851,13 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             if final_model:
                 search_model = final_model.replace("_", "").replace("-", "")
 
-            fields = extract_fields(raw_text)
+            # 🔥 FIX — если модель = бренд → убираем
+            if search_model == final_brand:
+                search_model = None
+
+            extracted_fields = extract_fields(raw_text)
+            if extracted_fields:
+                fields.update({k: v for k, v in extracted_fields.items() if v is not None})
 
             # 🔥 HARD fallback — ищем везде
             if not fields.get("fuel"):

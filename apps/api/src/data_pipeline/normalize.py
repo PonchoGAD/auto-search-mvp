@@ -28,26 +28,29 @@ def extract_mileage(text: str) -> Optional[int]:
     if _is_speed_noise(text):
         return None
 
-    patterns = [
-        r"\bпробег[:\s]+(\d[\d\s]{2,10})\b",
-        r"\b(\d[\d\s]{2,10})\s*(км|km)\b",
-        r"\b(\d{1,3}(?:[.,]\d+)?)\s*(тыс\.?\s*км|тыс\.?|т\.км|k)\b",
-        r"\b(\d{4,6})\s?км\b",
+    patterns =[
+        (r"\bпробег[:\s]+(\d[\d\s]{2,10})\b", None),
+        (r"\b(\d[\d\s]{2,10})\s*(км|km)\b", "km"),
+        (r"\b(\d{1,3}(?:[.,]\d+)?)\s*(тыс\.?\s*км|тыс\.?|т\.км|k)\b", "thousand"),
+        (r"\b(\d{4,6})\s?км\b", "km"),
     ]
 
-    for p in patterns:
-        m = re.search(p, text, re.IGNORECASE)
+    for pattern, unit_hint in patterns:
+        m = re.search(pattern, text, re.IGNORECASE)
         if not m:
             continue
 
         try:
             raw = m.group(1).replace(" ", "").replace(",", ".")
-            if any(x in p for x in ["тыс", "т\\.км", "k"]):
-                value = int(float(raw) * 1000)
-            else:
-                value = int(float(raw))
+            value = float(raw)
 
-            if 0 <= value <= 500_000:
+            if unit_hint == "thousand":
+                value *= 1000
+
+            value = int(value)
+
+            # ❗ мусорный пробег режем
+            if 500 <= value <= 500_000:
                 return value
         except Exception:
             continue
@@ -61,7 +64,7 @@ def extract_fuel(text: str) -> Optional[str]:
     if re.search(r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ|газ\s+бензин|бензин\s+газ)\b", text):
         return "gas_petrol"
 
-    fuel_patterns = [
+    fuel_patterns =[
         (r"\b(бензин|бензиновый|бенз|petrol|gasoline|mpi|fsi|tsi|tfsi)\b", "petrol"),
         (r"\b(дизель|дизельный|диз|diesel|tdi|dci|cdi)\b", "diesel"),
         (r"\b(гибрид|hybrid|phev|hev)\b", "hybrid"),
@@ -78,7 +81,7 @@ def extract_fuel(text: str) -> Optional[str]:
 
 def extract_sale(text: str) -> str:
     lower = (text or "").lower()
-    if any(x in lower for x in ["продам", "продаю", "продажа", "цена", "₽", "руб"]):
+    if any(x in lower for x in["продам", "продаю", "продажа", "цена", "₽", "руб"]):
         return "1"
     return "0"
 
@@ -102,6 +105,42 @@ def _normalize_fuel_value(v: Optional[str]) -> Optional[str]:
     }
 
     return fuel_map.get(v, v if v in {"petrol", "diesel", "electric", "hybrid", "gas", "gas_petrol"} else None)
+
+
+def _sanitize_mileage_value(v: Optional[int]) -> Optional[int]:
+    if v is None:
+        return None
+    try:
+        v = int(v)
+    except Exception:
+        return None
+
+    # ❗ 0, 90, 120 и прочий мусор не считаем пробегом
+    if v < 500:
+        return None
+    if v > 500_000:
+        return None
+    return v
+
+
+def _brand_is_explicit_in_text(brand: Optional[str], text: str) -> bool:
+    if not brand:
+        return False
+
+    try:
+        aliases = taxonomy_service.get_brand_aliases(brand) or []
+    except Exception:
+        aliases =[]
+
+    text_norm = taxonomy_service.normalize_text(text or "")
+    for alias in aliases:
+        alias_norm = taxonomy_service.normalize_text(alias or "")
+        if not alias_norm:
+            continue
+        if re.search(rf"(?<![a-zа-яё0-9]){re.escape(alias_norm)}(?![a-zа-яё0-9])", text_norm, re.IGNORECASE):
+            return True
+
+    return False
 
 
 # =========================
@@ -191,7 +230,7 @@ FUEL_MAP = {
 }
 
 
-SALE_PATTERNS = [
+SALE_PATTERNS =[
     "продаю",
     "продам",
     "продажа",
@@ -246,7 +285,7 @@ def _is_speed_noise(text: str) -> bool:
         return True
 
     t = (text or "").lower()
-    return any(x in t for x in [
+    return any(x in t for x in[
         "км/ч",
         "km/h",
         "скорость",
@@ -287,7 +326,7 @@ def clean_text(text: str):
 
     text = text.replace("₽", " ₽ ")
 
-    drom_garbage = [
+    drom_garbage =[
         "Спецтехника",
         "Отзывы",
         "Каталог",
@@ -309,7 +348,7 @@ def strip_drom_noise(text: str):
     if not text:
         return ""
 
-    cut_markers = [
+    cut_markers =[
         "Отзывы владельцев",
         "Мнения владельцев",
         "Вы смотрите раздел",
@@ -489,7 +528,7 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     fuel = None
     fuel_matches = RE_FUEL.findall(lower)
     if fuel_matches:
-        normalized = []
+        normalized =[]
         for raw_fuel in fuel_matches:
             value = str(raw_fuel).lower().strip()
             mapped = FUEL_MAP.get(value)
@@ -675,17 +714,24 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 session.flush()
 
             title_text = normalize_title_format((raw.title or "").strip())
-            body_text = strip_drom_noise((raw.content or "").strip())
-            raw_text = f"{title_text}\n{body_text}".strip()
 
-            skip, _ = should_skip_doc(text=raw_text, source=raw.source or "")
+            raw_body_text = (raw.content or "").strip()
+            body_text = strip_drom_noise(raw_body_text)
+
+            # ❗ для extraction используем максимально полный текст
+            raw_text = f"{title_text}\n{raw_body_text}".strip()
+
+            # ❗ для последующего normalized_text оставляем очищенную версию
+            clean_pipeline_text = f"{title_text}\n{body_text}".strip()
+
+            skip, _ = should_skip_doc(text=clean_pipeline_text or raw_text, source=raw.source or "")
             if skip:
                 skipped += 1
                 continue
 
             taxonomy_brand, taxonomy_model, brand_conf = _extract_canonical_entities(
                 title_text=title_text,
-                body_text=body_text,
+                body_text=raw_body_text,
             )
 
             final_brand = taxonomy_brand
@@ -694,13 +740,18 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             entities = None
             if not final_brand or not final_model:
                 from services.car_entity_extractor import extract_car_entities
-                entities = extract_car_entities(title_text, body_text)
+                entities = extract_car_entities(title_text, raw_body_text)
 
-                if not final_brand:
-                    final_brand = entities.get("brand")
+                extracted_brand = entities.get("brand") if entities else None
+                extracted_model = entities.get("model") if entities else None
 
-                if final_brand and not final_model:
-                    final_model = entities.get("model")
+                # ❗ бренд из fallback берем только если он явно есть в тексте
+                if not final_brand and extracted_brand and _brand_is_explicit_in_text(extracted_brand, raw_text):
+                    final_brand = extracted_brand
+
+                # ❗ модель можно брать только если бренд уже подтвержден
+                if final_brand and not final_model and extracted_model:
+                    final_model = extracted_model
 
             if final_brand:
                 final_brand = taxonomy_service.canonicalize_brand(final_brand)
@@ -708,16 +759,23 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             if final_brand and final_model:
                 final_model = taxonomy_service.canonicalize_model(final_brand, final_model)
 
+            # ❗ если бренд не подтвержден явно в тексте — не пишем его
+            if final_brand and not _brand_is_explicit_in_text(final_brand, raw_text):
+                final_brand = None
+                final_model = None
+
             fields = extract_fields(raw_text)
 
-            # 🔥 ФИНАЛЬНАЯ НОРМАЛИЗАЦИЯ FUEL
             if fields.get("fuel"):
                 fields["fuel"] = _normalize_fuel_value(fields.get("fuel"))
+
+            if fields.get("mileage") is not None:
+                fields["mileage"] = _sanitize_mileage_value(fields.get("mileage"))
 
             if entities:
                 if not fields.get("mileage") and entities.get("mileage") is not None:
                     try:
-                        fields["mileage"] = int(entities.get("mileage"))
+                        fields["mileage"] = _sanitize_mileage_value(int(entities.get("mileage")))
                     except Exception:
                         pass
 
@@ -725,11 +783,17 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                     fields["fuel"] = _normalize_fuel_value(entities.get("fuel"))
 
                 if not fields.get("price") and entities.get("price") is not None:
-                    fields["price"] = entities.get("price")
-                    fields["currency"] = "RUB"
+                    try:
+                        fields["price"] = int(entities.get("price"))
+                        fields["currency"] = "RUB"
+                    except Exception:
+                        pass
 
                 if not fields.get("year") and entities.get("year") is not None:
-                    fields["year"] = entities.get("year")
+                    try:
+                        fields["year"] = int(entities.get("year"))
+                    except Exception:
+                        pass
 
             sale = detect_sale_intent(raw_text)
             if sale == 0:
@@ -752,7 +816,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 source_boost=source_boost,
             )
 
-            enriched_content = apply_meta_prefix(raw_text, meta_prefix)
+            enriched_content = apply_meta_prefix(clean_pipeline_text, meta_prefix)
             _meta, content_wo_meta = parse_meta(enriched_content)
             normalized_text = clean_text(content_wo_meta)
 
@@ -763,6 +827,8 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 "fuel": fields.get("fuel"),
                 "mileage": fields.get("mileage"),
                 "price": fields.get("price"),
+                "year": fields.get("year"),
+                "source_url": raw.source_url,
             })
 
             doc_kwargs = _build_normalized_document_kwargs(

@@ -73,7 +73,7 @@ def _phrase_pattern(value: str) -> str:
     if not value:
         return ""
 
-    parts = [re.escape(p) for p in value.split() if p.strip()]
+    parts =[re.escape(p) for p in value.split() if p.strip()]
     if not parts:
         return ""
 
@@ -89,6 +89,7 @@ def _contains_phrase(text: str, phrase: str) -> bool:
 
 AMBIGUOUS_MODEL_ALIASES = {
     "x1", "x2", "x3", "x4", "x5", "x6", "x7",
+    "ix",
     "1 series", "2 series", "3 series", "4 series", "5 series", "6 series", "7 series",
     "glc", "gle", "gls",
     "rx", "nx", "es", "is", "ls",
@@ -132,6 +133,21 @@ class TaxonomyService:
     def normalize_text(self, text: str) -> str:
         return _norm_text(text)
 
+    def _has_explicit_other_brand(self, text: str, excluded_brand: Optional[str]) -> bool:
+        text_norm = _norm_text(text)
+        if not text_norm:
+            return False
+
+        excluded_brand = self.canonicalize_brand(excluded_brand) if excluded_brand else None
+
+        for alias, canonical_brand in self.brand_alias_to_canonical.items():
+            if excluded_brand and canonical_brand == excluded_brand:
+                continue
+            if _contains_phrase(text_norm, alias):
+                return True
+
+        return False
+
     def _load_brands(self) -> Dict[str, Dict[str, List[str]]]:
         try:
             with open(self.brands_path, "r", encoding="utf-8") as f:
@@ -170,7 +186,7 @@ class TaxonomyService:
 
             if isinstance(cfg, dict):
                 for field in ("en", "ru", "aliases"):
-                    items = cfg.get(field, [])
+                    items = cfg.get(field,[])
                     if isinstance(items, list):
                         for item in items:
                             if isinstance(item, str) and item.strip():
@@ -278,10 +294,8 @@ class TaxonomyService:
             confidence = min(1.0, 0.95 + best_len / 100.0)
             return best_brand, confidence
 
-        fallback_brand, _fallback_model = self.maybe_resolve_brand_from_model(text_norm)
-        if fallback_brand:
-            return fallback_brand, 0.82
-
+        # ❗ больше НЕ восстанавливаем бренд напрямую только по модели
+        # это и давало ложные brand match'и вроде ix -> bmw
         return None, 0.0
 
     def canonicalize_brand(self, brand: Optional[str]) -> Optional[str]:
@@ -358,25 +372,37 @@ class TaxonomyService:
             return None, None
 
         best_alias_len = 0
-        candidates: List[Tuple[str, str, int]] = []
+        candidates: List[Tuple[str, str, int]] =[]
 
         for alias, brands in self.global_model_alias_to_brands.items():
-            if not _contains_phrase(text_norm, alias):
+            alias_norm = _norm_text(alias)
+            if not alias_norm:
                 continue
 
-            alias_len = len(alias)
+            if not _contains_phrase(text_norm, alias_norm):
+                continue
+
+            if alias_norm in AMBIGUOUS_MODEL_ALIASES:
+                continue
+
+            alias_len = len(alias_norm)
+            if alias_len < 3:
+                continue
+
             if alias_len < best_alias_len:
                 continue
 
             matched_brands = sorted(brands)
             if len(matched_brands) != 1:
-                if alias in AMBIGUOUS_MODEL_ALIASES:
-                    continue
                 continue
 
             brand = matched_brands[0]
-            model = self.brand_model_alias_to_canonical.get(brand, {}).get(alias)
+            model = self.brand_model_alias_to_canonical.get(brand, {}).get(alias_norm)
             if not model:
+                continue
+
+            # ❗ если в тексте уже есть другой явный бренд  не восстанавливаем бренд по модели
+            if self._has_explicit_other_brand(text_norm, brand):
                 continue
 
             if alias_len > best_alias_len:

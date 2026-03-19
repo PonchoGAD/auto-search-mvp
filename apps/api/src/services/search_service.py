@@ -699,11 +699,8 @@ class SearchService:
 
         must_conditions =[]
 
-        if structured.brand:
-            must_conditions.append({
-                "key": "brand",
-                "match": {"value": structured.brand}
-            })
+        # ❗ ОТКЛЮЧАЕМ ЖЕСТКИЙ FILTER (ломает recall)
+        # фильтрация будет ПОСЛЕ retrieval
 
         if structured.model:
             pass
@@ -712,7 +709,7 @@ class SearchService:
         if structured.fuel:
             pass
 
-        query_filter = {"must": must_conditions} if must_conditions else None
+        query_filter = None
 
         all_hits =[]
         try:
@@ -720,8 +717,7 @@ class SearchService:
                 search_result = self.store.client.search(
                     collection_name="auto_search_chunks",
                     query_vector=vec,
-                    query_filter=query_filter,
-                    limit=400
+                    limit=500  # ❗ больше recall
                 )
                 all_hits.extend(search_result)
         except Exception as e:
@@ -759,11 +755,37 @@ class SearchService:
         discard_counter = Counter()
         scoring_snapshots = []
 
-        semantic_values = []
+        semantic_values =[]
         freshness_values =[]
         completeness_values = []
-        price_fit_values = []
+        price_fit_values =[]
         mileage_fit_values =[]
+
+        def _post_filter(payload, structured):
+            # BRAND
+            if structured.brand:
+                if payload.get("brand") != structured.brand:
+                    return False
+
+            # MODEL
+            if structured.model:
+                if not payload.get("model"):
+                    return False
+                if not _model_soft_match(payload.get("model", ""), structured.model):
+                    return False
+
+            # FUEL
+            if structured.fuel:
+                if payload.get("fuel") != structured.fuel:
+                    return False
+
+            # MILEAGE
+            if structured.mileage_max:
+                m = payload.get("mileage")
+                if m and m > structured.mileage_max:
+                    return False
+
+            return True
 
         for doc_key, payload in doc_payloads.items():
             debug["filtering"]["checked_candidates"] += 1
@@ -777,6 +799,10 @@ class SearchService:
                 continue
 
             semantic = float(doc_scores.get(doc_key, 0.0) or 0.0)
+
+            # ❗ сначала мягкий пост-фильтр
+            if not _post_filter(payload, structured):
+                continue
 
             passed, discard_reasons = self._passes_hard_filters(payload, structured, route)
             if not passed:
@@ -899,10 +925,20 @@ class SearchService:
             if structured.fuel:
                 boosted =[]
                 for r in results:
-                    if (r.get("fuel") or "").lower() == structured.fuel.lower():
-                        r["score"] *= 1.2
+                    payload_fuel = (r.get("fuel") or "").lower()
+
+                    # ❗ электро — строгий фильтр
+                    if structured.fuel == "electric":
+                        if payload_fuel == "electric":
+                            r["score"] *= 1.3
+                        else:
+                            r["score"] *= 0.3  # сильно режем
                     else:
-                        r["score"] *= 0.85
+                        if payload_fuel == structured.fuel:
+                            r["score"] *= 1.2
+                        else:
+                            r["score"] *= 0.85
+
                     boosted.append(r)
 
                 results = sorted(boosted, key=lambda x: x["score"], reverse=True)
@@ -912,9 +948,10 @@ class SearchService:
                 boosted =[]
                 for r in results:
                     if r.get("model") and _model_soft_match(r.get("model", ""), canonical_model):
-                        r["score"] *= 1.2
+                        r["score"] *= 1.4  # ❗ усилили
                     else:
-                        r["score"] *= 0.8
+                        r["score"] *= 0.6
+
                     boosted.append(r)
 
                 results = sorted(boosted, key=lambda x: x["score"], reverse=True)
@@ -924,7 +961,38 @@ class SearchService:
         except Exception as e:
             print(f"[RERANK][WARN] skipped: {e}", flush=True)
 
+        print("[DEBUG SEARCH FINAL]", {
+            "results": len(results),
+            "top_3":[
+                {
+                    "brand": r.get("brand"),
+                    "model": r.get("model"),
+                    "fuel": r.get("fuel"),
+                    "price": r.get("price"),
+                    "score": r.get("score"),
+                }
+                for r in results[:3]
+            ]
+        })
+
         debug["final"]["results_count"] = len(results)
+
+        # ❗ fallback если пусто
+        if not results:
+            fallback =[]
+            for doc_key, payload in list(doc_payloads.items())[:20]:
+                fallback.append({
+                    "brand": payload.get("brand"),
+                    "model": payload.get("model"),
+                    "year": payload.get("year"),
+                    "mileage": payload.get("mileage"),
+                    "price": payload.get("price"),
+                    "fuel": payload.get("fuel"),
+                    "score": 0.1,
+                    "source_url": payload.get("source_url"),
+                    "source_name": payload.get("source"),
+                })
+            return fallback
 
         return results
 

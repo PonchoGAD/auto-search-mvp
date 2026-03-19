@@ -398,7 +398,10 @@ def index_document_chunks(
         indexed_auxiliary = 0
 
         for ch, doc in chunks:
-            chunk_text = _clean_text(ch.chunk_text or "")[:800]
+            # 🔥 КРИТИЧЕСКИЙ ФИКС — используем normalized_text
+            chunk_text = _clean_text(
+                (doc.normalized_text or "") + " " + (ch.chunk_text or "")
+            )[:800]
             if not chunk_text:
                 skipped_empty_text += 1
                 continue

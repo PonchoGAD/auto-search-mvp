@@ -374,11 +374,9 @@ class SearchService:
         reasons: List[str] =[]
 
         brand_value = _normalize_token_text(structured.brand or "")
-        fuel_value = _normalize_token_text(structured.fuel or "")
         model_value = _normalize_model_strict(structured.model or "")
 
         payload_brand = _normalize_token_text(str(payload.get("brand") or ""))
-        payload_fuel = _normalize_token_text(str(payload.get("fuel") or ""))
         payload_model = str(payload.get("model") or "")
 
         source_name = str(payload.get("source") or "").strip().lower()
@@ -391,13 +389,6 @@ class SearchService:
         if route in {"structured", "brand_only"} and brand_value:
             if payload_brand and payload_brand != brand_value:
                 reasons.append("brand_mismatch")
-
-        # 🔥 ЖЁСТКИЙ FUEL FILTER
-        if fuel_value:
-            if not payload_fuel:
-                reasons.append("fuel_missing")
-            elif payload_fuel != fuel_value:
-                reasons.append("fuel_mismatch")
 
         # ❗ PRICE НЕ РЕЖЕМ ЖЁСТКО
         if structured.price_max is not None:
@@ -533,6 +524,10 @@ class SearchService:
         for key, weight in weights.items():
             final_score += signals.get(key, 0.0) * weight
 
+        # soft match
+        if structured.fuel and payload.get("fuel") and payload.get("fuel") != structured.fuel:
+            final_score *= 0.7
+
         return final_score, signals
 
     def _rerank_results(
@@ -561,7 +556,7 @@ class SearchService:
             pairs.append((query, " ".join(text_parts)[:300]))
 
         try:
-            rerank_scores = [float(x) for x in reranker.predict(pairs)]
+            rerank_scores =[float(x) for x in reranker.predict(pairs)]
         except Exception as e:
             print(f"[RERANK][WARN] failed: {e}", flush=True)
             return results[:top_k]
@@ -698,156 +693,37 @@ class SearchService:
         expanded_queries = expand_query(structured.raw_query or "")
         vectors = [query_vector]
 
-        prefilter_must =[]
+        must_conditions =[]
 
-        # 🔥 BRAND PREFILTER (ОБЯЗАТЕЛЬНО)
-        if brand_filter_value:
-            prefilter_must.append(
-                FieldCondition(key="brand", match=MatchValue(value=brand_filter_value))
-            )
+        if structured.brand:
+            must_conditions.append({
+                "key": "brand",
+                "match": {"value": structured.brand}
+            })
 
-        # 🔥 MODEL PREFILTER (если есть)
-        if model_filter_value:
-            prefilter_must.append(
-                FieldCondition(key="model", match=MatchValue(value=model_filter_value))
-            )
+        if structured.model:
+            must_conditions.append({
+                "key": "model",
+                "match": {"value": structured.model}
+            })
 
-        # 🔥 FUEL PREFILTER (НОВЫЙ КЛЮЧ)
-        if fuel_filter_value:
-            prefilter_must.append(
-                FieldCondition(key="fuel", match=MatchValue(value=fuel_filter_value))
-            )
+        if structured.fuel:
+            must_conditions.append({
+                "key": "fuel",
+                "match": {"value": structured.fuel}
+            })
 
-        prefilter = Filter(must=prefilter_must) if prefilter_must else None
-
-        bm25_queries = expand_query(structured.raw_query or "")
-        bm25_hits =[]
-
-        for q in expanded_queries:
-            try:
-                vec = embed_text(q)
-                vectors.append(vec)
-            except Exception:
-                pass
-
-        strict_brand = bool(brand_filter_value and brand_conf >= 0.9)
-
-        primary_brand = brand_filter_value if route in {"structured", "brand_only"} else None
-        primary_model = model_filter_value if route == "structured" else None
-        primary_fuel = fuel_filter_value if fuel_filter_value else None
-
-        stages: List[Dict[str, Any]] =[
-            {
-                "stage_name": "strict_primary",
-                "enabled": True,
-                "filter": self._build_stage_filter(
-                    route=route,
-                    brand=primary_brand,
-                    model=primary_model,
-                    fuel=primary_fuel,
-                ),
-                "filter_summary": f"brand={primary_brand},model={primary_model},fuel={primary_fuel}",
-            },
-            {
-                "stage_name": "no_model_fallback",
-                "enabled": bool(model_filter_value),
-                "filter": self._build_stage_filter(
-                    route=route,
-                    brand=primary_brand,
-                    model=None,
-                    fuel=primary_fuel,
-                ),
-                "filter_summary": "brand_only_fallback",
-            },
-            {
-                "stage_name": "no_fuel_fallback",
-                "enabled": bool(fuel_filter_value),
-                "filter": self._build_stage_filter(
-                    route=route,
-                    brand=primary_brand,
-                    model=primary_model,
-                    fuel=None,
-                ),
-                "filter_summary": f"brand={primary_brand},model={primary_model},fuel=None",
-            },
-            {
-                "stage_name": "weak_brand_fallback",
-                "enabled": bool(brand_filter_value and not strict_brand),
-                "filter": self._build_stage_filter(
-                    route="semantic",
-                    brand=None,
-                    model=primary_model if model_filter_value else None,
-                    fuel=primary_fuel,
-                ),
-                "filter_summary": f"brand=None,model={primary_model if model_filter_value else None},fuel={primary_fuel}",
-            },
-            {
-                "stage_name": "global_vector_fallback",
-                "enabled": True,
-                "filter": None,
-                "filter_summary": "brand=None,model=None,fuel=None",
-            },
-        ]
+        query_filter = {"must": must_conditions} if must_conditions else None
 
         all_hits =[]
-        seen_point_ids = set()
-
-        def _search_stage(stage_filter: Optional[Filter]) -> List[Any]:
-            stage_hits = []
-            for vec in vectors[:2]:  # ❗ ограничение
-                try:
-                    final_filter = None
-
-                    if stage_filter and prefilter:
-                        final_filter = Filter(must=stage_filter.must + prefilter.must)
-                    elif stage_filter:
-                        final_filter = stage_filter
-                    elif prefilter:
-                        final_filter = prefilter
-
-                    sub_hits = self.store.search(
-                        vector=vec,
-                        limit=top_k,
-                        query_filter=final_filter,
-                        query_text=query_text,
-                    )
-                    stage_hits.extend(sub_hits)
-                except Exception:
-                    pass
-            return stage_hits
-
         try:
-            for stage in stages:
-                if not stage["enabled"]:
-                    continue
-
-                raw_hits = _search_stage(stage["filter"])
-                unique_added = 0
-
-                for hit in raw_hits:
-                    pid = getattr(hit, "id", None)
-                    if pid is not None and pid in seen_point_ids:
-                        debug["dedup"]["skipped_by_point_id_duplicate"] += 1
-                        continue
-
-                    if pid is not None:
-                        seen_point_ids.add(pid)
-
-                    all_hits.append(hit)
-                    unique_added += 1
-
-                debug["retrieval_stages"].append(
-                    {
-                        "stage_name": stage["stage_name"],
-                        "filter_summary": stage["filter_summary"],
-                        "raw_hits_count": len(raw_hits),
-                        "unique_hits_added": unique_added,
-                    }
-                )
-
-                if len(all_hits) >= min_candidates:
-                    break
-
+            search_result = self.store.client.search(
+                collection_name="auto_search_chunks",
+                query_vector=query_vector,
+                query_filter=query_filter,
+                limit=100
+            )
+            all_hits = search_result
         except Exception as e:
             print(f"[SEARCH][WARN] qdrant unavailable: {e}", flush=True)
             return[]

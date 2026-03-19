@@ -343,50 +343,32 @@ class QdrantStore:
             f"filter_summary={filter_summary}"
         )
 
-        response = self.client.search(
+        try:
+            cnt = self.client.count(collection_name=COLLECTION_NAME, exact=False)
+            self._debug_log(f"collection approx_count={getattr(cnt, 'count', cnt)}")
+        except Exception as e:
+            self._debug_log(f"count failed: {e}")
+
+        response = self.client.query_points(
             collection_name=COLLECTION_NAME,
-            query_vector=vector,
-            query_filter=query_filter,
+            query=vector,
             limit=requested_limit,
             with_payload=True,
-            search_params=SearchParams(
-                hnsw_ef=max(512, requested_limit * 6),
-                exact=False,
-            ),
+            with_vectors=False,
+            query_filter=query_filter,
         )
 
-        hits = response
+        hits = response.points if hasattr(response, "points") else[]
 
         self._debug_log(f"vector hits returned={len(hits)}")
 
         if not hits and query_text:
             self._debug_log("vector search empty, trying fallback without filter")
-            response = self.client.search(
+            response = self.client.query_points(
                 collection_name=COLLECTION_NAME,
-                query_vector=vector,
+                query=vector,
                 limit=requested_limit,
                 with_payload=True,
+                with_vectors=False,
             )
-            hits = response
-            self._debug_log(f"fallback hits returned={len(hits)}")
-
-        for p in hits:
-            payload = p.payload or {}
-            p.payload = self.build_payload(payload)
-
-        self._debug_log(
-            f"search complete limit={requested_limit} "
-            f"filter_present={has_filter} "
-            f"hits={len(hits)}"
-        )
-
-        return hits
-
-
-QDRANT_HOST = os.getenv("QDRANT_HOST", "qdrant")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
-
-qdrant_client = QdrantClient(
-    host=QDRANT_HOST,
-    port=QDRANT_PORT,
-)
+            hits = response.points if hasattr(response, "points") else

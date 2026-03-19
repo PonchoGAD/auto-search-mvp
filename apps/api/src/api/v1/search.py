@@ -1,5 +1,3 @@
-#  apps\api\src\api\v1\search.py
-
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -120,8 +118,8 @@ def search(request: SearchRequest):
         try:
             results = service.search(structured)
 
-            # temporary proxy for result count after retrieval
-            vector_hits = getattr(service, "_last_vector_hits", 0)
+            service_debug = getattr(service, "_last_debug", {}) or {}
+            vector_hits = int(service_debug.get("raw_hits_total", 0))
 
             print(
                 f"[SEARCH] query='{request.query}' results={len(results)}",
@@ -134,7 +132,7 @@ def search(request: SearchRequest):
             # 🔥 КЛЮЧЕВОЕ ДЛЯ SMOKE DEMO
             # Qdrant пуст / коллекции нет / index не запускался
             print(f"[SEARCH][DEMO][WARN] search skipped: {repr(e)}")
-            results = []
+            results =[]
             vector_hits = 0
 
         # -------------------------
@@ -162,8 +160,8 @@ def search(request: SearchRequest):
 
         return {
             "structuredQuery": structured_payload,
-            "results": [],
-            "sources": [],
+            "results":[],
+            "sources":[],
             "answer": None,
             "debug": {
                 "latency_ms": latency_ms,
@@ -182,7 +180,7 @@ def search(request: SearchRequest):
         name = r.get("source_name") or r.get("source") or "unknown"
         source_counter[name] = source_counter.get(name, 0) + 1
 
-    sources = [
+    sources =[
         {"name": name, "result_count": count}
         for name, count in source_counter.items()
     ]

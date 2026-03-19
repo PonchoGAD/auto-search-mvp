@@ -294,8 +294,11 @@ class TaxonomyService:
             confidence = min(1.0, 0.95 + best_len / 100.0)
             return best_brand, confidence
 
-        # ❗ больше НЕ восстанавливаем бренд напрямую только по модели
-        # это и давало ложные brand match'и вроде ix -> bmw
+        # 🔥 fallback через модель (очень важно для UX)
+        fallback_brand, _ = self.maybe_resolve_brand_from_model(text)
+        if fallback_brand:
+            return fallback_brand, 0.75
+
         return None, 0.0
 
     def canonicalize_brand(self, brand: Optional[str]) -> Optional[str]:
@@ -407,7 +410,7 @@ class TaxonomyService:
 
             if alias_len > best_alias_len:
                 best_alias_len = alias_len
-                candidates = [(brand, model, alias_len)]
+                candidates =[(brand, model, alias_len)]
             elif alias_len == best_alias_len:
                 candidates.append((brand, model, alias_len))
 

@@ -189,7 +189,7 @@ def _has_mileage_context(text: str) -> bool:
 
 
 def _extract_year_min(text: str, current_year: int) -> Optional[int]:
-    patterns = [
+    patterns =[
         r"\b(?:от|с|после)\s*(19\d{2}|20\d{2})\b",
         r"\bне\s+старше\s*(19\d{2}|20\d{2})(?:\s*г(?:\.|ода)?)?\b",
         r"\b(?:не\s+ниже|не\s+раньше)\s*(19\d{2}|20\d{2})(?:\s*г(?:\.|ода)?)?\b",
@@ -212,7 +212,7 @@ def _extract_year_min(text: str, current_year: int) -> Optional[int]:
 
 
 def _extract_fuel(text: str) -> Optional[str]:
-    fuel_patterns = [
+    fuel_patterns =[
         (r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ|газ\s+бензин|бензин\s+газ)\b", "gas_petrol"),
         (r"\b(бензин|бенз|petrol|gasoline)\b", "petrol"),
         (r"\b(дизель|диз|diesel)\b", "diesel"),
@@ -322,7 +322,7 @@ def _extract_brand_model(text: str) -> Tuple[Optional[str], Optional[str], float
     tokens = re.findall(r"[a-zа-я0-9-]+", text, re.IGNORECASE)
 
     if brand and not model_norm:
-        brand_aliases = set(taxonomy_service.get_brand_aliases(brand) or [])
+        brand_aliases = set(taxonomy_service.get_brand_aliases(brand) or[])
         brand_aliases.add(str(brand).lower())
 
         for idx, token in enumerate(tokens):
@@ -398,19 +398,29 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
 
     result.city = _extract_city(text)
 
-    if any(w in text for w in ["свеж", "нов", "последн", "recent", "latest", "new"]):
+    if any(w in text for w in["свеж", "нов", "последн", "recent", "latest", "new"]):
         result.keywords.append("recent")
 
     tokens = re.findall(r"[a-zа-я0-9-]+", text, re.IGNORECASE)
 
+    # 🔥 FIX mileage parsing (критично)
+    for i, token in enumerate(tokens):
+        if "км" in token:
+            # ищем число перед км
+            if i > 0:
+                value = _parse_mileage_value(tokens[i - 1], "км")
+                if value:
+                    result.mileage_max = value
+                    continue
+
     brand_synonyms = set()
     if result.brand:
-        brand_synonyms = {str(x).lower() for x in (taxonomy_service.get_brand_aliases(result.brand) or [])}
+        brand_synonyms = {str(x).lower() for x in (taxonomy_service.get_brand_aliases(result.brand) or[])}
         brand_synonyms.add(str(result.brand).lower())
 
     model_synonyms = set()
     if result.brand and result.model:
-        model_synonyms = {str(x).lower() for x in (taxonomy_service.get_model_aliases(result.brand, result.model) or [])}
+        model_synonyms = {str(x).lower() for x in (taxonomy_service.get_model_aliases(result.brand, result.model) or[])}
         model_synonyms.add(str(result.model).lower())
 
     for token in tokens:

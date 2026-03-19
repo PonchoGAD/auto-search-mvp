@@ -262,6 +262,16 @@ def extract_car_entities(title, content):
     if mileage is not None and mileage < 500:
         mileage = None
 
+    # 🔥 fallback brand extraction
+    if not brand:
+        text_lower = text.lower()
+        if "bmw" in text_lower:
+            brand = "bmw"
+        elif "mercedes" in text_lower or "benz" in text_lower:
+            brand = "mercedes"
+        elif "toyota" in text_lower:
+            brand = "toyota"
+
     return {
         "brand": brand or None,
         "model": model or None,

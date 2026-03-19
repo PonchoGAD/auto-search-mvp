@@ -50,7 +50,7 @@ def extract_mileage(text: str) -> Optional[int]:
             value = int(value)
 
             # ❗ мусорный пробег режем
-            if 500 <= value <= 500_000:
+            if 1000 <= value <= 500_000:
                 return value
         except Exception:
             continue
@@ -75,6 +75,13 @@ def extract_fuel(text: str) -> Optional[str]:
     for pattern, fuel_value in fuel_patterns:
         if re.search(pattern, text, re.IGNORECASE):
             return fuel_value
+
+    if "дизел" in text:
+        return "diesel"
+    elif "бенз" in text:
+        return "petrol"
+    elif "электр" in text:
+        return "electric"
 
     return None
 
@@ -116,7 +123,7 @@ def _sanitize_mileage_value(v: Optional[int]) -> Optional[int]:
         return None
 
     # ❗ 0, 90, 120 и прочий мусор не считаем пробегом
-    if v < 500:
+    if v < 1000:
         return None
     if v > 500_000:
         return None
@@ -128,7 +135,7 @@ def _brand_is_explicit_in_text(brand: Optional[str], text: str) -> bool:
         return False
 
     try:
-        aliases = taxonomy_service.get_brand_aliases(brand) or []
+        aliases = taxonomy_service.get_brand_aliases(brand) or[]
     except Exception:
         aliases =[]
 
@@ -525,6 +532,9 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     if mileage is None:
         mileage = _extract_mileage(text)
 
+    if mileage is not None and mileage < 1000:
+        mileage = None
+
     fuel = None
     fuel_matches = RE_FUEL.findall(lower)
     if fuel_matches:
@@ -759,10 +769,27 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             if final_brand and final_model:
                 final_model = taxonomy_service.canonicalize_model(final_brand, final_model)
 
-            # ❗ если бренд не подтвержден явно в тексте — не пишем его
+            # ❗ ослабляем (иначе убивает recall)
             if final_brand and not _brand_is_explicit_in_text(final_brand, raw_text):
-                final_brand = None
-                final_model = None
+                # допускаем бренд если он найден в title
+                if not _brand_is_explicit_in_text(final_brand, title_text):
+                    final_brand = None
+                    final_model = None
+
+            title_lower = (raw.title or "").lower()
+            # ❗ fallback только если бренд не найден
+            if not final_brand:
+                if "bmw" in title_lower:
+                    final_brand = "bmw"
+                elif "mercedes" in title_lower or "benz" in title_lower:
+                    final_brand = "mercedes"
+                elif "toyota" in title_lower:
+                    final_brand = "toyota"
+
+            # ❗ нормализация модели для поиска (но не ломаем taxonomy)
+            search_model = None
+            if final_model:
+                search_model = final_model.replace("_", "").replace("-", "")
 
             fields = extract_fields(raw_text)
 
@@ -804,7 +831,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 skip=skip,
                 sale_intent=bool(sale),
                 brand=final_brand,
-                model=final_model,
+                model=search_model,
                 fields=fields,
                 source_boost=source_boost,
             )
@@ -823,7 +850,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             # 🔥 DEBUG
             print("[DEBUG NORMALIZE]", {
                 "brand": final_brand,
-                "model": final_model,
+                "model": search_model,
                 "fuel": fields.get("fuel"),
                 "mileage": fields.get("mileage"),
                 "price": fields.get("price"),
@@ -835,7 +862,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 raw=raw,
                 normalized_text=normalized_text,
                 brand=final_brand,
-                model=final_model,
+                model=search_model,
                 fields=fields,
                 sale_intent=bool(sale),
                 quality_score=quality_score,

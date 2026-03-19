@@ -12,6 +12,7 @@ services:
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - QDRANT_DEBUG=1
       - REDIS_HOST=redis
       - POSTGRES_HOST=postgres
     depends_on:

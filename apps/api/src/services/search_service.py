@@ -589,6 +589,7 @@ class SearchService:
         limit: int = None,
         top_k: int = None,
     ) -> List[Dict[str, Any]]:
+        print("[SEARCH SERVICE LIVE CODE] entered", flush=True)
         _ = detect_car_intent(structured.raw_query)
 
         if limit is None:
@@ -714,15 +715,25 @@ class SearchService:
         all_hits =[]
         try:
             for vec in vectors:
-                search_result = self.store.client.search(
-                    collection_name="auto_search_chunks",
-                    query_vector=vec,
-                    limit=500  # ❗ больше recall
+                stage_hits = self.store.search(
+                    vector=vec,
+                    limit=500,
+                    query_filter=None,
+                    query_text=query_text,
                 )
-                all_hits.extend(search_result)
+                all_hits.extend(stage_hits)
         except Exception as e:
             print(f"[SEARCH][WARN] qdrant unavailable: {e}", flush=True)
-            return[]
+            return []
+
+        print("[DEBUG SEARCH RETRIEVAL]", {
+            "query": structured.raw_query,
+            "vectors_used": len(vectors),
+            "raw_hits_total": len(all_hits),
+            "brand": structured.brand,
+            "model": structured.model,
+            "fuel": structured.fuel,
+        }, flush=True)
 
         # merge bm25 later (Stage 4)
 
@@ -751,13 +762,18 @@ class SearchService:
                 doc_scores[doc_key] = score
                 doc_payloads[doc_key] = payload
 
+        print("[DEBUG SEARCH DEDUP]", {
+            "raw_hits_total": len(all_hits),
+            "unique_docs": len(doc_payloads),
+        }, flush=True)
+
         scored_results: List[Tuple[float, Dict[str, Any], Dict[str, float], List[str]]] =[]
         discard_counter = Counter()
-        scoring_snapshots = []
+        scoring_snapshots =[]
 
         semantic_values =[]
         freshness_values =[]
-        completeness_values = []
+        completeness_values =[]
         price_fit_values =[]
         mileage_fit_values =[]
 
@@ -787,6 +803,8 @@ class SearchService:
 
             return True
 
+        post_filter_kept = 0
+
         for doc_key, payload in doc_payloads.items():
             debug["filtering"]["checked_candidates"] += 1
 
@@ -803,6 +821,8 @@ class SearchService:
             # ❗ сначала мягкий пост-фильтр
             if not _post_filter(payload, structured):
                 continue
+            
+            post_filter_kept += 1
 
             passed, discard_reasons = self._passes_hard_filters(payload, structured, route)
             if not passed:
@@ -836,6 +856,12 @@ class SearchService:
             ]
 
             scored_results.append((final_score, payload, signals, reasons_list))
+
+        print("[DEBUG SEARCH FILTERING]", {
+            "post_filter_kept": post_filter_kept,
+            "scored_results": len(scored_results),
+            "discard_reasons": dict(discard_counter),
+        }, flush=True)
 
         debug["filtering"]["discard_reasons_counter"] = dict(discard_counter)
 

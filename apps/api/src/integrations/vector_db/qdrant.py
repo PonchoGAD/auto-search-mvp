@@ -12,7 +12,9 @@ from qdrant_client.models import (
 
 
 COLLECTION_NAME = "auto_search_chunks"
-QDRANT_DEBUG = os.getenv("QDRANT_DEBUG", "0").strip() == "1"
+
+# 🔥 ПРИНУДИТЕЛЬНО ВКЛЮЧАЕМ ЛОГИ QDRANT
+QDRANT_DEBUG = True
 
 
 class QdrantStore:
@@ -57,7 +59,7 @@ class QdrantStore:
     # =====================================================
 
     def create_collection(self, vector_size: int):
-        collections = [
+        collections =[
             c.name for c in self.client.get_collections().collections
         ]
 
@@ -93,7 +95,7 @@ class QdrantStore:
                 keys = sorted(query_filter.keys())
                 return ",".join(keys) if keys else "dict_empty"
 
-            summary_parts: List[str] = []
+            summary_parts: List[str] =[]
 
             for attr in ("must", "should", "must_not"):
                 value = getattr(query_filter, attr, None)
@@ -287,7 +289,7 @@ class QdrantStore:
             print("[QDRANT] no points to upsert", flush=True)
             return
 
-        normalized_points: List[PointStruct] = []
+        normalized_points: List[PointStruct] =[]
 
         for p in points:
             payload = self.build_payload(p.payload or {})
@@ -341,35 +343,32 @@ class QdrantStore:
             f"filter_summary={filter_summary}"
         )
 
-        search_kwargs = {
-            "collection_name": COLLECTION_NAME,
-            "query": vector,
-            "limit": requested_limit,
-            "with_payload": True,
-            "search_params": SearchParams(
+        response = self.client.search(
+            collection_name=COLLECTION_NAME,
+            query_vector=vector,
+            query_filter=query_filter,
+            limit=requested_limit,
+            with_payload=True,
+            search_params=SearchParams(
                 hnsw_ef=max(512, requested_limit * 6),
                 exact=False,
             ),
-        }
+        )
 
-        if query_filter is not None:
-            search_kwargs["query_filter"] = query_filter
-
-        response = self.client.query_points(**search_kwargs)
-        hits = response.points
+        hits = response
 
         self._debug_log(f"vector hits returned={len(hits)}")
 
         if not hits and query_text:
-            self._debug_log("vector search empty, trying text fallback")
-            response = self.client.query_points(
+            self._debug_log("vector search empty, trying fallback without filter")
+            response = self.client.search(
                 collection_name=COLLECTION_NAME,
-                query=query_text,
+                query_vector=vector,
                 limit=requested_limit,
                 with_payload=True,
             )
-            hits = response.points
-            self._debug_log(f"text fallback hits returned={len(hits)}")
+            hits = response
+            self._debug_log(f"fallback hits returned={len(hits)}")
 
         for p in hits:
             payload = p.payload or {}

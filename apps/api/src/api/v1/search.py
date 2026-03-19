@@ -121,7 +121,7 @@ def search(request: SearchRequest):
             results = service.search(structured)
 
             # temporary proxy for result count after retrieval
-            vector_hits = len(results)
+            vector_hits = getattr(service, "_last_vector_hits", 0)
 
             print(
                 f"[SEARCH] query='{request.query}' results={len(results)}",

@@ -43,12 +43,12 @@ def _bm25_score(query: str, docs: List[str]) -> float:
     if not query_norm:
         return 0.0
 
-    prepared_docs = [_normalize_token_text(d) for d in docs if d]
+    prepared_docs =[_normalize_token_text(d) for d in docs if d]
     prepared_docs =[d for d in prepared_docs if d]
     if not prepared_docs:
         return 0.0
 
-    tokenized_docs = [d.split() for d in prepared_docs]
+    tokenized_docs =[d.split() for d in prepared_docs]
     tokenized_query = query_norm.split()
     if not tokenized_query:
         return 0.0
@@ -56,10 +56,9 @@ def _bm25_score(query: str, docs: List[str]) -> float:
     try:
         bm25 = BM25Okapi(tokenized_docs)
         raw_scores = bm25.get_scores(tokenized_query)
-        raw_max = max(raw_scores) if len(raw_scores) else 0.0
-
-        # safe normalization to[0..1]
-        return max(0.0, min(1.0, raw_max / 8.0))
+        if not len(raw_scores):
+            return 0.0
+        return max(0.0, min(1.0, sum(raw_scores) / (len(raw_scores) * 5.0)))
     except Exception:
         return 0.0
 
@@ -403,14 +402,13 @@ class SearchService:
         if structured.mileage_max is not None:
             mileage_val = payload.get("mileage")
 
-            if mileage_val is None:
-                reasons.append("mileage_missing")
-            else:
+            if mileage_val is not None:
                 try:
                     if float(mileage_val) > float(structured.mileage_max):
                         reasons.append("mileage_overflow")
                 except Exception:
                     reasons.append("mileage_invalid")
+            # ❗ если нет mileage → НЕ режем
 
         if structured.year_min is not None:
             year_val = payload.get("year")
@@ -693,6 +691,12 @@ class SearchService:
         expanded_queries = expand_query(structured.raw_query or "")
         vectors = [query_vector]
 
+        for q in expanded_queries[:2]:  # максимум 2
+            try:
+                vectors.append(embed_text(q))
+            except:
+                pass
+
         must_conditions =[]
 
         if structured.brand:
@@ -702,28 +706,24 @@ class SearchService:
             })
 
         if structured.model:
-            must_conditions.append({
-                "key": "model",
-                "match": {"value": structured.model}
-            })
+            pass
 
+        # ❗ fuel НЕ фильтруем жестко на этапе retrieval
         if structured.fuel:
-            must_conditions.append({
-                "key": "fuel",
-                "match": {"value": structured.fuel}
-            })
+            pass
 
         query_filter = {"must": must_conditions} if must_conditions else None
 
         all_hits =[]
         try:
-            search_result = self.store.client.search(
-                collection_name="auto_search_chunks",
-                query_vector=query_vector,
-                query_filter=query_filter,
-                limit=100
-            )
-            all_hits = search_result
+            for vec in vectors:
+                search_result = self.store.client.search(
+                    collection_name="auto_search_chunks",
+                    query_vector=vec,
+                    query_filter=query_filter,
+                    limit=400
+                )
+                all_hits.extend(search_result)
         except Exception as e:
             print(f"[SEARCH][WARN] qdrant unavailable: {e}", flush=True)
             return[]
@@ -893,20 +893,31 @@ class SearchService:
                 results =[
                     r for r in results
                     if (r.get("brand") or "").lower() == structured.brand.lower()
-                ]
+                ] or results  # ❗ fallback если всё удалилось
 
-            # 🔥 FINAL FUEL CLEAN (последний щит)
+            # 🔥 SOFT FILTER (НЕ УБИВАЕМ ВЫДАЧУ)
             if structured.fuel:
-                results =[
-                    r for r in results
-                    if (r.get("fuel") or "").lower() == structured.fuel.lower()
-                ]
+                boosted =[]
+                for r in results:
+                    if (r.get("fuel") or "").lower() == structured.fuel.lower():
+                        r["score"] *= 1.2
+                    else:
+                        r["score"] *= 0.85
+                    boosted.append(r)
 
+                results = sorted(boosted, key=lambda x: x["score"], reverse=True)
+
+            # 🔥 SOFT MODEL MATCH
             if canonical_model:
-                results =[
-                    r for r in results
-                    if r.get("model") and _model_soft_match(r.get("model", ""), canonical_model)
-                ]
+                boosted =[]
+                for r in results:
+                    if r.get("model") and _model_soft_match(r.get("model", ""), canonical_model):
+                        r["score"] *= 1.2
+                    else:
+                        r["score"] *= 0.8
+                    boosted.append(r)
+
+                results = sorted(boosted, key=lambda x: x["score"], reverse=True)
 
             debug["final"]["rerank_applied"] = len(results) > 0
 

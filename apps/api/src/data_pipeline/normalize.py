@@ -39,7 +39,7 @@ def extract_mileage(text: str) -> Optional[int]:
     if _is_speed_noise(text):
         return None
 
-    patterns = [
+    patterns =[
         (r"\bпробег[:\s]+(\d[\d\s]{2,10})\b", None),
         (r"\b(\d[\d\s]{2,10})\s*(км|km)\b", "km"),
         (r"\b(\d{1,3}(?:[.,]\d+)?)\s*(тыс\.?\s*км|тыс\.?|т\.км|k)\b", "thousand"),
@@ -94,7 +94,7 @@ def extract_fuel(text: str) -> Optional[str]:
 
 def extract_sale(text: str) -> str:
     lower = (text or "").lower()
-    if any(x in lower for x in ["продам", "продаю", "продажа", "цена", "₽", "руб"]):
+    if any(x in lower for x in["продам", "продаю", "продажа", "цена", "₽", "руб"]):
         return "1"
     return "0"
 
@@ -139,9 +139,9 @@ def _brand_is_explicit_in_text(brand: Optional[str], text: str) -> bool:
         return False
 
     try:
-        aliases = taxonomy_service.get_brand_aliases(brand) or []
+        aliases = taxonomy_service.get_brand_aliases(brand) or[]
     except Exception:
-        aliases = []
+        aliases =[]
 
     text_norm = taxonomy_service.normalize_text(text or "")
     for alias in aliases:
@@ -254,7 +254,7 @@ FUEL_MAP = {
 }
 
 
-SALE_PATTERNS = [
+SALE_PATTERNS =[
     "продаю",
     "продам",
     "продажа",
@@ -305,7 +305,7 @@ def _is_speed_noise(text: str) -> bool:
         return True
 
     t = (text or "").lower()
-    return any(x in t for x in [
+    return any(x in t for x in[
         "км/ч",
         "km/h",
         "скорость",
@@ -342,7 +342,7 @@ def clean_text(text: str):
 
     text = text.replace("₽", " ₽ ")
 
-    drom_garbage = [
+    drom_garbage =[
         "Спецтехника",
         "Отзывы",
         "Каталог",
@@ -364,7 +364,7 @@ def strip_drom_noise(text: str):
     if not text:
         return ""
 
-    cut_markers = [
+    cut_markers =[
         "Отзывы владельцев",
         "Мнения владельцев",
         "Вы смотрите раздел",
@@ -391,6 +391,27 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     text = text or ""
     text = text.replace("\u00A0", " ").replace("\xa0", " ")
     lower = text.lower()
+    
+    mileage = None
+    fuel = None
+
+    # 🔥 HARD PARSE DROM STRUCTURED BLOCKS
+
+    # mileage: "Пробег: 123 456 км"
+    m = re.search(r"пробег[:\s]+([\d\s]{3,10})\s*(км|km)", lower)
+    if m:
+        try:
+            val = int(re.sub(r"[^\d]", "", m.group(1)))
+            if 1000 <= val <= 500_000:
+                mileage = val
+        except:
+            pass
+
+    # fuel: "бензин", "дизель"
+    m = re.search(r"\b(бензин|дизель|гибрид|электро|электр|газ)\b", lower)
+    if m:
+        fuel = FUEL_MAP.get(m.group(1), None)
+
     current_year = datetime.utcnow().year
 
     title_part = text[:180]
@@ -533,27 +554,30 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     if price is None:
         price = _extract_title_fallback_price(title_part)
 
-    mileage = _extract_mileage(title_part)
+    if mileage is None:
+        mileage = _extract_mileage(title_part)
+
     if mileage is None:
         mileage = _extract_mileage(text)
 
     if mileage is not None and mileage < 100:
         mileage = None
 
-    fuel = None
-    fuel_matches = RE_FUEL.findall(lower)
-    if fuel_matches:
-        normalized = []
-        for raw_fuel in fuel_matches:
-            value = str(raw_fuel).lower().strip()
-            mapped = FUEL_MAP.get(value)
-            if mapped:
-                normalized.append(mapped)
+    # 🔥 НЕ ПЕРЕТИРАЕМ если уже нашли
+    if not fuel:
+        fuel_matches = RE_FUEL.findall(lower)
+        if fuel_matches:
+            normalized =[]
+            for raw_fuel in fuel_matches:
+                value = str(raw_fuel).lower().strip()
+                mapped = FUEL_MAP.get(value)
+                if mapped:
+                    normalized.append(mapped)
 
-        if "gas_petrol" in normalized:
-            fuel = "gas_petrol"
-        elif normalized:
-            fuel = normalized[0]
+            if "gas_petrol" in normalized:
+                fuel = "gas_petrol"
+            elif normalized:
+                fuel = normalized[0]
 
     if not fuel:
         fuel = extract_fuel(text)

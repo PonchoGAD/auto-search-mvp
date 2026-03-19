@@ -138,6 +138,27 @@ def _brand_is_explicit_in_text(brand: Optional[str], text: str) -> bool:
     return False
 
 
+def extract_from_url(url: str) -> Tuple[Optional[str], Optional[str]]:
+    if not url:
+        return None, None
+
+    url = url.lower()
+
+    # drom / avito pattern
+    # /toyota/camry/
+    m = re.search(r"/([a-z0-9\-]+)/([a-z0-9\-]+)/", url)
+    if m:
+        brand = m.group(1)
+        model = m.group(2)
+
+        # очистка
+        model = model.replace("-", "").replace("_", "")
+
+        return brand, model
+
+    return None, None
+
+
 META_PREFIX_RE = re.compile(
     r"^_meta_:\s*(.+?)(?:\n|$)",
     re.IGNORECASE,
@@ -704,6 +725,24 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             final_brand = taxonomy_brand
             final_model = taxonomy_model
 
+            # 🔥 SOURCE_URL BOOST (главный фикс)
+            url_brand, url_model = extract_from_url(raw.source_url)
+
+            if url_brand:
+                try:
+                    url_brand = taxonomy_service.canonicalize_brand(url_brand)
+                except Exception:
+                    pass
+
+            if url_brand and not final_brand:
+                final_brand = url_brand
+
+            if url_model and final_brand and not final_model:
+                try:
+                    final_model = taxonomy_service.canonicalize_model(final_brand, url_model)
+                except Exception:
+                    final_model = url_model
+
             entities = None
             if not final_brand or not final_model:
                 from services.car_entity_extractor import extract_car_entities
@@ -769,8 +808,13 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
 
             fields = extract_fields(raw_text)
 
+            # 🔥 HARD fallback — ищем везде
             if not fields.get("fuel"):
-                fuel_fallback = extract_fuel(raw_text)
+                fuel_fallback = (
+                    extract_fuel(raw_text)
+                    or extract_fuel(title_text)
+                    or extract_fuel(raw_body_text)
+                )
                 if fuel_fallback:
                     fields["fuel"] = _normalize_fuel_value(fuel_fallback)
 
@@ -779,6 +823,16 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
 
             if fields.get("mileage") is not None:
                 fields["mileage"] = _sanitize_mileage_value(fields.get("mileage"))
+
+            # 🔥 HARD fallback mileage
+            if not fields.get("mileage"):
+                fallback_mileage = (
+                    extract_mileage(raw_text)
+                    or extract_mileage(title_text)
+                    or extract_mileage(raw_body_text)
+                )
+                if fallback_mileage:
+                    fields["mileage"] = _sanitize_mileage_value(fallback_mileage)
 
             if entities:
                 if not fields.get("mileage") and entities.get("mileage") is not None:

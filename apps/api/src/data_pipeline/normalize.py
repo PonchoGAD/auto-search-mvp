@@ -39,7 +39,7 @@ def extract_mileage(text: str) -> Optional[int]:
     if _is_speed_noise(text):
         return None
 
-    patterns =[
+    patterns = [
         (r"\bпробег[:\s]+(\d[\d\s]{2,10})\b", None),
         (r"\b(\d[\d\s]{2,10})\s*(км|km)\b", "km"),
         (r"\b(\d{1,3}(?:[.,]\d+)?)\s*(тыс\.?\s*км|тыс\.?|т\.км|k)\b", "thousand"),
@@ -94,7 +94,7 @@ def extract_fuel(text: str) -> Optional[str]:
 
 def extract_sale(text: str) -> str:
     lower = (text or "").lower()
-    if any(x in lower for x in["продам", "продаю", "продажа", "цена", "₽", "руб"]):
+    if any(x in lower for x in ["продам", "продаю", "продажа", "цена", "₽", "руб"]):
         return "1"
     return "0"
 
@@ -139,9 +139,9 @@ def _brand_is_explicit_in_text(brand: Optional[str], text: str) -> bool:
         return False
 
     try:
-        aliases = taxonomy_service.get_brand_aliases(brand) or[]
+        aliases = taxonomy_service.get_brand_aliases(brand) or []
     except Exception:
-        aliases =[]
+        aliases = []
 
     text_norm = taxonomy_service.normalize_text(text or "")
     for alias in aliases:
@@ -202,7 +202,7 @@ RE_MILEAGE_K = re.compile(
     re.IGNORECASE,
 )
 
-MILEAGE_RE = re.compile(r'(\d{1,3})\s?(тыс|000)?\s?(км|km)', re.I)
+MILEAGE_RE = re.compile(r"(\d{1,3})\s?(тыс|000)?\s?(км|km)", re.I)
 
 RE_FUEL = re.compile(
     r"\b("
@@ -254,7 +254,7 @@ FUEL_MAP = {
 }
 
 
-SALE_PATTERNS =[
+SALE_PATTERNS = [
     "продаю",
     "продам",
     "продажа",
@@ -305,7 +305,7 @@ def _is_speed_noise(text: str) -> bool:
         return True
 
     t = (text or "").lower()
-    return any(x in t for x in[
+    return any(x in t for x in [
         "км/ч",
         "km/h",
         "скорость",
@@ -342,7 +342,7 @@ def clean_text(text: str):
 
     text = text.replace("₽", " ₽ ")
 
-    drom_garbage =[
+    drom_garbage = [
         "Спецтехника",
         "Отзывы",
         "Каталог",
@@ -364,7 +364,7 @@ def strip_drom_noise(text: str):
     if not text:
         return ""
 
-    cut_markers =[
+    cut_markers = [
         "Отзывы владельцев",
         "Мнения владельцев",
         "Вы смотрите раздел",
@@ -391,14 +391,16 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     text = text or ""
     text = text.replace("\u00A0", " ").replace("\xa0", " ")
     lower = text.lower()
-    
+
     mileage = None
     fuel = None
 
     # 🔥 HARD PARSE DROM STRUCTURED BLOCKS
 
-    # mileage: "Пробег: 123 456 км"
-    m = re.search(r"пробег[:\s]+([\d\s]{3,10})\s*(км|km)", lower)
+    # 🔥 DROM HARD PARSE (УЛУЧШЕННЫЙ)
+
+    # Пробег: 120 000 км
+    m = re.search(r"пробег[:\s]*([\d\s]{3,10})", lower)
     if m:
         try:
             val = int(re.sub(r"[^\d]", "", m.group(1)))
@@ -406,6 +408,28 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
                 mileage = val
         except:
             pass
+
+    # fallback: 120000 км / 120 тыс км
+    if not mileage:
+        m = re.search(r"(\d{2,3})\s*тыс", lower)
+        if m:
+            try:
+                val = int(m.group(1)) * 1000
+                if 1000 <= val <= 500_000:
+                    mileage = val
+            except:
+                pass
+
+    # fallback: 120000 км
+    if not mileage:
+        m = re.search(r"(\d[\d\s]{3,10})\s*(км|km)", lower)
+        if m:
+            try:
+                val = int(re.sub(r"[^\d]", "", m.group(1)))
+                if 1000 <= val <= 500_000:
+                    mileage = val
+            except:
+                pass
 
     # fuel: "бензин", "дизель"
     m = re.search(r"\b(бензин|дизель|гибрид|электро|электр|газ)\b", lower)
@@ -567,7 +591,7 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     if not fuel:
         fuel_matches = RE_FUEL.findall(lower)
         if fuel_matches:
-            normalized =[]
+            normalized = []
             for raw_fuel in fuel_matches:
                 value = str(raw_fuel).lower().strip()
                 mapped = FUEL_MAP.get(value)
@@ -749,7 +773,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             raw_body_text = (raw.content or "").strip()
             body_text = strip_drom_noise(raw_body_text)
 
-            raw_text = f"{title_text}\n{raw_body_text}".strip()
+            raw_text = f"{title_text}\n{body_text}".strip()
 
             # 🔥 TELEGRAM HARD PARSE
             fields = {}
@@ -957,14 +981,13 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             _meta, content_wo_meta = parse_meta(enriched_content)
             normalized_text = clean_text(content_wo_meta)
 
-            print("[DEBUG NORMALIZE]", {
+            print("[DEBUG NORMALIZE FULL]", {
+                "TEXT_SAMPLE": raw_text[:200],
                 "brand": final_brand,
                 "model": search_model,
                 "fuel": fields.get("fuel"),
                 "mileage": fields.get("mileage"),
                 "price": fields.get("price"),
-                "year": fields.get("year"),
-                "source_url": raw.source_url,
             })
 
             doc_kwargs = _build_normalized_document_kwargs(

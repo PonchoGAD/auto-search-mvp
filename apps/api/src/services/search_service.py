@@ -186,6 +186,7 @@ except Exception as e:
 class SearchService:
     def __init__(self):
         self.store = QdrantStore()
+        self._last_debug: Dict[str, Any] = {}
 
     def _env_int(self, name: str, default: int) -> int:
         try:
@@ -735,6 +736,10 @@ class SearchService:
             "fuel": structured.fuel,
         }, flush=True)
 
+        self._last_debug["raw_hits_total"] = len(all_hits)
+        self._last_debug["vectors_used"] = len(vectors)
+        self._last_debug["query"] = structured.raw_query
+
         # merge bm25 later (Stage 4)
 
         doc_scores: Dict[str, float] = {}
@@ -792,7 +797,9 @@ class SearchService:
 
             # FUEL
             if structured.fuel:
-                if payload.get("fuel") != structured.fuel:
+                payload_fuel = payload.get("fuel")
+                # режем только если fuel у документа известен и он реально не совпал
+                if payload_fuel and payload_fuel != structured.fuel:
                     return False
 
             # MILEAGE
@@ -804,6 +811,7 @@ class SearchService:
             return True
 
         post_filter_kept = 0
+        post_filtered_payloads =[]
 
         for doc_key, payload in doc_payloads.items():
             debug["filtering"]["checked_candidates"] += 1
@@ -823,6 +831,7 @@ class SearchService:
                 continue
             
             post_filter_kept += 1
+            post_filtered_payloads.append((doc_key, payload))
 
             passed, discard_reasons = self._passes_hard_filters(payload, structured, route)
             if not passed:
@@ -856,6 +865,28 @@ class SearchService:
             ]
 
             scored_results.append((final_score, payload, signals, reasons_list))
+
+        if post_filter_kept == 0 and doc_payloads:
+            print("[DEBUG SEARCH FALLBACK] post-filter killed everything, using top raw docs", flush=True)
+            for doc_key, payload in list(doc_payloads.items())[:50]:
+                semantic = float(doc_scores.get(doc_key, 0.0) or 0.0)
+                final_score, signals = self._score_candidate(payload, structured, semantic, route)
+                reasons_list =[
+                    f"semantic={round(signals.get('semantic', 0.0), 4)}",
+                    f"text_match={round(signals.get('text_match', 0.0), 4)}",
+                    f"freshness={round(signals.get('freshness', 0.0), 4)}",
+                    f"completeness={round(signals.get('completeness', 0.0), 4)}",
+                    f"price_fit={round(signals.get('price_fit', 0.0), 4)}",
+                    f"mileage_fit={round(signals.get('mileage_fit', 0.0), 4)}",
+                    f"fuel_match={round(signals.get('fuel_match', 0.0), 4)}",
+                    f"brand_match={round(signals.get('brand_match', 0.0), 4)}",
+                    f"model_match={round(signals.get('model_match', 0.0), 4)}",
+                    f"source_quality={round(signals.get('source_quality', 0.0), 4)}",
+                    f"sale_intent={round(signals.get('sale_intent', 0.0), 4)}",
+                    f"representation_quality={round(signals.get('representation_quality', 0.0), 4)}",
+                    f"final={round(final_score, 6)}",
+                ]
+                scored_results.append((final_score, payload, signals, reasons_list))
 
         print("[DEBUG SEARCH FILTERING]", {
             "post_filter_kept": post_filter_kept,

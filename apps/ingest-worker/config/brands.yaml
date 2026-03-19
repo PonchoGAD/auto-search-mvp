@@ -24,10 +24,6 @@ brands:
       - "mersedes"
       - "мерседес бенц"
       - "мерс бенц"
-      - "e class"
-      - "c class"
-      - "s class"
-      - "glc class"
 
   volkswagen:
     en: ["volkswagen", "vw"]

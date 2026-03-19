@@ -49,7 +49,7 @@ def deterministic_embedding(text: str) -> List[float]:
 
 ALLOWED_FUELS = {"petrol", "diesel", "hybrid", "electric", "gas", "gas_petrol"}
 MARKETPLACE_SOURCES = {"avito", "drom", "auto_ru", "autoru", "cars", "dealer", "marketplace"}
-SEARCH_MIN_DOC_QUALITY = int(os.getenv("SEARCH_MIN_DOC_QUALITY", "1"))
+SEARCH_MIN_DOC_QUALITY = int(os.getenv("SEARCH_MIN_DOC_QUALITY", "0"))
 ALLOW_ZERO_QUALITY_INDEX = os.getenv("ALLOW_ZERO_QUALITY_INDEX", "0").strip() == "1"
 
 
@@ -98,8 +98,7 @@ def _count_vehicle_signals(
     year: int | None,
     fuel: str | None,
 ) -> int:
-    return sum(
-        [
+    return sum([
             1 if brand else 0,
             1 if model else 0,
             1 if price else 0,
@@ -120,7 +119,7 @@ def _is_probable_search_or_category_url(source: str | None, source_url: str | No
     if not url.startswith(("http://", "https://")):
         return True
 
-    generic_bad_parts = [
+    generic_bad_parts =[
         "/search",
         "/search/",
         "/catalog",
@@ -156,7 +155,7 @@ def _is_probable_search_or_category_url(source: str | None, source_url: str | No
         return True
 
     if source == "avito":
-        avito_garbage = [
+        avito_garbage =[
             "/all/avtomobili",
             "/rossiya/avtomobili",
             "/avtomobili?s=",
@@ -194,8 +193,11 @@ def _validate_canonical_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "дизель": "diesel",
         "электро": "electric",
         "электр": "electric",
+        "электромобиль": "electric",
+        "ev": "electric",
         "гибрид": "hybrid",
         "газ": "gas",
+        "газ бензин": "gas_petrol",
     }
 
     if isinstance(fuel, str):
@@ -266,7 +268,8 @@ def _should_index_listing_doc(doc: NormalizedDocument, chunk: DocumentChunk) -> 
         + (1 if year else 0)
     )
 
-    if not ALLOW_ZERO_QUALITY_INDEX and doc_quality < SEARCH_MIN_DOC_QUALITY:
+    # ❗ ослабляем фильтр (иначе пустая выдача)
+    if doc_quality < 0:
         return False, "low_quality"
 
     if source == "telegram":
@@ -277,7 +280,7 @@ def _should_index_listing_doc(doc: NormalizedDocument, chunk: DocumentChunk) -> 
             or (vehicle_signals >= 3 and year is not None)
         )
 
-        suspicious_chat_markers = [
+        suspicious_chat_markers =[
             "кто что думает",
             "подскажите",
             "это норм",
@@ -300,7 +303,8 @@ def _should_index_listing_doc(doc: NormalizedDocument, chunk: DocumentChunk) -> 
         if not enough_sale_signals or looks_like_chat:
             return False, "non_sale_telegram"
 
-    if not brand and not model and price is None and mileage is None and year is None and quality_score <= 0:
+    # ❗ разрешаем индекс даже слабых документов
+    if not brand and not model and price is None and mileage is None and year is None:
         return False, "low_quality"
 
     return True, "primary"
@@ -311,7 +315,7 @@ def _should_index_listing_doc(doc: NormalizedDocument, chunk: DocumentChunk) -> 
 # =====================================================
 
 def build_structured_text(doc: NormalizedDocument) -> str:
-    parts = []
+    parts =[]
 
     brand = _norm_str(getattr(doc, "brand", None))
     model = _norm_str(getattr(doc, "model", None))
@@ -386,7 +390,7 @@ def index_document_chunks(
             print("[INDEX][WARN] no document chunks found", flush=True)
             return 0
 
-        points: List[PointStruct] = []
+        points: List[PointStruct] =[]
         now = datetime.now(tz=timezone.utc)
 
         skipped_empty_text = 0
@@ -426,7 +430,7 @@ def index_document_chunks(
                 continue
 
             structured_text = build_structured_text(doc)
-            vectors = []
+            vectors =[]
 
             brand = _norm_str(getattr(doc, "brand", None))
             model = _norm_str(getattr(doc, "model", None))

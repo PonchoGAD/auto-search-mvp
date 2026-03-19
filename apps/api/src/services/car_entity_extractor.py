@@ -17,7 +17,7 @@ def _digits_only(value: str) -> str:
 
 def _is_speed_noise(text: str) -> bool:
     t = _norm(text)
-    return any(x in t for x in ["км/ч", "km/h", "скорость", "средняя скорость"])
+    return any(x in t for x in["км/ч", "km/h", "скорость", "средняя скорость"])
 
 
 RE_PRICE = re.compile(r"(\d[\d\s\u00A0]{3,12})\s*(₽|руб|р)\b", re.IGNORECASE)
@@ -176,7 +176,7 @@ def extract_mileage(text):
     if m:
         try:
             val = int(_digits_only(m.group(1)))
-            if 0 <= val <= 500_000:
+            if 500 <= val <= 500_000:
                 return val
         except Exception:
             pass
@@ -189,7 +189,7 @@ def extract_mileage(text):
             val = int(raw)
             if "тыс" in unit or "т.км" in unit:
                 val *= 1000
-            if 0 <= val <= 500_000:
+            if 500 <= val <= 500_000:
                 return val
         except Exception:
             pass
@@ -199,7 +199,7 @@ def extract_mileage(text):
         try:
             raw = m.group(1).replace(",", ".")
             val = int(float(raw) * 1000)
-            if 0 <= val <= 500_000:
+            if 500 <= val <= 500_000:
                 return val
         except Exception:
             pass
@@ -208,7 +208,7 @@ def extract_mileage(text):
     if m:
         try:
             val = int(m.group(1))
-            if 0 <= val <= 500_000:
+            if 500 <= val <= 500_000:
                 return val
         except Exception:
             pass
@@ -225,11 +225,12 @@ def extract_fuel(text):
     if re.search(r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ|газ\s+бензин|бензин\s+газ)\b", t):
         return "gas_petrol"
 
-    fuel_patterns = [
-        (r"\b(бензин|бензиновый|бенз|petrol|gasoline)\b", "petrol"),
-        (r"\b(дизель|дизельный|диз|diesel)\b", "diesel"),
-        (r"\b(гибрид|hybrid|plug in hybrid|phev)\b", "hybrid"),
+    fuel_patterns =[
+        # ❗ СНАЧАЛА ЭЛЕКТРО (приоритет)
         (r"\b(электро|электр|электрический|электромобиль|electric|ev)\b", "electric"),
+        (r"\b(гибрид|hybrid|plug in hybrid|phev)\b", "hybrid"),
+        (r"\b(дизель|дизельный|диз|diesel)\b", "diesel"),
+        (r"\b(бензин|бензиновый|бенз|petrol|gasoline)\b", "petrol"),
         (r"\b(газ|гбо|lpg)\b", "gas"),
     ]
 
@@ -252,11 +253,20 @@ def extract_car_entities(title, content):
         except Exception:
             pass
 
+    price = extract_price(text)
+    year = extract_year(text)
+    mileage = extract_mileage(text)
+    fuel = extract_fuel(text)
+
+    # ❗ финальная очистка
+    if mileage is not None and mileage < 500:
+        mileage = None
+
     return {
         "brand": brand or None,
         "model": model or None,
-        "price": extract_price(text),
-        "year": extract_year(text),
-        "mileage": extract_mileage(text),
-        "fuel": extract_fuel(text),
+        "price": price,
+        "year": year,
+        "mileage": mileage,
+        "fuel": fuel,
     }

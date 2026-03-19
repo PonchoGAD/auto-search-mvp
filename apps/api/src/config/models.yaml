@@ -262,6 +262,7 @@ changan:
   cs35: ["cs35 plus"]
   cs55: ["cs55 plus"]
   cs75: ["cs75 plus"]
+  x5_plus: ["x5 plus", "x5+", "x5plus", "x5 плюс"]
 
 ram:
   "1500": ["1500", "ram 1500", "ram-1500"]

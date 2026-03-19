@@ -10,11 +10,10 @@ from qdrant_client.models import (
     VectorParams,
 )
 
-
 COLLECTION_NAME = "auto_search_chunks"
 
-# 🔥 ПРИНУДИТЕЛЬНО ВКЛЮЧАЕМ ЛОГИ QDRANT
-QDRANT_DEBUG = True
+# Читаем из окружения (нужно добавить QDRANT_DEBUG=1 в docker-compose.prod.yml)
+QDRANT_DEBUG = os.getenv("QDRANT_DEBUG", "0").strip() == "1"
 
 
 class QdrantStore:
@@ -59,7 +58,7 @@ class QdrantStore:
     # =====================================================
 
     def create_collection(self, vector_size: int):
-        collections =[
+        collections = [
             c.name for c in self.client.get_collections().collections
         ]
 
@@ -95,7 +94,7 @@ class QdrantStore:
                 keys = sorted(query_filter.keys())
                 return ",".join(keys) if keys else "dict_empty"
 
-            summary_parts: List[str] =[]
+            summary_parts: List[str] = []
 
             for attr in ("must", "should", "must_not"):
                 value = getattr(query_filter, attr, None)
@@ -153,13 +152,6 @@ class QdrantStore:
         return None
 
     def _normalize_created_at(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Ensures:
-        - created_at (ISO str)
-        - created_at_ts (int)
-        - created_at_source (source | ingested | normalized)
-        """
-
         raw = payload.get("created_at")
 
         if isinstance(raw, datetime):
@@ -200,11 +192,6 @@ class QdrantStore:
         return payload
 
     def _normalize_payload_schema(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Canonical payload normalization only.
-        No taxonomy recovery or business-logic extraction.
-        """
-
         current_year = datetime.now(tz=timezone.utc).year
 
         brand = self._norm_str(payload.get("brand"))
@@ -232,12 +219,10 @@ class QdrantStore:
             quality_score = max(0.0, min(1.0, quality_score))
 
         normalized: Dict[str, Any] = {
-            # fixed canonical schema
             "raw_id": self._norm_int(payload.get("raw_id")),
             "normalized_id": self._norm_int(payload.get("normalized_id")),
             "source": self._norm_str(payload.get("source")),
             "source_url": payload.get("source_url") if isinstance(payload.get("source_url"), str) else None,
-
             "brand": brand,
             "model": model,
             "year": year,
@@ -250,7 +235,6 @@ class QdrantStore:
             "created_at_ts": self._norm_int(payload.get("created_at_ts")),
         }
 
-        # keep compatible auxiliary fields if present
         normalized["doc_id"] = self._norm_int(payload.get("doc_id"))
         normalized["chunk_id"] = self._norm_int(payload.get("chunk_id"))
         normalized["title"] = payload.get("title") if isinstance(payload.get("title"), str) else None
@@ -272,9 +256,6 @@ class QdrantStore:
         return normalized
 
     def build_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Centralized payload builder for upsert/retrieval compatibility.
-        """
         normalized = self._normalize_payload_schema(payload)
         normalized = self._normalize_created_at(normalized)
         normalized["created_at_ts"] = self._norm_int(normalized.get("created_at_ts"))
@@ -289,7 +270,7 @@ class QdrantStore:
             print("[QDRANT] no points to upsert", flush=True)
             return
 
-        normalized_points: List[PointStruct] =[]
+        normalized_points: List[PointStruct] = []
 
         for p in points:
             payload = self.build_payload(p.payload or {})
@@ -358,11 +339,11 @@ class QdrantStore:
             query_filter=query_filter,
         )
 
-        hits = response.points if hasattr(response, "points") else[]
+        points = response.points if hasattr(response, "points") else []
 
-        self._debug_log(f"vector hits returned={len(hits)}")
+        self._debug_log(f"vector hits returned={len(points)}")
 
-        if not hits and query_text:
+        if not points and query_text:
             self._debug_log("vector search empty, trying fallback without filter")
             response = self.client.query_points(
                 collection_name=COLLECTION_NAME,
@@ -371,4 +352,26 @@ class QdrantStore:
                 with_payload=True,
                 with_vectors=False,
             )
-            hits = response.points if hasattr(response, "points") else
+            points = response.points if hasattr(response, "points") else []
+            self._debug_log(f"fallback hits returned={len(points)}")
+
+        for p in points:
+            payload = p.payload or {}
+            p.payload = self.build_payload(payload)
+
+        self._debug_log(
+            f"search complete limit={requested_limit} "
+            f"filter_present={has_filter} "
+            f"hits={len(points)}"
+        )
+
+        return points
+
+
+QDRANT_HOST = os.getenv("QDRANT_HOST", "qdrant")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+
+qdrant_client = QdrantClient(
+    host=QDRANT_HOST,
+    port=QDRANT_PORT,
+)

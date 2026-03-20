@@ -186,6 +186,9 @@ def _validate_canonical_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     payload["model"] = model if isinstance(model, str) and model.strip() else None
 
     fuel = payload.get("fuel")
+
+    if isinstance(fuel, str):
+        fuel = fuel.strip().lower()
     fuel = fuel if isinstance(fuel, str) and fuel.strip() else None
 
     # 🔥 нормализация топлива (RU → EN)
@@ -224,6 +227,13 @@ def _validate_canonical_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     payload["brand_model"] = f"{payload.get('brand') or ''} {payload.get('model') or ''}".strip() or None
     return payload
+
+    print("[DEBUG AFTER VALIDATE]", {
+    "brand": payload.get("brand"),
+    "model": payload.get("model"),
+    "fuel": payload.get("fuel"),
+    "mileage": payload.get("mileage"),
+})
 
 
 def _should_index_listing_doc(doc: NormalizedDocument, chunk: DocumentChunk) -> Tuple[bool, str]:

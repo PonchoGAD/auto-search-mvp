@@ -718,6 +718,12 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 if final_brand and not final_model and extracted_model:
                     final_model = extracted_model
 
+                if final_brand and extracted_model:
+                    if extracted_model != final_brand:
+                        final_model = extracted_model
+                        if final_model == final_brand:
+                            final_model = None
+
             if final_brand:
                 final_brand = taxonomy_service.canonicalize_brand(final_brand)
 
@@ -761,9 +767,15 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 fuel_fallback = extract_fuel(raw_text) or extract_fuel(title_text) or extract_fuel(raw_body_text)
                 if fuel_fallback: fields["fuel"] = _normalize_fuel_value(fuel_fallback)
 
-            if fields.get("fuel"):
-                fields["fuel"] = _normalize_fuel_value(fields.get("fuel"))
+            fuel_val = fields.get("fuel")
 
+            if fuel_val:
+                normalized_fuel = _normalize_fuel_value(fuel_val)
+                if normalized_fuel:
+                    fields["fuel"] = normalized_fuel
+                    else:
+                        fields["fuel"] = fuel_val
+                
             if fields.get("mileage") is not None:
                 fields["mileage"] = _sanitize_mileage_value(fields.get("mileage"))
 
@@ -831,3 +843,5 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         session.close()
 
     return saved
+
+    _normalize_fuel_value

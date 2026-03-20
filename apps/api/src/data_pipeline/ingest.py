@@ -1,5 +1,3 @@
-#  apps\api\src\data_pipeline\ingest.py
-
 import os
 import re
 import asyncio
@@ -75,7 +73,7 @@ BMWCLUB_LIMIT = int(os.getenv("BMWCLUB_LIMIT", "30"))
 # =========================
 
 def _parse_sources() -> List[str]:
-    return [
+    return[
         s.strip().lower()
         for s in INGEST_SOURCES_RAW.split(",")
         if s.strip()
@@ -102,12 +100,6 @@ def _run_coro(loop: asyncio.AbstractEventLoop, coro):
 def run_ingest() -> Dict[str, int]:
     """
     Универсальный ingest pipeline + anti-noise gate.
-
-    ГАРАНТИИ:
-    - ingest ВЫКЛЮЧЕН в prod без ENABLE_INGEST=true
-    - DEMO режим ограничивает объём данных
-    - сохраняем только реальные поля RawDocument
-    - после ingest идёт индексация в Qdrant
     """
 
     if ENV == "prod" and not ENABLE_INGEST:
@@ -115,18 +107,15 @@ def run_ingest() -> Dict[str, int]:
         return {"saved": 0, "indexed": 0, "skipped": 0}
 
     loop = _ensure_event_loop()
-
     session = SessionLocal()
     sources = _parse_sources()
 
-    all_items: List[Dict] = []
+    all_items: List[Dict] =[]
     skipped_duplicates = 0
     stats = SkipStats()
 
     try:
-        # -------------------------
         # TELEGRAM
-        # -------------------------
         if "telegram" in sources:
             try:
                 items = _run_coro(loop, fetch_telegram(limit_per_channel=None))
@@ -135,29 +124,25 @@ def run_ingest() -> Dict[str, int]:
             except Exception as e:
                 print(f"[INGEST][ERROR] telegram failed: {e}")
 
-        # -------------------------
         # AUTO.RU
-        # -------------------------
         if "auto_ru" in sources and fetch_auto_ru_serp:
             try:
                 items = _run_coro(loop, fetch_auto_ru_serp(limit=AUTO_RU_LIMIT))
                 all_items.extend(items or [])
-                print(f"[INGEST][AUTO.RU] fetched: {len(items or [])}")
+                print(f"[INGEST][AUTO.RU] fetched: {len(items or[])}")
             except Exception as e:
                 print(f"[INGEST][ERROR] auto.ru failed: {e}")
 
-        # -------------------------
-        # DROM.RU
-        # -------------------------
+        # DROM.RU (🔥 ИСПРАВЛЕН БЛОК)
         if "drom_ru" in sources and fetch_drom_ru_serp:
             try:
                 items = _run_coro(loop, fetch_drom_ru_serp(limit=DROM_RU_LIMIT))
                 all_items.extend(items or [])
+                print(f"[INGEST][DROM.RU] fetched: {len(items or[])}")
+            except Exception as e:
                 print(f"[INGEST][ERROR] drom.ru failed: {e}")
 
-        # -------------------------
         # AVITO
-        # -------------------------
         if "avito" in sources and fetch_avito_serp:
             try:
                 items = _run_coro(loop, fetch_avito_serp(limit=AVITO_LIMIT))
@@ -166,9 +151,7 @@ def run_ingest() -> Dict[str, int]:
             except Exception as e:
                 print(f"[INGEST][ERROR] avito failed: {e}")
 
-        # -------------------------
         # BENZCLUB
-        # -------------------------
         if "benzclub" in sources:
             try:
                 items = fetch_benzclub_listings(limit=BENZCLUB_LIMIT)
@@ -177,9 +160,7 @@ def run_ingest() -> Dict[str, int]:
             except Exception as e:
                 print(f"[INGEST][ERROR] benzclub failed: {e}")
 
-        # -------------------------
         # BMWCLUB
-        # -------------------------
         if "bmwclub" in sources:
             try:
                 items = fetch_bmwclub_listings(limit=BMWCLUB_LIMIT)
@@ -198,10 +179,8 @@ def run_ingest() -> Dict[str, int]:
             all_items = all_items[:DEMO_INGEST_LIMIT]
             print(f"[INGEST][DEMO] limited to {len(all_items)} items")
 
-        # -------------------------
         # ANTI-NOISE + SAVE
-        # -------------------------
-        saved_docs: List[RawDocument] = []
+        saved_docs: List[RawDocument] =[]
 
         for item in all_items:
             stats.total += 1
@@ -211,7 +190,7 @@ def run_ingest() -> Dict[str, int]:
 
             if not source_url:
                 stats.add(skip=True, reason="no_source_url")
-                print(f"[DB][SAVE] saved=0 skipped=1 reason_skip=no_source_url url={source_url}", flush=True)
+                print(f"[DB][SAVE] skipped=1 reason=no_source_url url={source_url}", flush=True)
                 continue
 
             exists = (
@@ -225,7 +204,6 @@ def run_ingest() -> Dict[str, int]:
             if exists:
                 skipped_duplicates += 1
                 stats.add(skip=True, reason="duplicate")
-                print(f"[DB][SAVE] saved=0 skipped=1 reason_skip=duplicate url={source_url}", flush=True)
                 continue
 
             title = item.get("title") or ""
@@ -234,33 +212,17 @@ def run_ingest() -> Dict[str, int]:
 
             if not raw_text or len(raw_text) < 10:
                 stats.add(skip=True, reason="content_too_short")
-                print(f"[DB][SAVE] saved=0 skipped=1 reason_skip=content_too_short url={source_url}", flush=True)
                 continue
 
-            skip, skip_meta = should_skip_doc(
-                text=raw_text,
-                source=source,
-            )
+            skip, skip_meta = should_skip_doc(text=raw_text, source=source)
             if skip:
                 reason = skip_meta.get("reason", "unknown")
                 stats.add(skip=True, reason=reason)
-                print(f"[DB][SAVE] saved=0 skipped=1 reason_skip={reason} url={source_url}", flush=True)
                 continue
 
-            final_content, _meta = enrich_text_with_meta(
-                raw_text=raw_text,
-                source=source,
-            )
+            final_content, _meta = enrich_text_with_meta(raw_text=raw_text, source=source)
 
-            fuel_match = re.search(
-                r"(бензин|дизель|гибрид|электро|газ|hybrid|diesel|petrol|electric)",
-                raw_text.lower()
-            )
-            fuel = fuel_match.group(0) if fuel_match else None
-
-            if fuel:
-                final_content = f"{final_content}\n[FUEL: {fuel}]"
-
+            # Сохраняем документ в БД
             doc = RawDocument(
                 source=source,
                 source_url=source_url,
@@ -272,13 +234,10 @@ def run_ingest() -> Dict[str, int]:
             session.add(doc)
             saved_docs.append(doc)
             stats.add(skip=False, reason="ok")
-            print(f"[DB][SAVE] saved=1 skipped=0 reason_skip=ok url={source_url}", flush=True)
 
         session.commit()
 
-        # -------------------------
         # NORMALIZE -> CHUNK -> INDEX
-        # -------------------------
         pipeline_limit = max(len(saved_docs), 500)
 
         run_normalize(limit=pipeline_limit, force_rebuild=False)

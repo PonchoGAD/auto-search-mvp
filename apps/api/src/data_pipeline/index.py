@@ -269,7 +269,6 @@ def _should_index_listing_doc(doc: NormalizedDocument, chunk: DocumentChunk) -> 
         + (1 if year else 0)
     )
 
-    # ❗ ослабляем фильтр (иначе пустая выдача)
     if doc_quality < 0:
         return False, "low_quality"
 
@@ -304,7 +303,6 @@ def _should_index_listing_doc(doc: NormalizedDocument, chunk: DocumentChunk) -> 
         if not enough_sale_signals or looks_like_chat:
             return False, "non_sale_telegram"
 
-    # ❗ разрешаем индекс даже слабых документов
     if not brand and not model and price is None and mileage is None and year is None:
         return False, "low_quality"
 
@@ -403,7 +401,6 @@ def index_document_chunks(
         indexed_auxiliary = 0
 
         for ch, doc in chunks:
-            # 🔥 КРИТИЧЕСКИЙ ФИКС — используем normalized_text
             chunk_text = _clean_text(
                 (doc.normalized_text or "") + " " + (ch.chunk_text or "")
             )[:800]
@@ -420,14 +417,11 @@ def index_document_chunks(
 
             if not source_url or not title_text:
                 print("[INDEX DEBUG] missing url/title but KEEPING")
-                # continue ❌
 
             should_index, reason = _should_index_listing_doc(doc, ch)
 
-            # 🔥 ВРЕМЕННО НЕ РЕЖЕМ (дедлайн режим)
             if not should_index:
                 print("[INDEX DEBUG] bypass filter:", reason, getattr(doc, "source_url", None))
-                # continue  ❌ ОТКЛЮЧАЕМ
 
             structured_text = build_structured_text(doc)
             vectors =[]
@@ -490,7 +484,6 @@ title {title_text}
                 "mileage": getattr(doc, "mileage", None),
             })
 
-            # 🔥 FALLBACK ИЗ TITLE (CRITICAL FIX)
             title_lower = (getattr(doc, "title", "") or "").lower()
 
             if not getattr(doc, "brand", None):

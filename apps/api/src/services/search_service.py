@@ -11,9 +11,10 @@ import re
 from rank_bm25 import BM25Okapi
 
 try:
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    # 🔥 ИМПОРТИРУЕМ Range ДЛЯ ФИЛЬТРАЦИИ ПРОБЕГА, ГОДА И ЦЕНЫ
+    from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
 except ImportError:
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
 
 from shared.embeddings.provider import embed_text
 from sentence_transformers import CrossEncoder
@@ -44,7 +45,7 @@ def _bm25_score(query: str, docs: List[str]) -> float:
         return 0.0
 
     prepared_docs =[_normalize_token_text(d) for d in docs if d]
-    prepared_docs =[d for d in prepared_docs if d]
+    prepared_docs = [d for d in prepared_docs if d]
     if not prepared_docs:
         return 0.0
 
@@ -114,7 +115,6 @@ def _compact_token_text(value: str) -> str:
 
 
 def _model_soft_match(payload_model: str, query_model: str) -> bool:
-    # ❗ строгий режим если есть цифры (x5, x6 и т.д.)
     if re.search(r"\d", query_model):
         return _normalize_model_strict(payload_model) == _normalize_model_strict(query_model)
 
@@ -290,7 +290,7 @@ class SearchService:
             return 0.50
 
     def _build_query_text(self, structured: StructuredQuery) -> str:
-        parts: List[str] =[]
+        parts: List[str] = []
         seen = set()
 
         def add(part: Optional[str]):
@@ -326,45 +326,6 @@ class SearchService:
 
         return " ".join(parts).strip()
 
-    def _build_stage_filter(
-        self,
-        route: str,
-        brand: str = None,
-        model: str = None,
-        fuel: str = None,
-    ) -> Optional[Filter]:
-        must_conditions: List[FieldCondition] =[]
-
-        if brand and brand in WHITELIST_SET:
-            must_conditions.append(
-                FieldCondition(
-                    key="brand",
-                    match=MatchValue(value=brand),
-                )
-            )
-
-        # model filter only with canonical raw payload value, never normalized token text
-        if route == "structured" and model:
-            must_conditions.append(
-                FieldCondition(
-                    key="model",
-                    match=MatchValue(value=model),
-                )
-            )
-
-        if fuel:
-            must_conditions.append(
-                FieldCondition(
-                    key="fuel",
-                    match=MatchValue(value=fuel),
-                )
-            )
-
-        if not must_conditions:
-            return None
-
-        return Filter(must=must_conditions)
-
     def _passes_hard_filters(
         self,
         payload: Dict[str, Any],
@@ -390,7 +351,6 @@ class SearchService:
             if payload_brand and payload_brand != brand_value:
                 reasons.append("brand_mismatch")
 
-        # ❗ PRICE НЕ РЕЖЕМ ЖЁСТКО
         if structured.price_max is not None:
             price_val = payload.get("price")
             if price_val is not None:
@@ -399,17 +359,14 @@ class SearchService:
                 except Exception:
                     reasons.append("price_invalid")
 
-        # 🔥 ЖЁСТКИЙ ПРОБЕГ (КРИТИЧНО)
         if structured.mileage_max is not None:
             mileage_val = payload.get("mileage")
-
             if mileage_val is not None:
                 try:
                     if float(mileage_val) > float(structured.mileage_max):
                         reasons.append("mileage_overflow")
                 except Exception:
                     reasons.append("mileage_invalid")
-            # ❗ если нет mileage → НЕ режем
 
         if structured.year_min is not None:
             year_val = payload.get("year")
@@ -523,7 +480,6 @@ class SearchService:
         for key, weight in weights.items():
             final_score += signals.get(key, 0.0) * weight
 
-        # soft match
         if structured.fuel and payload.get("fuel") and payload.get("fuel") != structured.fuel:
             final_score *= 0.7
 
@@ -555,7 +511,7 @@ class SearchService:
             pairs.append((query, " ".join(text_parts)[:300]))
 
         try:
-            rerank_scores =[float(x) for x in reranker.predict(pairs)]
+            rerank_scores = [float(x) for x in reranker.predict(pairs)]
         except Exception as e:
             print(f"[RERANK][WARN] failed: {e}", flush=True)
             return results[:top_k]
@@ -610,12 +566,10 @@ class SearchService:
             else structured.model
         )
 
-        # exact values for qdrant payload filters
         brand_filter_value = (canonical_brand or "").strip().lower()
         model_filter_value = (canonical_model or "").strip().lower()
         fuel_filter_value = (structured.fuel or "").strip().lower()
 
-        # normalized values for python-side scoring/matching
         brand_value = _normalize_token_text(canonical_brand or "")
         fuel_value = _normalize_token_text(structured.fuel or "")
         model_match_value = _normalize_model_strict(canonical_model or "")
@@ -693,33 +647,50 @@ class SearchService:
         expanded_queries = expand_query(structured.raw_query or "")
         vectors = [query_vector]
 
-        for q in expanded_queries[:2]:  # максимум 2
+        for q in expanded_queries[:2]:
             try:
                 vectors.append(embed_text(q))
             except:
                 pass
 
+        # 🔥 СБОРКА ЖЕСТКИХ ФИЛЬТРОВ ДЛЯ БАЗЫ ДАННЫХ (QDRANT)
         must_conditions =[]
 
-        # ❗ ОТКЛЮЧАЕМ ЖЕСТКИЙ FILTER (ломает recall)
-        # фильтрация будет ПОСЛЕ retrieval
+        if brand_filter_value and brand_filter_value in WHITELIST_SET:
+            must_conditions.append(
+                FieldCondition(key="brand", match=MatchValue(value=brand_filter_value))
+            )
 
-        if structured.model:
-            pass
+        if fuel_filter_value:
+            must_conditions.append(
+                FieldCondition(key="fuel", match=MatchValue(value=fuel_filter_value))
+            )
 
-        # ❗ fuel НЕ фильтруем жестко на этапе retrieval
-        if structured.fuel:
-            pass
+        if structured.mileage_max is not None:
+            must_conditions.append(
+                FieldCondition(key="mileage", range=Range(lte=int(structured.mileage_max)))
+            )
 
-        query_filter = None
+        if structured.year_min is not None:
+            must_conditions.append(
+                FieldCondition(key="year", range=Range(gte=int(structured.year_min)))
+            )
+
+        if structured.price_max is not None:
+            must_conditions.append(
+                FieldCondition(key="price", range=Range(lte=int(structured.price_max)))
+            )
+
+        query_filter = Filter(must=must_conditions) if must_conditions else None
 
         all_hits =[]
         try:
             for vec in vectors:
+                # 🔥 ТЕПЕРЬ ПЕРЕДАЕМ НАШ ФИЛЬТР В ВЕКТОРНУЮ БАЗУ
                 stage_hits = self.store.search(
                     vector=vec,
                     limit=500,
-                    query_filter=None,
+                    query_filter=query_filter, 
                     query_text=query_text,
                 )
                 all_hits.extend(stage_hits)
@@ -734,13 +705,12 @@ class SearchService:
             "brand": structured.brand,
             "model": structured.model,
             "fuel": structured.fuel,
+            "filters_applied": bool(query_filter)
         }, flush=True)
 
         self._last_debug["raw_hits_total"] = len(all_hits)
         self._last_debug["vectors_used"] = len(vectors)
         self._last_debug["query"] = structured.raw_query
-
-        # merge bm25 later (Stage 4)
 
         doc_scores: Dict[str, float] = {}
         doc_payloads: Dict[str, Dict[str, Any]] = {}
@@ -772,37 +742,31 @@ class SearchService:
             "unique_docs": len(doc_payloads),
         }, flush=True)
 
-        scored_results: List[Tuple[float, Dict[str, Any], Dict[str, float], List[str]]] =[]
+        scored_results: List[Tuple[float, Dict[str, Any], Dict[str, float], List[str]]] = []
         discard_counter = Counter()
-        scoring_snapshots =[]
 
-        semantic_values =[]
+        semantic_values = []
         freshness_values =[]
-        completeness_values =[]
-        price_fit_values =[]
+        completeness_values = []
+        price_fit_values = []
         mileage_fit_values =[]
 
         def _post_filter(payload, structured):
-            # BRAND
             if structured.brand:
                 if payload.get("brand") != structured.brand:
                     return False
 
-            # MODEL
             if structured.model:
                 if not payload.get("model"):
                     return False
                 if not _model_soft_match(payload.get("model", ""), structured.model):
                     return False
 
-            # FUEL
             if structured.fuel:
                 payload_fuel = payload.get("fuel")
-                # режем только если fuel у документа известен и он реально не совпал
                 if payload_fuel and payload_fuel != structured.fuel:
                     return False
 
-            # MILEAGE
             if structured.mileage_max:
                 m = payload.get("mileage")
                 if m and m > structured.mileage_max:
@@ -811,7 +775,6 @@ class SearchService:
             return True
 
         post_filter_kept = 0
-        post_filtered_payloads =[]
 
         for doc_key, payload in doc_payloads.items():
             debug["filtering"]["checked_candidates"] += 1
@@ -826,12 +789,10 @@ class SearchService:
 
             semantic = float(doc_scores.get(doc_key, 0.0) or 0.0)
 
-            # ❗ сначала мягкий пост-фильтр
             if not _post_filter(payload, structured):
                 continue
             
             post_filter_kept += 1
-            post_filtered_payloads.append((doc_key, payload))
 
             passed, discard_reasons = self._passes_hard_filters(payload, structured, route)
             if not passed:
@@ -976,41 +937,33 @@ class SearchService:
                 results =[
                     r for r in results
                     if (r.get("brand") or "").lower() == structured.brand.lower()
-                ] or results  # ❗ fallback если всё удалилось
+                ] or results
 
-            # 🔥 SOFT FILTER (НЕ УБИВАЕМ ВЫДАЧУ)
             if structured.fuel:
                 boosted =[]
                 for r in results:
                     payload_fuel = (r.get("fuel") or "").lower()
-
-                    # ❗ электро — строгий фильтр
                     if structured.fuel == "electric":
                         if payload_fuel == "electric":
                             r["score"] *= 1.3
                         else:
-                            r["score"] *= 0.3  # сильно режем
+                            r["score"] *= 0.3
                     else:
                         if payload_fuel == structured.fuel:
                             r["score"] *= 1.2
                         else:
                             r["score"] *= 0.85
-
                     boosted.append(r)
-
                 results = sorted(boosted, key=lambda x: x["score"], reverse=True)
 
-            # 🔥 SOFT MODEL MATCH
             if canonical_model:
                 boosted =[]
                 for r in results:
                     if r.get("model") and _model_soft_match(r.get("model", ""), canonical_model):
-                        r["score"] *= 1.4  # ❗ усилили
+                        r["score"] *= 1.4
                     else:
                         r["score"] *= 0.6
-
                     boosted.append(r)
-
                 results = sorted(boosted, key=lambda x: x["score"], reverse=True)
 
             debug["final"]["rerank_applied"] = len(results) > 0
@@ -1034,7 +987,6 @@ class SearchService:
 
         debug["final"]["results_count"] = len(results)
 
-        # ❗ fallback если пусто
         if not results:
             fallback =[]
             for doc_key, payload in list(doc_payloads.items())[:20]:
@@ -1107,7 +1059,7 @@ class SearchService:
             return 0.0
 
     def _completeness_score(self, payload: Dict[str, Any]) -> float:
-        keys =["price", "mileage", "year", "brand", "model", "fuel"]
+        keys = ["price", "mileage", "year", "brand", "model", "fuel"]
         present = 0
         for k in keys:
             if payload.get(k) is not None:
@@ -1136,7 +1088,7 @@ class SearchService:
             ratio = price_val / denom
 
             if ratio > 1.0:
-                return 0.05  # ❗ мягкий штраф, но не убиваем
+                return 0.05
 
             return max(0.0, min(1.0, 1.0 - ratio))
 

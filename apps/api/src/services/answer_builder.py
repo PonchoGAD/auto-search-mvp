@@ -17,18 +17,12 @@ class AnswerBuilder:
     ) -> Dict[str, Any]:
 
         # 🔒 FINAL RESULT GUARD (brand mismatch protection)
-
         if structured.brand:
-
-            filtered = []
-
+            filtered =[]
             for r in results:
-
                 brand = r.get("brand")
-
                 if not brand:
                     continue
-
                 if brand.lower() == structured.brand.lower():
                     filtered.append(r)
 
@@ -37,18 +31,12 @@ class AnswerBuilder:
                 results = filtered
 
         # 🔒 MODEL GUARD
-
         if structured.model:
-
-            filtered = []
-
+            filtered =[]
             for r in results:
-
                 model = r.get("model")
-
                 if not model:
                     continue
-
                 if model.lower() == structured.model.lower():
                     filtered.append(r)
 
@@ -60,7 +48,7 @@ class AnswerBuilder:
             return {
                 "summary": "По вашему запросу подходящих вариантов не найдено.",
                 "highlights": [],
-                "sources": [],
+                "sources":[],
             }
 
         # Краткое резюме
@@ -80,7 +68,7 @@ class AnswerBuilder:
         return {
             "summary": summary,
             "highlights": highlights,
-            "sources": [
+            "sources":[
                 {"name": name, "url": url}
                 for name, url in sources
             ],
@@ -107,26 +95,4 @@ class AnswerBuilder:
         self,
         results: List[Dict[str, Any]],
     ) -> List[str]:
-        bullets = []
-
-        for r in results:
-
-            brand = r.get("brand") or ""
-            model = r.get("model") or ""
-
-            price = r.get("price")
-            price_text = f"{price:,}".replace(",", " ") if isinstance(price, int) else "—"
-
-            mileage = r.get("mileage")
-            mileage_text = f"{mileage:,}".replace(",", " ") if isinstance(mileage, int) else "—"
-
-            text = (
-                f"{brand} {model}, "
-                f"{r.get('year', '—')} г., "
-                f"{mileage_text} км, "
-                f"{price_text} ₽ — "
-                f"{r.get('why_match')}"
-            )
-            bullets.append(text)
-
-        return bullets
+        bullets =

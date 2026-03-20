@@ -23,7 +23,7 @@ def _is_speed_noise(text: str) -> bool:
 RE_PRICE = re.compile(r"(\d[\d\s\u00A0]{3,12})\s*(₽|руб|р)\b", re.IGNORECASE)
 RE_PRICE_GLUE = re.compile(r"(\d[\d\s\u00A0]{3,12})(?:₽|руб|р)(?=[a-zа-я])", re.IGNORECASE)
 
-PRICE_PATTERNS = [
+PRICE_PATTERNS =[
     r"(\d[\d\s\u00A0]{4,12})\s*₽",
     r"(\d[\d\s\u00A0]{4,12})\s*руб",
     r"(\d[\d\s\u00A0]{4,12})\s*rub",
@@ -78,8 +78,6 @@ def extract_price(text: str):
 
     t = text.replace("\xa0", " ")
 
-    # если в тексте есть явный пробег, но нет валюты и нет млн/к,
-    # не считаем число ценой
     if re.search(r"\d+\s*(км|km)", t.lower()):
         if "₽" not in t and "руб" not in t and not re.search(r"\b\d+(?:[.,]\d+)?\s*(млн|м|k|к)\b", t.lower()):
             return None

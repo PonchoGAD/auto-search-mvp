@@ -1,53 +1,44 @@
 import re
 
-
-BUY_WORDS = [
-    "купить",
-    "ищу",
-    "нужна",
-    "нужен",
-    "подобрать",
-    "подбор",
-    "варианты",
-    "что взять",
-    "что купить",
-    "продажа",
-    "цена",
-    "стоимость",
-    "до",
-    "от",
-    "млн",
-    "тыс",
-    "к",
-    "пробег",
-    "дизель",
-    "бенз",
-    "бензин",
-    "гибрид",
-    "электро",
-    "km",
-    "км",
+BUY_WORDS =[
+    "купить", "ищу", "нужна", "нужен", "подобрать", "подбор", 
+    "варианты", "что взять", "что купить", "продажа", "цена", 
+    "стоимость", "до", "от", "млн", "тыс", "к", "пробег", 
+    "дизель", "бенз", "бензин", "гибрид", "электро", "km", "км",
 ]
 
-BRAND_TOKENS = [
+BRAND_TOKENS =[
     "bmw", "toyota", "mercedes", "audi", "nissan", "kia", "hyundai",
     "lexus", "mazda", "honda", "volkswagen", "skoda", "porsche",
     "geely", "chery", "haval", "mitsubishi", "subaru", "renault",
     "ford", "chevrolet", "infiniti",
 ]
 
-MODEL_HINTS = [
+MODEL_HINTS =[
     "camry", "corolla", "rav4", "rav-4", "prado", "x5", "x3", "x6", "x7",
     "qashqai", "x-trail", "sportage", "sorento", "solaris", "tucson",
     "monjaro", "coolray", "glc", "gle", "gls", "c-class", "e-class",
 ]
 
+# 🔥 Исключения: если юзер ищет эти слова, это НЕ запрос на покупку авто
+NON_CAR_WORDS =[
+    "запчасти", "разбор", "по запчастям", "бампер", "фара", "капот", 
+    "крыло", "дверь", "двигатель", "двс", "акпп", "мкпп", "коробка", 
+    "приборка", "диски", "шины", "колеса", "резина", "мишлен", 
+    "ремонт", "ошибка", "чек", "замена", "сервис", "колодки", "масло", 
+    "ваносы", "ксентри", "xentry", "кодирование", "чиптюнинг", "чип тюнинг"
+]
 
-def detect_car_intent(query: str):
+
+def detect_car_intent(query: str) -> str:
     if not query:
         return "browse"
 
     q = query.lower().strip()
+
+    # Если в запросе есть детали авто, сервис или ремонт - это точно не покупка машины
+    if any(w in q for w in NON_CAR_WORDS):
+        return "browse"
 
     if any(w in q for w in BUY_WORDS):
         return "buy"

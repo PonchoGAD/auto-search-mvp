@@ -9,7 +9,7 @@ MIN_BRAND_ONLY_LEN = 120
 
 def load_brands() -> Dict[str, dict]:
     try:
-        base_dir = Path(_file_).resolve().parent.parent
+        base_dir = Path(__file__).resolve().parent.parent
         brands_path = base_dir / "config" / "brands.yaml"
         with open(brands_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
@@ -20,7 +20,7 @@ def load_brands() -> Dict[str, dict]:
 
 def load_models() -> Dict[str, dict]:
     try:
-        base_dir = Path(_file_).resolve().parent.parent
+        base_dir = Path(__file__).resolve().parent.parent
         models_path = base_dir / "config" / "models.yaml"
         with open(models_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
@@ -32,49 +32,27 @@ def load_models() -> Dict[str, dict]:
 BRANDS_WHITELIST = load_brands()
 MODELS_WHITELIST = load_models()
 
-STOP_WORDS = [
-    "подписывайтесь",
-    "вакансия",
-    "работа",
-    "скидк",
-    "акция",
-    "обсуждение",
-    "опрос",
-    "новости",
-    "ремонт",
-    "диагностика",
-    "ошибка",
-    "проблема",
-    "запчасти",
-    "разбор",
+# 🔥 ЖЕСТКИЙ СПИСОК СТОП-СЛОВ (Всё, что связано с ремонтом и запчастями)
+STOP_WORDS =[
+    "подписывайтесь", "вакансия", "работа", "скидк", "акция", "обсуждение",
+    "опрос", "новости", "ремонт", "диагностика", "ошибка", "проблема",
+    "запчасти", "разбор", "по запчастям", "бампер", "фара", "капот",
+    "крыло", "дверь", "двигатель", "двс", "акпп", "мкпп", "коробка",
+    "приборка", "диски", "шины", "колеса", "резина", "мишлен", "michelin",
+    "чек", "подскажите", "вопрос", "куплю", "ищу", "приобрету", "замена",
+    "сервис", "колодки", "масло", "ваносы", "ксентри", "xentry",
+    "кодирование", "чиптюнинг", "чип тюнинг"
 ]
 
-SALE_POSITIVE_WORDS = [
-    "продам",
-    "продаю",
-    "продается",
-    "продаётся",
-    "продажа",
-    "срочно продам",
-    "торг",
-    "обмен",
-    "рассмотрю обмен",
-    "for sale",
-    "selling",
-    "sell",
+SALE_POSITIVE_WORDS =[
+    "продам", "продаю", "продается", "продаётся", "продажа",
+    "срочно продам", "торг", "обмен", "рассмотрю обмен",
+    "for sale", "selling", "sell",
 ]
 
-SALE_NEGATIVE_WORDS = [
-    "ищу",
-    "куплю",
-    "нужен",
-    "подскажите",
-    "помогите",
-    "вопрос",
-    "looking for",
-    "help",
-    "question",
-    "repair",
+SALE_NEGATIVE_WORDS =[
+    "ищу", "куплю", "нужен", "подскажите", "помогите", "вопрос",
+    "looking for", "help", "question", "repair",
 ]
 
 RE_PRICE = re.compile(
@@ -83,21 +61,14 @@ RE_PRICE = re.compile(
 )
 RE_PHONE = re.compile(r"\+?\d[\d\-\(\)\s]{8,}")
 RE_MILEAGE = re.compile(r"\d[\d\s]{1,8}\s*км", re.IGNORECASE)
+RE_YEAR = re.compile(r"\b(19[8-9]\d|20[0-2]\d)\b") # 🔥 Обязательное условие: год от 1980 до 2029
 
-SPAM_PATTERNS = [
-    "подпишись",
-    "подписывайтесь",
-    "ссылка в био",
-    "мой канал",
-    "перейдите",
+SPAM_PATTERNS =[
+    "подпишись", "подписывайтесь", "ссылка в био", "мой канал", "перейдите",
 ]
 
-CAR_SELL_PATTERNS = [
-    "двигатель",
-    "пробег",
-    "год",
-    "комплектация",
-    "коробка",
+CAR_SELL_PATTERNS =[
+    "двигатель", "пробег", "год", "комплектация", "коробка",
 ]
 
 
@@ -176,11 +147,15 @@ def is_sale_intent(text: str, min_score: int = 2) -> bool:
     return False
 
 
-def is_valid_telegram_post(text: str) -> Tuple[bool, Optional[str]]:
+def is_valid_telegram_post(text: str) -> Tuple[bool, str]:
     if not text:
         return False, "spam"
 
     t = text.lower().strip()
+
+    # Обязательная проверка: Если нет года (напр. 2018), это не продажа целого авто!
+    if not RE_YEAR.search(t):
+        return False, "no_year_found"
 
     emoji_count = sum(1 for c in t if ord(c) > 10000)
     if emoji_count > 20:
@@ -194,14 +169,16 @@ def is_valid_telegram_post(text: str) -> Tuple[bool, Optional[str]]:
 
     for s in SPAM_PATTERNS:
         if s in t:
-            return False, "spam"
+            return False, "spam_pattern"
 
     if len(t) < MIN_TEXT_LEN:
-        return False, "spam"
+        return False, "too_short"
 
+    # 🔥 Блокировка запчастей и ремонта с использованием точного поиска (границы слова)
+    # Чтобы слово "дверь" блокировало объявление, но не блокировало случайное слово внутри другого
     for w in STOP_WORDS:
-        if w in t:
-            return False, "discussion"
+        if re.search(rf"\b{w}\b", t):
+            return False, f"blocked_by_stop_word_{w}"
 
     sale_ok = is_sale_intent(t)
     price_ok = has_price(t)

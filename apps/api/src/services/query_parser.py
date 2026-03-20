@@ -46,6 +46,7 @@ def _normalize_parse_text(text: str) -> str:
 
     text = re.sub(r"(?<=\d)\s+(?=км\b)", " ", text)
     text = re.sub(r"(?<=\d)\s+(?=тыс\b)", " ", text)
+    text = re.sub(r"(?<=\d)\s+(?=тысяч\b)", " ", text)
 
     text = re.sub(r"\b(\d+(?:[.,]\d+)?)\s*млн\b", r"\1 млн", text)
     text = re.sub(r"\b(\d+(?:[.,]\d+)?)\s*миллион(?:а|ов)?\b", r"\1 млн", text)
@@ -125,7 +126,7 @@ def _parse_price_value(num_str: str, unit: str | None) -> Optional[int]:
 
     if unit_norm in {"млн", "миллион", "m", "м"}:
         value *= 1_000_000
-    elif unit_norm in {"тыс", "к", "k"}:
+    elif unit_norm in {"тыс", "тысяч", "к", "k"}:
         value *= 1_000
     elif unit_norm in {"₽", "руб", "р", "р."}:
         pass
@@ -160,7 +161,7 @@ def _parse_mileage_value(num_str: str, unit: str | None) -> Optional[int]:
 
     unit_norm = (unit or "").strip().lower().replace(" ", "")
 
-    if unit_norm in {"тыс", "т.км", "tkm", "k", "к", "тыскм"}:
+    if unit_norm in {"тыс", "тысяч", "т.км", "tkm", "k", "к", "тыскм"}:
         value *= 1_000
     elif unit_norm in {"км", "km", ""}:
         pass
@@ -172,7 +173,7 @@ def _parse_mileage_value(num_str: str, unit: str | None) -> Optional[int]:
     except Exception:
         return None
 
-    if 0 <= int_value <= 500_000:
+    if 0 <= int_value <= 1_500_000:
         return int_value
 
     return None
@@ -181,7 +182,7 @@ def _parse_mileage_value(num_str: str, unit: str | None) -> Optional[int]:
 def _has_mileage_context(text: str) -> bool:
     return bool(
         re.search(
-            r"\b(пробег|км|km|т\.км|тыс\s*км|\d+\s*км|\d+\s*km|\d+\s*тыс)\b",
+            r"\b(пробег|пробегом|км|km|т\.км|тыс\s*км|\d+\s*км|\d+\s*km|\d+\s*тыс)\b",
             text,
             re.IGNORECASE,
         )
@@ -228,9 +229,11 @@ def _extract_fuel(text: str) -> Optional[str]:
 
 
 def _extract_mileage_max(text: str) -> Optional[int]:
-    patterns = [
-        r"\bпробег\s*до\s*(\d+(?:[\s.,]\d+)?)\s*(тыс|т\.км|tkm|k|к|км|km)?\b",
-        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(тыс\s*км|т\.км|tkm|km|км|тыс|к)\b",
+    # 🔥 Усиленные регулярки для пробега (включая "до 150 тысяч пробега")
+    patterns =[
+        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(тыс(?:яч)?|т\.км|к|k)?\s*пробег[ау]?\b",
+        r"\bпробег[а-я]*\s*до\s*(\d+(?:[\s.,]\d+)?)\s*(тыс(?:яч)?|т\.км|tkm|k|к|км|km)?\b",
+        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(тыс\s*км|т\.км|tkm|km|км|тыс|тысяч|к)\b",
         r"\bдо\s*(\d{2,6})\s*(км|km)\b",
         r"\b(\d+(?:[\s.,]\d+)?)\s*(тыс\s*км|т\.км)\b",
         r"\bпробег\s*(\d+(?:[\s.,]\d+)?)\s*тыс\s*км\b",
@@ -245,7 +248,7 @@ def _extract_mileage_max(text: str) -> Optional[int]:
         unit = m.group(2) if len(m.groups()) > 1 else "км"
         unit_norm = (unit or "").lower().replace(" ", "")
 
-        if unit_norm in {"тыскм", "тыс"}:
+        if unit_norm in {"тыскм", "тыс", "тысяч"}:
             unit_norm = "тыс"
         elif unit_norm in {"km"}:
             unit_norm = "км"
@@ -259,7 +262,7 @@ def _extract_mileage_max(text: str) -> Optional[int]:
 
 def _extract_price_max(text: str, mileage_context: bool) -> Optional[int]:
     # если в запросе есть явный пробег — не трогаем цену по голому числу
-    if mileage_context and re.search(r"\b\d+(?:[\s.,]\d+)?\s*(км|km|тыс\s*км|т\.км)\b", text, re.IGNORECASE):
+    if mileage_context and re.search(r"\b\d+(?:[\s.,]\d+)?\s*(км|km|тыс\s*км|т\.км|пробег)\b", text, re.IGNORECASE):
         return None
 
     patterns_with_limit = [
@@ -275,20 +278,20 @@ def _extract_price_max(text: str, mileage_context: bool) -> Optional[int]:
             continue
 
         matched = m.group(0).lower()
-        if "км" in matched or "km" in matched or "т.км" in matched:
+        if "км" in matched or "km" in matched or "т.км" in matched or "пробег" in matched:
             continue
 
         unit = m.group(2) if len(m.groups()) > 1 else None
         unit_candidate = (unit or "").lower()
 
-        if mileage_context and unit_candidate in {"к", "тыс"}:
+        if mileage_context and unit_candidate in {"к", "тыс", "тысяч"}:
             continue
 
         value = _parse_price_value(m.group(1), unit)
         if value is not None:
             return value
 
-    soft_patterns = [
+    soft_patterns =[
         r"\b(\d+(?:[\s.,]\d+)?)\s*(млн)\b",
         r"\b(\d+(?:[\s.,]\d+)?)\s*(₽|руб|р\.?|р)\b",
     ]
@@ -403,10 +406,8 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
 
     tokens = re.findall(r"[a-zа-я0-9-]+", text, re.IGNORECASE)
 
-    # 🔥 FIX mileage parsing (критично)
     for i, token in enumerate(tokens):
         if "км" in token:
-            # ищем число перед км
             if i > 0:
                 value = _parse_mileage_value(tokens[i - 1], "км")
                 if value:

@@ -65,7 +65,8 @@ def _norm_int(v: object) -> int | None:
         return None
     try:
         if isinstance(v, str):
-            v = v.replace(" ", "")
+            v = v.replace(" ", "").replace("\xa0", "").replace("\u00A0", "")
+            return int(float(v))  # Безопасно парсит "120000.0" в 120000
         return int(v)
     except Exception:
         return None

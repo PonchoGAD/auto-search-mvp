@@ -98,7 +98,12 @@ PRICE_ANY_PATTERN = re.compile(
 YEAR_PATTERN = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
 MILEAGE_PATTERN = re.compile(
-    r"(пробег)?\s*(до|<=|<)?\s*(\d+(?:[.,]\d+)?[\d\s])\s(км|km|тыс|т\.км|тыс\s*км)",
+    r"(пробег)?\s*(до|<=|<)?\s*(\d{1,3}(?:[\s.,]\d{3})|\d+)\s(км|km|тыс\.?|т\.?км|тыс\s*км)?",
+    re.IGNORECASE,
+)
+
+FUEL_PATTERN = re.compile(
+    r"(бензин|дизель|гибрид|электро|газ|газ-бензин|hybrid|diesel|petrol|electric|ev)",
     re.IGNORECASE,
 )
 
@@ -168,6 +173,7 @@ def extract_quality_signals(text: str) -> Dict[str, bool]:
         "has_price": False,
         "has_year": False,
         "has_mileage": False,
+        "has_fuel": False,
         "has_brand": False,
         "has_model": False,
     }
@@ -185,6 +191,9 @@ def extract_quality_signals(text: str) -> Dict[str, bool]:
 
     if MILEAGE_PATTERN.search(t):
         signals["has_mileage"] = True
+
+    if FUEL_PATTERN.search(t):
+        signals["has_fuel"] = True
 
     brand, _ = detect_brand(text)
     model = detect_model(text, brand) if brand else None
@@ -205,6 +214,7 @@ def compute_quality_score(text: str) -> float:
     score += 0.25 if signals.get("has_price") else 0.0
     score += 0.15 if signals.get("has_year") else 0.0
     score += 0.15 if signals.get("has_mileage") else 0.0
+    score += 0.10 if signals.get("has_fuel") else 0.0
     score += 0.20 if signals.get("has_brand") else 0.0
     score += 0.25 if signals.get("has_model") else 0.0
 
@@ -383,6 +393,7 @@ def should_skip_doc(
             1 if signals["has_price"] else 0,
             1 if signals["has_year"] else 0,
             1 if signals["has_mileage"] else 0,
+            1 if signals.get("has_fuel") else 0,
         ])
 
         if has_price_tmp:

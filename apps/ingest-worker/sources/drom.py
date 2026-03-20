@@ -47,6 +47,33 @@ session.mount("http://", HTTPAdapter(max_retries=retries))
 session.mount("https://", HTTPAdapter(max_retries=retries))
 
 
+def fetch_drom_card(url: str) -> str:
+    try:
+        resp = session.get(url, headers=HEADERS, timeout=15, proxies=PROXIES)
+        resp.raise_for_status()
+    except Exception:
+        return ""
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # 🔥 описание
+    description = ""
+    desc_block = soup.select_one('[data-ga-stats-name="description"]')
+    if desc_block:
+        description = desc_block.get_text(" ", strip=True)
+
+    # 🔥 характеристики
+    specs = []
+    for li in soup.select("table tr"):
+        text = li.get_text(" ", strip=True)
+        if text:
+            specs.append(text)
+
+    specs_text = " ".join(specs)
+
+    return f"{description}\n{specs_text}"
+
+
 def fetch_drom_ru(limit: int = 50) -> List[Dict]:
     """
     Stable Drom.ru ingestion (NO Playwright).
@@ -169,12 +196,14 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
                 filtered += 1
                 continue
 
+            full_content = fetch_drom_card(ad_url)
+
             items.append(
                 {
                     "source": "drom.ru",
                     "source_url": ad_url,
-                    "title": title or ad_url.split("/")[-1],
-                    "content": title or ad_url,
+                    "title": title,
+                    "content": full_content or title,
                 }
             )
 

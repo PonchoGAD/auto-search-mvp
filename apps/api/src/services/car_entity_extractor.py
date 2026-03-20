@@ -34,7 +34,7 @@ RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
 RE_MILEAGE = re.compile(r"\b(\d[\d\s\u00A0]{2,8})\s*(км|km)\b", re.IGNORECASE)
 RE_MILEAGE_K = re.compile(r"\b(\d{1,3}(?:[.,]\d+)?)\s*(тыс\.?\s*км|тыс\.?|т\.км|k|ткм)\b", re.IGNORECASE)
-RE_MILEAGE_LABEL = re.compile(r"\b(?:пробег|mileage)\s*[:\-]?\s*(\d[\d\s\u00A0]{2,8})\b", re.IGNORECASE)
+RE_MILEAGE_LABEL = re.compile(r"\b(?:пробег|mileage)[^\d]{0,10}?(\d[\d\s\u00A0]{2,8})\b", re.IGNORECASE)
 
 FUEL_MAP = {
     "бензин": "petrol",
@@ -176,7 +176,7 @@ def extract_mileage(text):
     if m:
         try:
             val = int(_digits_only(m.group(1)))
-            if 500 <= val <= 500_000:
+            if 0 <= val <= 1_500_000:
                 return val
         except Exception:
             pass
@@ -189,7 +189,7 @@ def extract_mileage(text):
             val = int(raw)
             if "тыс" in unit or "т.км" in unit:
                 val *= 1000
-            if 500 <= val <= 500_000:
+            if 0 <= val <= 1_500_000:
                 return val
         except Exception:
             pass
@@ -199,7 +199,7 @@ def extract_mileage(text):
         try:
             raw = m.group(1).replace(",", ".")
             val = int(float(raw) * 1000)
-            if 500 <= val <= 500_000:
+            if 0 <= val <= 1_500_000:
                 return val
         except Exception:
             pass
@@ -208,7 +208,7 @@ def extract_mileage(text):
     if m:
         try:
             val = int(m.group(1))
-            if 500 <= val <= 500_000:
+            if 0 <= val <= 1_500_000:
                 return val
         except Exception:
             pass
@@ -226,12 +226,11 @@ def extract_fuel(text):
         return "gas_petrol"
 
     fuel_patterns =[
-        # ❗ СНАЧАЛА ЭЛЕКТРО (приоритет)
         (r"\b(электро|электр|электрический|электромобиль|electric|ev)\b", "electric"),
-        (r"\b(гибрид|hybrid|plug in hybrid|phev)\b", "hybrid"),
-        (r"\b(дизель|дизельный|диз|diesel)\b", "diesel"),
-        (r"\b(бензин|бензиновый|бенз|petrol|gasoline)\b", "petrol"),
-        (r"\b(газ|гбо|lpg)\b", "gas"),
+        (r"\b(гибрид|hybrid|plug in hybrid|phev|hev)\b", "hybrid"),
+        (r"\b(дизель|дизельный|диз|diesel|tdi|dci|cdi)\b", "diesel"),
+        (r"\b(бензин|бензиновый|бенз|petrol|gasoline|mpi|fsi|tsi|tfsi)\b", "petrol"),
+        (r"\b(газ|гбо|lpg|cng)\b", "gas"),
     ]
 
     for pattern, fuel_value in fuel_patterns:

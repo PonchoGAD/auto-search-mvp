@@ -259,7 +259,7 @@ def run_ingest() -> Dict[str, int]:
             fuel = fuel_match.group(0) if fuel_match else None
 
             if fuel:
-                final_content = f"meta: fuel={fuel}\n{final_content}"
+                final_content = f"{final_content}\n[FUEL: {fuel}]"
 
             doc = RawDocument(
                 source=source,

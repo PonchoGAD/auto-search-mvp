@@ -39,30 +39,32 @@ def extract_mileage(text: str) -> Optional[int]:
     if _is_speed_noise(text):
         return None
 
+    # 🔥 54.000 → 54000 фикс
+    text = re.sub(r"(\d)\.(\d{3})", r"\1\2", text)
+
     patterns = [
-        (r"\bпробег[:\s]+(\d[\d\s]{2,10})\b", None),
+        (r"\bпробег[^\d]{0,10}?(\d[\d\s]{2,10})\b", None),
         (r"\b(\d[\d\s]{2,10})\s*(км|km)\b", "km"),
-        (r"\b(\d{1,3}(?:[.,]\d+)?)\s*(тыс\.?\s*км|тыс\.?|т\.км|k)\b", "thousand"),
+        (r"\b(\d{1,3}(?:[.,]\d+)?)\s*(тыс\.?\s*км|тыс\.?|т\.км|ткм|k)\b", "thousand"),
         (r"\b(\d{4,6})\s?км\b", "km"),
     ]
 
-    for pattern, unit_hint in patterns:
-        m = re.search(pattern, text, re.IGNORECASE)
+    for pattern, multiplier in patterns:
+        m = re.search(pattern, text)
         if not m:
             continue
 
         try:
-            raw = m.group(1).replace(" ", "").replace(",", ".")
+            raw = re.sub(r"[^\d.]", "", m.group(1))
             value = float(raw)
 
-            if unit_hint == "thousand":
-                value *= 1000
+            value *= multiplier
 
             value = int(value)
 
             if 1000 <= value <= 1_500_000:
                 return value
-        except Exception:
+        except:
             continue
 
     return None
@@ -71,23 +73,21 @@ def extract_mileage(text: str) -> Optional[int]:
 def extract_fuel(text: str) -> Optional[str]:
     text = (text or "").lower()
 
-    if re.search(r"\b(электро|электр|electric|ev|электромобиль)\b", text):
-        return "electric"
+    # 🔥 убираем точки и мусор
+    text = text.replace(".", " ")
 
-    if re.search(r"\b(гибрид|hybrid|phev|hev)\b", text):
-        return "hybrid"
+    patterns = {
+        "electric": r"(электро|electric|ev)",
+        "hybrid": r"(гибрид|hybrid|phev|hev)",
+        "diesel": r"(дизель|diesel|tdi|cdi|dci)",
+        "gas_petrol": r"(газ\s*/\s*бензин|бензин\s*/\s*газ)",
+        "gas": r"(газ|lpg|cng)",
+        "petrol": r"(бензин|petrol|gasoline|mpi|fsi|tsi|tfsi)",
+    }
 
-    if re.search(r"\b(дизель|дизельный|диз|diesel|tdi|dci|cdi)\b", text):
-        return "diesel"
-
-    if re.search(r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ|газ\s+бензин|бензин\s+газ)\b", text):
-        return "gas_petrol"
-
-    if re.search(r"\b(газ|lpg|gbo|cng)\b", text):
-        return "gas"
-
-    if re.search(r"\b(бензин|бензиновый|бенз|petrol|gasoline|mpi|fsi|tsi|tfsi)\b", text):
-        return "petrol"
+    for fuel, pattern in patterns.items():
+        if re.search(pattern, text):
+            return fuel
 
     return None
 
@@ -106,15 +106,37 @@ def _normalize_fuel_value(v: Optional[str]) -> Optional[str]:
     v = v.strip().lower()
 
     fuel_map = {
-    "бензин": "petrol", "бензиновый": "petrol", "бенз": "petrol",
-    "petrol": "petrol", "gasoline": "petrol", "mpi": "petrol", "tsi": "petrol", "tfsi": "petrol", "fsi": "petrol",
-    "дизель": "diesel", "дизельный": "diesel", "диз": "diesel", "diesel": "diesel",
-    "tdi": "diesel", "dci": "diesel", "cdi": "diesel",
-    "гибрид": "hybrid", "hybrid": "hybrid", "phev": "hybrid", "hev": "hybrid",
-    "электро": "electric", "электр": "electric", "electric": "electric", "ev": "electric",
-    "газ": "gas", "lpg": "gas", "gbo": "gas", "cng": "gas",
-    "газ/бензин": "gas_petrol", "газ бензин": "gas_petrol",
-}
+        "бензин": "petrol",
+        "бензиновый": "petrol",
+        "бенз": "petrol",
+        "petrol": "petrol",
+        "gasoline": "petrol",
+        "mpi": "petrol",
+        "tsi": "petrol",
+        "tfsi": "petrol",
+        "fsi": "petrol",
+        "дизель": "diesel",
+        "дизельный": "diesel",
+        "диз": "diesel",
+        "diesel": "diesel",
+        "tdi": "diesel",
+        "dci": "diesel",
+        "cdi": "diesel",
+        "гибрид": "hybrid",
+        "hybrid": "hybrid",
+        "phev": "hybrid",
+        "hev": "hybrid",
+        "электро": "electric",
+        "электр": "electric",
+        "electric": "electric",
+        "ev": "electric",
+        "газ": "gas",
+        "lpg": "gas",
+        "gbo": "gas",
+        "cng": "gas",
+        "газ/бензин": "gas_petrol",
+        "газ бензин": "gas_petrol",
+    }
 
     return fuel_map.get(v, v if v in {"petrol", "diesel", "electric", "hybrid", "gas", "gas_petrol"} else None)
 
@@ -399,22 +421,22 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     # 🔥 DROM HARD PARSE (УЛУЧШЕННЫЙ)
 
     # Пробег: 120 000 км
-    m = re.search(r"пробег[:\s]*([\d\s]{3,10})", lower)
+    m = re.search(r"пробег[^\d]{0,10}?([\d\s]{3,10})", lower)
     if m:
         try:
             val = int(re.sub(r"[^\d]", "", m.group(1)))
-            if 1000 <= val <= 500_000:
+            if 0 <= val <= 1_500_000:
                 mileage = val
         except:
             pass
 
     # fallback: 120000 км / 120 тыс км
     if not mileage:
-        m = re.search(r"(\d{2,3})\s*тыс", lower)
+        m = re.search(r"(\d{2,3})\s*(?:тыс|т\.км|ткм)", lower)
         if m:
             try:
                 val = int(m.group(1)) * 1000
-                if 1000 <= val <= 500_000:
+                if 0 <= val <= 1_500_000:
                     mileage = val
             except:
                 pass
@@ -425,15 +447,18 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         if m:
             try:
                 val = int(re.sub(r"[^\d]", "", m.group(1)))
-                if 1000 <= val <= 500_000:
+                if 0 <= val <= 1_500_000:
                     mileage = val
             except:
                 pass
 
     # fuel: "бензин", "дизель"
-    m = re.search(r"\b(бензин|дизель|гибрид|электро|электр|газ)\b", lower)
+    m = re.search(r"\b(бензин|дизель|гибрид|электро|электр|газ|hybrid|diesel|petrol|electric|ev|гбо|lpg|phev)\b", lower)
     if m:
-        fuel = FUEL_MAP.get(m.group(1), None)
+        matched_str = m.group(1).lower()
+        if matched_str in ("электр", "ev"): matched_str = "электро"
+        if matched_str == "гбо": matched_str = "газ"
+        fuel = FUEL_MAP.get(matched_str, None)
 
     current_year = datetime.utcnow().year
 
@@ -446,7 +471,7 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
         return 10_000 <= value <= 200_000_000
 
     def _valid_mileage(value: int) -> bool:
-        return 0 <= value <= 500_000
+        return 0 <= value <= 1_500_000
 
     def _extract_year(source_text: str) -> Optional[int]:
         matches = RE_YEAR.findall(source_text or "")
@@ -583,7 +608,7 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     if mileage is None:
         mileage = _extract_mileage(text)
 
-    if mileage is not None and mileage < 100:
+    if mileage is not None and mileage < 0:
         mileage = None
 
     # 🔥 НЕ ПЕРЕТИРАЕМ если уже нашли
@@ -774,29 +799,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
 
             raw_text = f"{title_text}\n{body_text}".strip()
 
-            # 🔥 TELEGRAM HARD PARSE
             fields = {}
-            if "t.me" in (raw.source_url or ""):
-                tg_text = f"{title_text} {raw_body_text}".lower()
-
-                # mileage
-                m = re.search(r"(\d{2,3})\s?тыс", tg_text)
-                if m:
-                    try:
-                        fields["mileage"] = int(m.group(1)) * 1000
-                    except:
-                        pass
-
-                # fuel
-                if not fields.get("fuel"):
-                    if "диз" in tg_text:
-                        fields["fuel"] = "diesel"
-                    elif "электро" in tg_text:
-                        fields["fuel"] = "electric"
-                    elif "гибрид" in tg_text:
-                        fields["fuel"] = "hybrid"
-                    elif "бенз" in tg_text:
-                        fields["fuel"] = "petrol"
 
             clean_pipeline_text = f"{title_text}\n{body_text}".strip()
 
@@ -904,7 +907,13 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
 
             extracted_fields = extract_fields(raw_text)
             if extracted_fields:
-                fields.update({k: v for k, v in extracted_fields.items() if v is not None})
+                for k, v in extracted_fields.items():
+                    if v is None:
+                        continue
+
+                    # 🔥 НЕ перезаписываем если уже есть
+                    if fields.get(k) is None:
+                        fields[k] = v
 
             # 🔥 HARD fallback — ищем везде
             if not fields.get("fuel"):
@@ -988,6 +997,14 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 "mileage": fields.get("mileage"),
                 "price": fields.get("price"),
             })
+
+            # 🔥 FINAL HARD FALLBACK
+
+            if not fields.get("mileage"):
+                fields["mileage"] = extract_mileage(raw_text)
+
+            if not fields.get("fuel"):
+                fields["fuel"] = extract_fuel(raw_text)
 
             doc_kwargs = _build_normalized_document_kwargs(
                 raw=raw,

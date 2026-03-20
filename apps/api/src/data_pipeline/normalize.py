@@ -60,7 +60,7 @@ def extract_mileage(text: str) -> Optional[int]:
 
             value = int(value)
 
-            if 1000 <= value <= 500_000:
+            if 1000 <= value <= 1_500_000:
                 return value
         except Exception:
             continue
@@ -106,15 +106,15 @@ def _normalize_fuel_value(v: Optional[str]) -> Optional[str]:
     v = v.strip().lower()
 
     fuel_map = {
-        "бензин": "petrol",
-        "дизель": "diesel",
-        "электро": "electric",
-        "электр": "electric",
-        "гибрид": "hybrid",
-        "газ": "gas",
-        "газ бензин": "gas_petrol",
-        "газ/бензин": "gas_petrol",
-    }
+    "бензин": "petrol", "бензиновый": "petrol", "бенз": "petrol",
+    "petrol": "petrol", "gasoline": "petrol", "mpi": "petrol", "tsi": "petrol", "tfsi": "petrol", "fsi": "petrol",
+    "дизель": "diesel", "дизельный": "diesel", "диз": "diesel", "diesel": "diesel",
+    "tdi": "diesel", "dci": "diesel", "cdi": "diesel",
+    "гибрид": "hybrid", "hybrid": "hybrid", "phev": "hybrid", "hev": "hybrid",
+    "электро": "electric", "электр": "electric", "electric": "electric", "ev": "electric",
+    "газ": "gas", "lpg": "gas", "gbo": "gas", "cng": "gas",
+    "газ/бензин": "gas_petrol", "газ бензин": "gas_petrol",
+}
 
     return fuel_map.get(v, v if v in {"petrol", "diesel", "electric", "hybrid", "gas", "gas_petrol"} else None)
 
@@ -127,9 +127,9 @@ def _sanitize_mileage_value(v: Optional[int]) -> Optional[int]:
     except Exception:
         return None
 
-    if v < 100:
+    if v < 10:
         return None
-    if v > 500_000:
+    if v > 1_500_000:
         return None
     return v
 
@@ -369,7 +369,6 @@ def strip_drom_noise(text: str):
         "Мнения владельцев",
         "Вы смотрите раздел",
         "В разделе \"Продажа авто\"",
-        "Технические характеристики",
         "Запчасти на",
         "Статистика цен",
         "О проекте Помощь Правила Для СМИ",

@@ -1,6 +1,7 @@
 #  apps\api\src\data_pipeline\ingest.py
 
 import os
+import re
 import asyncio
 from typing import List, Dict
 from datetime import datetime, timezone
@@ -250,6 +251,15 @@ def run_ingest() -> Dict[str, int]:
                 raw_text=raw_text,
                 source=source,
             )
+
+            fuel_match = re.search(
+                r"(бензин|дизель|гибрид|электро|газ|hybrid|diesel|petrol|electric)",
+                raw_text.lower()
+            )
+            fuel = fuel_match.group(0) if fuel_match else None
+
+            if fuel:
+                final_content = f"meta: fuel={fuel}\n{final_content}"
 
             doc = RawDocument(
                 source=source,

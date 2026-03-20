@@ -274,6 +274,7 @@ class QdrantStore:
         normalized = self._normalize_payload_schema(payload)
         normalized = self._normalize_created_at(normalized)
         normalized["created_at_ts"] = self._norm_int(normalized.get("created_at_ts"))
+        print("[DEBUG AFTER BUILD PAYLOAD]", normalized)
         return normalized
 
     # =====================================================
@@ -323,7 +324,7 @@ class QdrantStore:
         self,
         vector: List[float],
         limit: int = 20,
-        query_filter: dict | None = None,
+        query_filter: Optional[Any] = None,
         query_text: Optional[str] = None,
     ):
         requested_limit = int(limit) if isinstance(limit, int) else 20

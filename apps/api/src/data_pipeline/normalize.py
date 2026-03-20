@@ -773,8 +773,8 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 normalized_fuel = _normalize_fuel_value(fuel_val)
                 if normalized_fuel:
                     fields["fuel"] = normalized_fuel
-                    else:
-                        fields["fuel"] = fuel_val
+                else:
+                    fields["fuel"] = fuel_val
                 
             if fields.get("mileage") is not None:
                 fields["mileage"] = _sanitize_mileage_value(fields.get("mileage"))
@@ -843,5 +843,3 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
         session.close()
 
     return saved
-
-    _normalize_fuel_value

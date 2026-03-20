@@ -233,9 +233,23 @@ class QdrantStore:
 
         # --- NORMALIZE FUEL ---
         fuel = payload.get("fuel")
+
         if isinstance(fuel, str):
             fuel = fuel.lower().strip()
-            allowed = {"petrol", "diesel", "hybrid", "electric"}
+
+            fuel_map = {
+                "бензин": "petrol",
+                "дизель": "diesel",
+                "электро": "electric",
+                "электр": "electric",
+                "гибрид": "hybrid",
+                "газ": "gas",
+            }
+
+            fuel = fuel_map.get(fuel, fuel)
+
+            allowed = {"petrol", "diesel", "hybrid", "electric", "gas", "gas_petrol"}
+
             if fuel in allowed:
                 payload["fuel"] = fuel
             else:

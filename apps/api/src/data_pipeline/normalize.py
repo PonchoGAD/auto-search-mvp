@@ -84,13 +84,14 @@ def extract_fuel(text: str) -> Optional[str]:
     text = (text or "").lower()
     text = text.replace(".", " ")
 
+    # 🔥 ИСПОЛЬЗУЕМ ГРАНИЦЫ СЛОВ (\b), ЧТОБЫ ИСКЛЮЧИТЬ СЛОВА ТИПА "электропривод"
     patterns = {
-        "electric": r"(электро|electric|ev)",
-        "hybrid": r"(гибрид|hybrid|phev|hev)",
-        "diesel": r"(дизель|diesel|tdi|cdi|dci)",
-        "gas_petrol": r"(газ\s*/\s*бензин|бензин\s*/\s*газ)",
-        "gas": r"(газ|lpg|cng)",
-        "petrol": r"(бензин|petrol|gasoline|mpi|fsi|tsi|tfsi)",
+        "electric": r"\b(электро|электромобиль|electric|ev)\b",
+        "hybrid": r"\b(гибрид|hybrid|phev|hev)\b",
+        "diesel": r"\b(дизель|дизельный|диз|diesel|tdi|cdi|dci)\b",
+        "gas_petrol": r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ|газ\s+бензин|бензин\s+газ)\b",
+        "gas": r"\b(газ|lpg|cng|гбо)\b",
+        "petrol": r"\b(бензин|бензиновый|бенз|petrol|gasoline|mpi|fsi|tsi|tfsi)\b",
     }
 
     for fuel, pattern in patterns.items():

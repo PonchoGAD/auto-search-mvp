@@ -24,27 +24,41 @@ async def fetch_avito_serp(limit: int = 50) -> List[Dict]:
             print("[AVITO] captcha detected — skipping")
             return []
 
-        links = await page.eval_on_selector_all(
-            "a[href*='/avtomobili/']",
-            "els => els.map(e => e.href)"
+        # Собираем не только ссылки, но и весь текст сниппета Avito
+        items_data = await page.evaluate(
+            """() => {
+                let els = Array.from(document.querySelectorAll("a[href*='/avtomobili/']"));
+                return els.map(e => {
+                    let container = e.closest('[data-marker="item"]') || e.parentElement.parentElement;
+                    return { url: e.href, text: container ? container.innerText : e.innerText };
+                });
+            }"""
         )
 
-        uniq = []
+        uniq =[]
         seen = set()
 
-        for url in links:
-            if not url:
-                continue
-            if "/avtomobili/" not in url:
-                continue
-            if url in seen:
+        for ad in items_data:
+            url = ad.get("url", "")
+            text = ad.get("text", "")
+            if not url or "/avtomobili/" not in url or url in seen:
                 continue
 
             seen.add(url)
-            uniq.append(url)
+            title = text[:80].replace("\n", " ").strip() if text else url.split("/")[-1]
+            content = text.replace("\n", " ").strip() if text else url
+            
+            uniq.append({
+                "source": "avito.ru",
+                "source_url": url,
+                "title": title,
+                "content": content,
+            })
 
             if len(uniq) >= limit:
                 break
+
+        return uniq
 
         return [
             {

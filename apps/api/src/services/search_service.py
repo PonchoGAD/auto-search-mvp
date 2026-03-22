@@ -859,6 +859,15 @@ class SearchService:
         if post_filter_kept == 0 and doc_payloads:
             print("[DEBUG SEARCH FALLBACK] post-filter killed everything, using top raw docs", flush=True)
             for doc_key, payload in list(doc_payloads.items())[:50]:
+                
+                # 🔥 СТРОГИЙ ЗАПРЕТ ПОДМЕНЫ МАРКИ И МОДЕЛИ В РЕЖИМЕ СПАСЕНИЯ (FALLBACK)
+                if structured.brand and payload.get("brand"):
+                    if payload.get("brand") != structured.brand:
+                        continue
+                if structured.model and payload.get("model"):
+                    if not _model_soft_match(payload.get("model", ""), structured.model):
+                        continue
+
                 semantic = float(doc_scores.get(doc_key, 0.0) or 0.0)
                 final_score, signals = self._score_candidate(payload, structured, semantic, route)
                 reasons_list =[
@@ -1148,3 +1157,5 @@ class SearchService:
 
         denom = 250_000.0
         return max(0.0, min(1.0, 1.0 - (mileage_val / denom)))
+
+        post_filter_kept

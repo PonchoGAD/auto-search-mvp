@@ -54,37 +54,34 @@ def fetch_drom_card(url: str) -> str:
     try:
         resp = session.get(url, headers=HEADERS, timeout=15, proxies=PROXIES)
         resp.raise_for_status()
-    except requests.exceptions.HTTPError as e:
-        print(f"[DROM][WARN] Ошибка доступа к карточке {url}: HTTP {e.response.status_code}", flush=True)
-        return ""
     except Exception as e:
-        print(f"[DROM][WARN] Ошибка загрузки карточки {url}: {e}", flush=True)
+        print(f"[DROM][WARN] Ошибка доступа к карточке {url}: {e}", flush=True)
+        return ""
+
+    if "captcha" in resp.text.lower() or "защита от роботов" in resp.text.lower():
+        print(f"[DROM][WARN] Captcha detected on {url}", flush=True)
         return ""
 
     soup = BeautifulSoup(resp.text, "html.parser")
+    text_blocks =[]
+    
+    # 1. Основное описание продавца
+    desc = soup.select_one('[data-ftid="bull_description"]') or soup.select_one('[data-ga-stats-name="description"]')
+    if desc:
+        text_blocks.append(desc.get_text(" ", strip=True))
+        
+    # 2. Таблицы характеристик (новые и старые классы Дрома)
+    for spec in soup.select('table tr,[data-ftid="component_inline_dict"], [data-ftid="bull_custom_specs"]'):
+        text = spec.get_text(" ", strip=True)
+        if text and len(text) > 3:
+            text_blocks.append(text)
+            
+    # 3. Если ничего не нашлось, забираем ключевые div'ы
+    if not text_blocks:
+        for div in soup.select('.css-1j8sk4m, [data-ftid="bull_title"]'):
+            text_blocks.append(div.get_text(" ", strip=True))
 
-    # 🔥 описание (Drom использует data-ftid или data-ga-stats-name)
-    description = ""
-    desc_block = soup.select_one('[data-ftid="bull_description"]') or soup.select_one('[data-ga-stats-name="description"]')
-    if desc_block:
-        description = desc_block.get_text(" ", strip=True)
-
-    # 🔥 характеристики (парсим таблицу)
-    specs =[]
-    for tr in soup.select("table tr"):
-        th = tr.select_one("th")
-        td = tr.select_one("td")
-        if th and td:
-            # Склеиваем ключ-значение, например: "Двигатель бензин, 2.0 л"
-            specs.append(f"{th.get_text(' ', strip=True)} {td.get_text(' ', strip=True)}")
-        else:
-            text = tr.get_text(" ", strip=True)
-            if text:
-                specs.append(text)
-
-    specs_text = " ".join(specs)
-
-    return f"{description}\n{specs_text}".strip()
+    return "\n".join(text_blocks).strip()
 
 
 def fetch_drom_ru(limit: int = 50) -> List[Dict]:

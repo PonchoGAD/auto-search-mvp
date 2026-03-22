@@ -763,6 +763,17 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                         fields[k] = v
 
             # 🔥 HARD fallback — ищем везде
+            # 🔥 АВТООПРЕДЕЛЕНИЕ ТОПЛИВА ПО МАРКЕ (Спасаем Zeekr, Li, Tesla и т.д.)
+            def _infer_fuel(b):
+                b = (b or "").lower()
+                if b in {"zeekr", "tesla", "byd", "xiaomi", "avatr", "hiphi", "nio", "rivian"}: return "electric"
+                if b in {"li_auto", "lixiang", "aito"}: return "hybrid"
+                return None
+
+            if not fields.get("fuel"):
+                fields["fuel"] = _infer_fuel(final_brand)
+
+            # 🔥 HARD fallback — ищем везде
             if not fields.get("fuel"):
                 fuel_fallback = extract_fuel(raw_text) or extract_fuel(title_text) or extract_fuel(raw_body_text)
                 if fuel_fallback: fields["fuel"] = _normalize_fuel_value(fuel_fallback)

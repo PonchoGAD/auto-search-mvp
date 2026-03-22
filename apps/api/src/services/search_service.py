@@ -480,8 +480,25 @@ class SearchService:
         for key, weight in weights.items():
             final_score += signals.get(key, 0.0) * weight
 
-        if structured.fuel and payload.get("fuel") and payload.get("fuel") != structured.fuel:
-            final_score *= 0.7
+        # 🔥 ЖЕСТКИЕ ШТРАФЫ ДЛЯ FALLBACK РЕЖИМА (ЕСЛИ ФИЛЬТРЫ ПРОПУСТИЛИ МУСОР)
+        if structured.fuel:
+            p_fuel = payload.get("fuel")
+            if not p_fuel:
+                final_score *= 0.15  # Уничтожаем скор за отсутствие топлива
+            elif p_fuel != structured.fuel:
+                final_score *= 0.01  # Полностью гасим несовпадающее топливо
+
+        if structured.mileage_max is not None:
+            p_mil = payload.get("mileage")
+            if p_mil is None:
+                p_year = payload.get("year")
+                try:
+                    if not (p_year and int(p_year) >= 2024):
+                        final_score *= 0.3 # Штрафуем за скрытый пробег у б/у авто
+                except:
+                    final_score *= 0.3
+            elif p_mil > structured.mileage_max:
+                final_score *= 0.01
 
         return final_score, signals
 
@@ -762,14 +779,26 @@ class SearchService:
                 if not _model_soft_match(payload.get("model", ""), structured.model):
                     return False
 
+            # 🔥 ЖЕСТКИЙ ФИЛЬТР ПО ТОПЛИВУ (ОТСЕКАЕТ None И НЕСОВПАДЕНИЯ)
             if structured.fuel:
                 payload_fuel = payload.get("fuel")
-                if payload_fuel and payload_fuel != structured.fuel:
+                if not payload_fuel or payload_fuel != structured.fuel:
                     return False
 
-            if structured.mileage_max:
+            # 🔥 ЖЕСТКИЙ ФИЛЬТР ПО ПРОБЕГУ
+            if structured.mileage_max is not None:
                 m = payload.get("mileage")
-                if m and m > structured.mileage_max:
+                y = payload.get("year")
+                try:
+                    is_new = y and int(y) >= 2024
+                except:
+                    is_new = False
+                
+                if m is None:
+                    # Разрешаем пустой пробег ТОЛЬКО для абсолютно новых авто (>=2024 года)
+                    if not is_new:
+                        return False
+                elif m > structured.mileage_max:
                     return False
 
             return True

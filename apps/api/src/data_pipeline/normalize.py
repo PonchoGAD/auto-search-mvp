@@ -845,8 +845,16 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 quality_score=quality_score,
             )
 
-            doc = NormalizedDocument(**doc_kwargs)
-            session.add(doc)
+            # 🔥 SQL ПАТЧ: Если ссылка уже есть - просто обновляем её без падения (Upsert)
+            # 🔥 SQL ПАТЧ: UPSERT - Если объявление с таким URL уже есть, обновляем его, а не падаем с ошибкой
+            from sqlalchemy.dialects.postgresql import insert
+
+            stmt = insert(NormalizedDocument).values(**doc_kwargs)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['source_url'], # По этому индексу ловили ошибку UniqueViolation
+                set_=doc_kwargs                # Обновляем все поля свежими данными
+            )
+            session.execute(stmt)
             saved += 1
 
         session.commit()

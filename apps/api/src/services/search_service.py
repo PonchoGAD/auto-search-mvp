@@ -1034,10 +1034,15 @@ class SearchService:
                     "year": payload.get("year"),
                     "mileage": payload.get("mileage"),
                     "price": payload.get("price"),
+                    "currency": payload.get("currency", "RUB"),
                     "fuel": payload.get("fuel"),
-                    "score": 0.1,
+                    "region": payload.get("region"),
+                    "paint_condition": payload.get("paint_condition"),
+                    "score": 0.01,
+                    "why_match": "Fallback: точных совпадений по жестким фильтрам не найдено",
                     "source_url": payload.get("source_url"),
-                    "source_name": payload.get("source"),
+                    "source_name": payload.get("source") or "unknown",
+                    "score_breakdown": {"semantic": 0.01}
                 })
             return fallback
 

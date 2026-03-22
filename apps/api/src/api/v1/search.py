@@ -13,9 +13,7 @@ try:
 except Exception:
     AnswerBuilder = None
 
-
 router = APIRouter()
-
 
 # =========================
 # REQUEST
@@ -27,7 +25,6 @@ class SearchRequest(BaseModel):
         example="BMW до 50 000 км, без окрасов, бензин",
     )
     include_answer: bool = False
-
 
 # =========================
 # RESPONSE SCHEMAS
@@ -47,17 +44,17 @@ class SearchResult(BaseModel):
     condition: Optional[str] = None
     paint_condition: Optional[str] = None
 
-    score: float
-    why_match: str
-
-    source_url: str
+    # 🔥 ТЕПЕРЬ ЭТИ ПОЛЯ ОПЦИОНАЛЬНЫ (API больше не упадет с 500 ошибкой)
+    score: Optional[float] = 0.0
+    why_match: Optional[str] = None
+    source_url: Optional[str] = None
     source_name: Optional[str] = None
+    score_breakdown: Optional[Dict[str, float]] = None
 
 
 class SourceStat(BaseModel):
     name: str
     result_count: int
-
 
 class DebugInfo(BaseModel):
     latency_ms: int
@@ -66,14 +63,12 @@ class DebugInfo(BaseModel):
     query_language: str
     empty_result: bool
 
-
 class SearchResponse(BaseModel):
     structuredQuery: Dict[str, Any]
     results: List[SearchResult]
     sources: List[SourceStat]
     debug: DebugInfo
     answer: Optional[str] = None
-
 
 # =========================
 # ENDPOINT
@@ -91,7 +86,6 @@ def search(request: SearchRequest):
     results: List[dict] = []
     answer: Optional[str] = None
 
-    # temporary proxy for result count after retrieval
     vector_hits = 0
 
     try:
@@ -100,7 +94,6 @@ def search(request: SearchRequest):
         # -------------------------
         structured = parse_query(request.query)
 
-        # safe serialization for pydantic v1/v2
         if structured:
             structured_payload = (
                 structured.model_dump()
@@ -111,7 +104,7 @@ def search(request: SearchRequest):
             structured_payload = {}
 
         # -------------------------
-        # SEARCH (SAFE FOR DEMO)
+        # SEARCH
         # -------------------------
         service = SearchService()
 
@@ -125,12 +118,9 @@ def search(request: SearchRequest):
                 f"[SEARCH] query='{request.query}' results={len(results)}",
                 flush=True,
             )
-
             print(f"[SEARCH][DEMO] hits={vector_hits}")
 
         except Exception as e:
-            # 🔥 КЛЮЧЕВОЕ ДЛЯ SMOKE DEMO
-            # Qdrant пуст / коллекции нет / index не запускался
             print(f"[SEARCH][DEMO][WARN] search skipped: {repr(e)}")
             results =[]
             vector_hits = 0
@@ -147,7 +137,6 @@ def search(request: SearchRequest):
 
     except Exception as e:
         latency_ms = int((time.time() - started_at) * 1000)
-
         print(f"[SEARCH][ERROR] {e}")
 
         structured_payload = (
@@ -160,7 +149,7 @@ def search(request: SearchRequest):
 
         return {
             "structuredQuery": structured_payload,
-            "results":[],
+            "results": [],
             "sources":[],
             "answer": None,
             "debug": {
@@ -188,7 +177,7 @@ def search(request: SearchRequest):
     latency_ms = int((time.time() - started_at) * 1000)
 
     # -------------------------
-    # METRICS (SAFE)
+    # METRICS
     # -------------------------
     try:
         metrics = MetricsService()

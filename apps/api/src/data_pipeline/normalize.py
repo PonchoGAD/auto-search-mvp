@@ -333,14 +333,24 @@ def strip_drom_noise(text: str):
         "О проекте Помощь Правила Для СМИ",
     ]
 
-    min_keep_len = 300
+    min_keep_len = 200
     cleaned = text
 
+    # 1. Отрезаем по известным маркерам
     for marker in cut_markers:
         idx = cleaned.find(marker)
         if idx != -1 and idx >= min_keep_len:
             cleaned = cleaned[:idx].strip()
             break
+
+    # 🔥 2. УБИЙЦА МУСОРА DROM: Отрезаем блок "Похожие", если пошло много цен подряд
+    # Ищем вхождения цен (например, "1 500 000 ₽")
+    prices = list(re.finditer(r"\b\d[\d\s]{2,10}\s*₽", cleaned))
+    if len(prices) > 3:
+        # Если в тексте больше 3 цен, скорее всего 4-я цена - это начало чужих объявлений
+        cutoff_idx = prices[3].start()
+        if cutoff_idx > min_keep_len:
+            cleaned = cleaned[:cutoff_idx].strip()
 
     return cleaned
 

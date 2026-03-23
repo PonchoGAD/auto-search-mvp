@@ -1221,8 +1221,3 @@ class SearchService:
 
         denom = 250_000.0
         return max(0.0, min(1.0, 1.0 - (mileage_val / denom)))
-
-        post_filter_kept
-
-
-        _score_candidate

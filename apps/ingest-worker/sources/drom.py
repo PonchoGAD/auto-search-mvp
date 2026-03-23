@@ -137,8 +137,19 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
 
             try:
                 ad_url = card.get("href")
-                title = card.get_text(strip=True)
+                
+                # 🔥 ПАТЧ: Захватываем весь контейнер сниппета, чтобы получить характеристики (пробег, топливо)
+                snippet_container = card.find_parent('div', {'data-ftid': 'bulls-list_bull'})
+                if not snippet_container:
+                    snippet_container = card.parent.parent if card.parent else card
+                    
+                # Достаем текст с пробелами, чтобы слова не склеивались
+                title = snippet_container.get_text(" ", strip=True)
             except Exception:
+                filtered += 1
+                continue
+
+            if not ad_url or "auto.drom.ru" not in ad_url:
                 filtered += 1
                 continue
 

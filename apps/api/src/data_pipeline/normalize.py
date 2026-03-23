@@ -523,8 +523,17 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
                 if mapped:
                     normalized.append(mapped)
 
-            if "gas_petrol" in normalized:
+            # 🔥 ПРИОРИТЕТ ТОПЛИВА: Сначала проверяем на электро/гибрид, потом бензин/дизель
+            if "electric" in normalized:
+                fuel = "electric"
+            elif "hybrid" in normalized:
+                fuel = "hybrid"
+            elif "gas_petrol" in normalized:
                 fuel = "gas_petrol"
+            elif "diesel" in normalized:
+                fuel = "diesel"
+            elif "gas" in normalized:
+                fuel = "gas"
             elif normalized:
                 fuel = normalized[0]
 

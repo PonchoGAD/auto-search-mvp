@@ -16,6 +16,7 @@ class StructuredQuery(BaseModel):
 
     # brand + model
     brand: Optional[str] = None
+    brands: List[str] = Field(default_factory=list) # 🔥 ДОБАВЛЕНО: для поиска "или"
     brand_confidence: float = 0.0
     model: Optional[str] = None
 
@@ -23,6 +24,7 @@ class StructuredQuery(BaseModel):
     price_max: Optional[int] = None
     mileage_max: Optional[int] = None
     year_min: Optional[int] = None
+    year_max: Optional[int] = None # 🔥 ДОБАВЛЕНО: для "2023 года" (точно)
 
     # categorical filters
     fuel: Optional[str] = None

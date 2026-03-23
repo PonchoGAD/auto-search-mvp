@@ -349,7 +349,11 @@ class SearchService:
 
         if route in {"structured", "brand_only"} and brand_value:
             if payload_brand and payload_brand != brand_value:
-                reasons.append("brand_mismatch")
+                if getattr(structured, "brands", None):
+                    if payload_brand not in structured.brands:
+                        reasons.append("brand_mismatch")
+                else:
+                    reasons.append("brand_mismatch")
 
         if structured.price_max is not None:
             price_val = payload.get("price")
@@ -499,6 +503,11 @@ class SearchService:
                     final_score *= 0.3
             elif p_mil > structured.mileage_max:
                 final_score *= 0.01
+
+        # Штраф за отсутствующий год, если мы ищем по году
+        if structured.year_min is not None or getattr(structured, "year_max", None) is not None:
+            if payload.get("year") is None:
+                final_score *= 0.1  # Жестко штрафуем
 
         return final_score, signals
 
@@ -673,10 +682,21 @@ class SearchService:
         # 🔥 СБОРКА ЖЕСТКИХ ФИЛЬТРОВ ДЛЯ БАЗЫ ДАННЫХ (QDRANT)
         must_conditions =[]
 
-        if brand_filter_value and brand_filter_value in WHITELIST_SET:
-            must_conditions.append(
-                FieldCondition(key="brand", match=MatchValue(value=brand_filter_value))
-            )
+        brands_to_filter =[]
+        if getattr(structured, "brands", None):
+            brands_to_filter =[b for b in structured.brands if b in WHITELIST_SET]
+        elif brand_filter_value and brand_filter_value in WHITELIST_SET:
+            brands_to_filter = [brand_filter_value]
+
+        if brands_to_filter:
+            if len(brands_to_filter) == 1:
+                must_conditions.append(
+                    FieldCondition(key="brand", match=MatchValue(value=brands_to_filter[0]))
+                )
+            else:
+                # OR condition для "бмв или ауди"
+                should_brands =[FieldCondition(key="brand", match=MatchValue(value=b)) for b in brands_to_filter]
+                must_conditions.append(Filter(should=should_brands))
 
         if fuel_filter_value:
             must_conditions.append(
@@ -688,9 +708,16 @@ class SearchService:
                 FieldCondition(key="mileage", range=Range(lte=int(structured.mileage_max)))
             )
 
+        # Поддержка точного года и диапазона ("не старше 2023" vs "2023 года")
+        year_range_args = {}
         if structured.year_min is not None:
+            year_range_args["gte"] = int(structured.year_min)
+        if getattr(structured, "year_max", None) is not None:
+            year_range_args["lte"] = int(structured.year_max)
+            
+        if year_range_args:
             must_conditions.append(
-                FieldCondition(key="year", range=Range(gte=int(structured.year_min)))
+                FieldCondition(key="year", range=Range(**year_range_args))
             )
 
         if structured.price_max is not None:
@@ -769,7 +796,10 @@ class SearchService:
         mileage_fit_values =[]
 
         def _post_filter(payload, structured):
-            if structured.brand:
+            if getattr(structured, "brands", None):
+                if payload.get("brand") not in structured.brands:
+                    return False
+            elif structured.brand:
                 if payload.get("brand") != structured.brand:
                     return False
 
@@ -779,7 +809,7 @@ class SearchService:
                 if not _model_soft_match(payload.get("model", ""), structured.model):
                     return False
 
-            # 🔥 ЖЕСТКИЙ ФИЛЬТР ПО ТОПЛИВУ (ОТСЕКАЕТ None И НЕСОВПАДЕНИЯ)
+            # 🔥 ЖЕСТКИЙ ФИЛЬТР ПО ТОПЛИВУ
             if structured.fuel:
                 payload_fuel = payload.get("fuel")
                 if not payload_fuel or payload_fuel != structured.fuel:
@@ -795,10 +825,18 @@ class SearchService:
                     is_new = False
                 
                 if m is None:
-                    # Разрешаем пустой пробег ТОЛЬКО для абсолютно новых авто (>=2024 года)
                     if not is_new:
                         return False
                 elif m > structured.mileage_max:
+                    return False
+
+            # 🔥 ЖЕСТКИЙ ФИЛЬТР ПО ГОДУ (не даст Fallback'у протащить старые авто)
+            y = payload.get("year")
+            if structured.year_min is not None:
+                if y is None or int(y) < structured.year_min:
+                    return False
+            if getattr(structured, "year_max", None) is not None:
+                if y is None or int(y) > structured.year_max:
                     return False
 
             return True
@@ -1164,3 +1202,6 @@ class SearchService:
         return max(0.0, min(1.0, 1.0 - (mileage_val / denom)))
 
         post_filter_kept
+
+
+        _score_candidate

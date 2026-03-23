@@ -120,7 +120,7 @@ def run_ingest() -> Dict[str, int]:
             try:
                 items = _run_coro(loop, fetch_telegram(limit_per_channel=None))
                 all_items.extend(items or [])
-                print(f"[INGEST][TELEGRAM] fetched: {len(items or [])}")
+                print(f"[INGEST][TELEGRAM] fetched: {len(items or[])}")
             except Exception as e:
                 print(f"[INGEST][ERROR] telegram failed: {e}")
 
@@ -146,8 +146,8 @@ def run_ingest() -> Dict[str, int]:
         if "avito" in sources and fetch_avito_serp:
             try:
                 items = _run_coro(loop, fetch_avito_serp(limit=AVITO_LIMIT))
-                all_items.extend(items or [])
-                print(f"[INGEST][AVITO] fetched: {len(items or [])}")
+                all_items.extend(items or[])
+                print(f"[INGEST][AVITO] fetched: {len(items or[])}")
             except Exception as e:
                 print(f"[INGEST][ERROR] avito failed: {e}")
 
@@ -155,8 +155,8 @@ def run_ingest() -> Dict[str, int]:
         if "benzclub" in sources:
             try:
                 items = fetch_benzclub_listings(limit=BENZCLUB_LIMIT)
-                all_items.extend(items or [])
-                print(f"[INGEST][BENZCLUB] fetched: {len(items or [])}")
+                all_items.extend(items or[])
+                print(f"[INGEST][BENZCLUB] fetched: {len(items or[])}")
             except Exception as e:
                 print(f"[INGEST][ERROR] benzclub failed: {e}")
 
@@ -165,7 +165,7 @@ def run_ingest() -> Dict[str, int]:
             try:
                 items = fetch_bmwclub_listings(limit=BMWCLUB_LIMIT)
                 all_items.extend(items or [])
-                print(f"[INGEST][BMWCLUB] fetched: {len(items or [])}")
+                print(f"[INGEST][BMWCLUB] fetched: {len(items or[])}")
             except Exception as e:
                 print(f"[INGEST][ERROR] bmwclub failed: {e}")
 
@@ -181,6 +181,7 @@ def run_ingest() -> Dict[str, int]:
 
         # ANTI-NOISE + SAVE
         saved_docs: List[RawDocument] =[]
+        seen_urls_in_batch = set()  # 🔥 Трекер дубликатов внутри одного сбора
 
         for item in all_items:
             stats.total += 1
@@ -192,6 +193,14 @@ def run_ingest() -> Dict[str, int]:
                 stats.add(skip=True, reason="no_source_url")
                 print(f"[DB][SAVE] skipped=1 reason=no_source_url url={source_url}", flush=True)
                 continue
+
+            # 🔥 ЗАЩИТА ОТ UNIQUE VIOLATION: Пропускаем дубли внутри текущего массива
+            if source_url in seen_urls_in_batch:
+                skipped_duplicates += 1
+                stats.add(skip=True, reason="duplicate_in_batch")
+                continue
+            
+            seen_urls_in_batch.add(source_url)
 
             exists = (
                 session.query(RawDocument)
@@ -235,7 +244,12 @@ def run_ingest() -> Dict[str, int]:
             saved_docs.append(doc)
             stats.add(skip=False, reason="ok")
 
-        session.commit()
+        # 🔥 БЕЗОПАСНЫЙ КОММИТ
+        try:
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            print(f"[INGEST][ERROR] Database commit failed (duplicate or constraint): {e}")
 
         # NORMALIZE -> CHUNK -> INDEX
         pipeline_limit = max(len(saved_docs), 500)

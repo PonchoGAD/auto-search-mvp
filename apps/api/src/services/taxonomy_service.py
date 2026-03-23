@@ -13,6 +13,13 @@ def _norm_text(text: str) -> str:
     text = text.replace("\xa0", " ")
     text = text.lower().strip()
 
+    # 🔥 ФИКС ОПЕЧАТОК РАСКЛАДКИ (Кириллица -> Латиница для моделей)
+    # Заменяем кириллицу на латиницу, если буква стоит рядом с цифрой/дефисом (х5 -> x5)
+    homoglyphs = {'а': 'a', 'в': 'b', 'с': 'c', 'е': 'e', 'н': 'h', 'к': 'k', 'м': 'm', 'о': 'o', 'р': 'p', 'т': 't', 'х': 'x', 'у': 'y'}
+    for cyr, lat in homoglyphs.items():
+        text = re.sub(rf"\b{cyr}(?=\d|\-)", lat, text)       # в начале (х5)
+        text = re.sub(rf"(?<=\d|\-){cyr}\b", lat, text)      # в конце (5х)
+
     text = re.sub(r"[-_/]+", " ", text)
     text = re.sub(r"([a-zа-яё])(\d)", r"\1 \2", text, flags=re.IGNORECASE)
     text = re.sub(r"(\d)([a-zа-яё])", r"\1 \2", text, flags=re.IGNORECASE)

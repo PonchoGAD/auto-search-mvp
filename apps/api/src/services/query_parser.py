@@ -242,10 +242,10 @@ def _extract_year_range(text: str, current_year: int) -> Tuple[Optional[int], Op
 def _extract_fuel(text: str) -> Optional[str]:
     fuel_patterns =[
         (r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ|газ\s+бензин|бензин\s+газ)\b", "gas_petrol"),
-        (r"\b(бензин|бенз|petrol|gasoline)\b", "petrol"),
-        (r"\b(дизель|диз|diesel)\b", "diesel"),
+        (r"\b(бензин|бенз|бенза|petrol|gasoline)\b", "petrol"), # добавили 'бенза'
+        (r"\b(дизель|диз|трактор|diesel)\b", "diesel"), # добавили 'трактор' (частый авто-сленг)
         (r"\b(гибрид|hybrid|phev|hev)\b", "hybrid"),
-        (r"\b(электро|электр|electric|ev|электромобиль)\b", "electric"),
+        (r"\b(электро|электр|электричка|electric|ev|электромобиль)\b", "electric"), # добавили 'электричка'
     ]
 
     for pattern, fuel_value in fuel_patterns:

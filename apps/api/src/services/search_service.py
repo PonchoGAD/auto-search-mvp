@@ -796,6 +796,11 @@ class SearchService:
         mileage_fit_values =[]
 
         def _post_filter(payload, structured):
+            # 🔥 ОТСЕВ МУСОРА: Если в тексте чанка больше 6 цен, это сетка "Похожие объявления" с Drom
+            content_text = str(payload.get("content") or "")
+            if content_text.count("₽") > 6 or content_text.count("руб") > 6:
+                return False
+
             if getattr(structured, "brands", None):
                 if payload.get("brand") not in structured.brands:
                     return False
@@ -830,7 +835,7 @@ class SearchService:
                 elif m > structured.mileage_max:
                     return False
 
-            # 🔥 ЖЕСТКИЙ ФИЛЬТР ПО ГОДУ (не даст Fallback'у протащить старые авто)
+            # 🔥 ЖЕСТКИЙ ФИЛЬТР ПО ГОДУ
             y = payload.get("year")
             if structured.year_min is not None:
                 if y is None or int(y) < structured.year_min:
@@ -1066,6 +1071,22 @@ class SearchService:
         if not results:
             fallback =[]
             for doc_key, payload in list(doc_payloads.items())[:20]:
+                
+                # 🔥 СТРОГАЯ ПРОВЕРКА МАРКИ ДЛЯ FALLBACK
+                if getattr(structured, "brands", None):
+                    if payload.get("brand") not in structured.brands:
+                        continue
+                elif structured.brand:
+                    if payload.get("brand") != structured.brand:
+                        continue
+                
+                # 🔥 СТРОГАЯ ПРОВЕРКА МОДЕЛИ ДЛЯ FALLBACK
+                if structured.model:
+                    if not payload.get("model"):
+                        continue
+                    if not _model_soft_match(payload.get("model", ""), structured.model):
+                        continue
+
                 fallback.append({
                     "brand": payload.get("brand"),
                     "model": payload.get("model"),

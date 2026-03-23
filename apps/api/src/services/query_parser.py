@@ -189,27 +189,54 @@ def _has_mileage_context(text: str) -> bool:
     )
 
 
-def _extract_year_min(text: str, current_year: int) -> Optional[int]:
-    patterns =[
+def _extract_year_range(text: str, current_year: int) -> Tuple[Optional[int], Optional[int]]:
+    # "не старше 2023", "от 2023", "после 2023"
+    patterns_min =[
         r"\b(?:от|с|после)\s*(19\d{2}|20\d{2})\b",
         r"\bне\s+старше\s*(19\d{2}|20\d{2})(?:\s*г(?:\.|ода)?)?\b",
         r"\b(?:не\s+ниже|не\s+раньше)\s*(19\d{2}|20\d{2})(?:\s*г(?:\.|ода)?)?\b",
     ]
-
-    for pattern in patterns:
+    for pattern in patterns_min:
         m = re.search(pattern, text, re.IGNORECASE)
         if m:
             year_val = int(m.group(1))
             if 1985 <= year_val <= current_year + 1:
-                return year_val
+                return year_val, None
 
+    # "до 2023", "не новее 2023"
+    patterns_max =[
+        r"\b(?:до|по)\s*(19\d{2}|20\d{2})\b",
+        r"\bне\s+новее\s*(19\d{2}|20\d{2})(?:\s*г(?:\.|ода)?)?\b",
+    ]
+    for pattern in patterns_max:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            year_val = int(m.group(1))
+            if 1985 <= year_val <= current_year + 1:
+                return None, year_val
+
+    # "младше 5 лет" -> year_min = current_year - 5
     m = re.search(r"\b(?:младше|за\s+последние)\s*(\d+)\s*лет\b", text, re.IGNORECASE)
     if m:
         years = int(m.group(1))
         if 0 <= years <= 30:
-            return current_year - years
+            return current_year - years, None
 
-    return None
+    # Точный год: "2023 года", "2023 г"
+    m = re.search(r"\b(19\d{2}|20\d{2})\s*(?:г\.|год[ау]?|г\b)", text, re.IGNORECASE)
+    if m:
+        year_val = int(m.group(1))
+        if 1985 <= year_val <= current_year + 1:
+            return year_val, year_val
+
+    # Просто год как отдельное число (защита от цены или пробега)
+    for match in re.finditer(r"\b(19[8-9]\d|20[0-2]\d)\b", text):
+        year_val = int(match.group(1))
+        if not re.search(rf"{year_val}\s*(?:₽|руб|р|км|km|тыс|k|к)\b", text, re.IGNORECASE):
+            if 1985 <= year_val <= current_year + 1:
+                return year_val, year_val
+
+    return None, None
 
 
 def _extract_fuel(text: str) -> Optional[str]:
@@ -384,7 +411,24 @@ def _parse_with_fallback(raw_text: str) -> StructuredQuery:
     if model:
         result.model = model
 
-    result.year_min = _extract_year_min(text, current_year)
+    # 🔥 ИЗМЕНЕНИЕ: Извлекаем диапазон годов
+    year_min, year_max = _extract_year_range(text, current_year)
+    result.year_min = year_min
+    result.year_max = year_max
+
+    # 🔥 ИЗМЕНЕНИЕ: Извлекаем несколько брендов (для OR-запросов "бмв или ауди")
+    possible_brands =[]
+    if brand:
+        possible_brands.append(brand)
+        
+    for token in re.findall(r"[a-zа-я0-9-]+", text, re.IGNORECASE):
+        canonical_b = taxonomy_service.canonicalize_brand(token)
+        if canonical_b and canonical_b not in possible_brands:
+            if len(token) > 2 or token.lower() in {"vw", "mg", "li"}:
+                possible_brands.append(canonical_b)
+                
+    result.brands = possible_brands
+
     result.fuel = _extract_fuel(text)
 
     mileage_context = _has_mileage_context(text)

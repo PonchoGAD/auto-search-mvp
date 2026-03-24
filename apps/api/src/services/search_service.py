@@ -820,18 +820,11 @@ class SearchService:
                 if not payload_fuel or payload_fuel != structured.fuel:
                     return False
 
-            # 🔥 ЖЕСТКИЙ ФИЛЬТР ПО ПРОБЕГУ
+            # 🔥 АБСОЛЮТНО ЖЕСТКИЙ ФИЛЬТР ПО ПРОБЕГУ
             if structured.mileage_max is not None:
                 m = payload.get("mileage")
-                y = payload.get("year")
-                try:
-                    is_new = y and int(y) >= 2024
-                except:
-                    is_new = False
-                
                 if m is None:
-                    if not is_new:
-                        return False
+                    return False  # Нет пробега = не пропускаем в лимитный поиск
                 elif m > structured.mileage_max:
                     return False
 
@@ -1090,11 +1083,12 @@ class SearchService:
                     
             f_filt = Filter(must=f_conds) if len(f_conds) > 0 else None
             
+            # 🔥 В Rescue режиме используем ТОТ ЖЕ query_filter со ВСЕМИ жесткими ограничениями
             try:
                 extra_hits = self.store.search(
                     vector=query_vector,
                     limit=40,
-                    query_filter=f_filt,
+                    query_filter=query_filter, 
                     query_text=query_text,
                 )
             except Exception as e:

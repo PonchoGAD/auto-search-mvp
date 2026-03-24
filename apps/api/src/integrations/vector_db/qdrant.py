@@ -359,17 +359,10 @@ class QdrantStore:
 
         self._debug_log(f"vector hits returned={len(points)}")
 
+        # 🔥 УДАЛЕН FALLBACK БЕЗ ФИЛЬТРОВ. 
+        # Если по фильтрам 0 машин - возвращаем 0. Отключать фильтры НЕЛЬЗЯ (иначе будет 23к вместо 20к)
         if not points and query_text:
-            self._debug_log("vector search empty, trying fallback without filter")
-            response = self.client.query_points(
-                collection_name=COLLECTION_NAME,
-                query=vector,
-                limit=requested_limit,
-                with_payload=True,
-                with_vectors=False,
-            )
-            points = response.points if hasattr(response, "points") else []
-            self._debug_log(f"fallback hits returned={len(points)}")
+            self._debug_log("vector search empty, NO fallback allowed to preserve strict limits")
 
         for p in points:
             payload = p.payload or {}

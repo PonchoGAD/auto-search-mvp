@@ -1068,42 +1068,82 @@ class SearchService:
 
         debug["final"]["results_count"] = len(results)
 
-        if not results:
-            fallback =[]
-            for doc_key, payload in list(doc_payloads.items())[:20]:
+        if len(results) == 0:
+            print("[DEBUG SEARCH FALLBACK] Triggering Smart Rescue", flush=True)
+            f_conds = list()
+            valid_b = list()
+            
+            if getattr(structured, "brands", None):
+                for b in structured.brands:
+                    if b in WHITELIST_SET:
+                        valid_b.append(b)
+            elif canonical_brand and canonical_brand in WHITELIST_SET:
+                valid_b.append(canonical_brand)
                 
-                # 🔥 СТРОГАЯ ПРОВЕРКА МАРКИ ДЛЯ FALLBACK
+            if len(valid_b) == 1:
+                f_conds.append(FieldCondition(key="brand", match=MatchValue(value=valid_b[0])))
+            elif len(valid_b) > 1:
+                s_brands = list()
+                for b in valid_b:
+                    s_brands.append(FieldCondition(key="brand", match=MatchValue(value=b)))
+                f_conds.append(Filter(should=s_brands))
+                    
+            f_filt = Filter(must=f_conds) if len(f_conds) > 0 else None
+            
+            try:
+                extra_hits = self.store.search(
+                    vector=query_vector,
+                    limit=40,
+                    query_filter=f_filt,
+                    query_text=query_text,
+                )
+            except Exception as e:
+                print(f"[DEBUG SEARCH FALLBACK] Rescue error: {e}", flush=True)
+                extra_hits = list()
+                
+            rescue_items = list()
+            
+            for doc_hit in extra_hits:
+                pld = getattr(doc_hit, "payload", None)
+                if not pld:
+                    continue
+                    
+                # СТРОГАЯ ПРОВЕРКА МАРКИ
+                p_brand = pld.get("brand")
                 if getattr(structured, "brands", None):
-                    if payload.get("brand") not in structured.brands:
+                    if p_brand not in structured.brands:
                         continue
                 elif structured.brand:
-                    if payload.get("brand") != structured.brand:
+                    if p_brand != structured.brand:
                         continue
                 
-                # 🔥 СТРОГАЯ ПРОВЕРКА МОДЕЛИ ДЛЯ FALLBACK
+                # СТРОГАЯ ПРОВЕРКА МОДЕЛИ
+                p_model = pld.get("model")
                 if structured.model:
-                    if not payload.get("model"):
+                    if not p_model:
                         continue
-                    if not _model_soft_match(payload.get("model", ""), structured.model):
+                    if not _model_soft_match(p_model, structured.model):
                         continue
 
-                fallback.append({
-                    "brand": payload.get("brand"),
-                    "model": payload.get("model"),
-                    "year": payload.get("year"),
-                    "mileage": payload.get("mileage"),
-                    "price": payload.get("price"),
-                    "currency": payload.get("currency", "RUB"),
-                    "fuel": payload.get("fuel"),
-                    "region": payload.get("region"),
-                    "paint_condition": payload.get("paint_condition"),
-                    "score": 0.01,
-                    "why_match": "Fallback: точных совпадений по жестким фильтрам не найдено",
-                    "source_url": payload.get("source_url"),
-                    "source_name": payload.get("source") or "unknown",
-                    "score_breakdown": {"semantic": 0.01}
-                })
-            return fallback
+                out_dict = dict()
+                out_dict["brand"] = p_brand
+                out_dict["model"] = p_model
+                out_dict["year"] = pld.get("year")
+                out_dict["mileage"] = pld.get("mileage")
+                out_dict["price"] = pld.get("price")
+                out_dict["currency"] = pld.get("currency", "RUB")
+                out_dict["fuel"] = pld.get("fuel")
+                out_dict["region"] = pld.get("region")
+                out_dict["paint_condition"] = pld.get("paint_condition")
+                out_dict["score"] = 0.01
+                out_dict["why_match"] = "Fallback: точных совпадений по жестким фильтрам не найдено"
+                out_dict["source_url"] = pld.get("source_url")
+                out_dict["source_name"] = pld.get("source") or "unknown"
+                out_dict["score_breakdown"] = {"semantic": 0.01}
+                
+                rescue_items.append(out_dict)
+                
+            return rescue_items
 
         return results
 

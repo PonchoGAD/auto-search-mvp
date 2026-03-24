@@ -137,21 +137,13 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
 
             try:
                 ad_url = card.get("href")
+                # 🔥 ВАЖНО: разделитель ' | ' предотвращает склеивание слов (2020Москва105тыс). 
+                # Так normalize легко найдет пробег и вид топлива!
+                title = card.get_text(" | ", strip=True)
                 
-                # 🔥 ПАТЧ 2.0: Достаем точные ноды, убивая дубли из скрытых <div className="hidden">
-                title_node = card.select_one('[data-ftid="bull_title"]')
-                spec_node = card.select_one('[data-ftid="bull_description-item"]')
-                
-                parts =[]
-                if title_node: 
-                    parts.append(title_node.get_text(" ", strip=True))
-                if spec_node: 
-                    parts.append(spec_node.get_text(" ", strip=True))
-                
-                if parts:
-                    title = " | ".join(parts)
-                else:
-                    title = card.get_text(" ", strip=True)[:150]  # Жестко режем хвост
+                # Если текст получился больше 400 знаков, значит он зацепил блок "Похожие", обрезаем.
+                if len(title) > 400:
+                    title = title[:400]
             except Exception:
                 filtered += 1
                 continue

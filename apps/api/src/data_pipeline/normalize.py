@@ -48,15 +48,15 @@ def extract_mileage(text: str) -> Optional[int]:
         return None
 
     # 🔥 Усиленный фикс для слитного написания и точек: 6.000km -> 6000 km
-        text = re.sub(r"(\d)[.,](\d{3})\b", r"\1\2", text)
-        text = text.replace("km", " km").replace("км", " км")
+    text = re.sub(r"(\d)[.,](\d{3})\b", r"\1\2", text)
+    text = text.replace("km", " km").replace("км", " км")
 
-        patterns = [
-            (r"пробег\s*[:-]?\s*(\d[\d\s]{1,7})", None),
-            (r"(\d{1,3}[\s.,]?\d{1,3})\s*(?:км|km)", None),
-            (r"(\d{1,3}(?:[.,]\d+)?)\s*(?:тыс|т\.км|ткм|k|к)\b", "thousand"),
-            (r"(\d{4,7})\s*(?:км|km)", None),
-        ]
+    patterns = [
+        (r"пробег\s*[:-]?\s*(\d[\d\s]{1,7})", None),
+        (r"(\d{1,3}[\s.,]?\d{1,3})\s*(?:км|km)", None),
+        (r"(\d{1,3}(?:[.,]\d+)?)\s*(?:тыс|т\.км|ткм|k|к)\b", "thousand"),
+        (r"(\d{4,7})\s*(?:км|km)", None),
+    ]
 
     for pattern, multiplier in patterns:
         m = re.search(pattern, text)

@@ -277,8 +277,8 @@ chery:
 
 geely:
   atlas: ["atlas", "atlas pro", "атлас"]
-  monjaro: ["monjaro", "xingyue l", "монжаро", "манджаро"]
-  coolray: ["coolray", "кулрей", "кулек"]
+  monjaro: ["monjaro", "xingyue l", "монжаро", "манджаро", "kx11"]
+  coolray: ["coolray", "кулрей", "кулек", "sx11"]
   tugella: ["tugella", "тугелла"]
   emgrand: ["emgrand", "эмгранд"]
   okavango: ["okavango", "окаванго"]
@@ -531,3 +531,7 @@ ssangyong:
   kyron: ["kyron", "кайрон"]
   actyon: ["actyon", "актион"]
   rexton: ["rexton", "рекстон"]
+
+belgee:
+  x50: ["x50", "х50", "x 50"]
+  x70: ["x70", "х70", "x 70"]

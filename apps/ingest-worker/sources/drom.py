@@ -138,13 +138,20 @@ def fetch_drom_ru(limit: int = 50) -> List[Dict]:
             try:
                 ad_url = card.get("href")
                 
-                # 🔥 ПАТЧ: Захватываем весь контейнер сниппета, чтобы получить характеристики (пробег, топливо)
-                snippet_container = card.find_parent('div', {'data-ftid': 'bulls-list_bull'})
-                if not snippet_container:
-                    snippet_container = card.parent.parent if card.parent else card
-                    
-                # Достаем текст с пробелами, чтобы слова не склеивались
-                title = snippet_container.get_text(" ", strip=True)
+                # 🔥 ПАТЧ 2.0: Достаем точные ноды, убивая дубли из скрытых <div className="hidden">
+                title_node = card.select_one('[data-ftid="bull_title"]')
+                spec_node = card.select_one('[data-ftid="bull_description-item"]')
+                
+                parts =[]
+                if title_node: 
+                    parts.append(title_node.get_text(" ", strip=True))
+                if spec_node: 
+                    parts.append(spec_node.get_text(" ", strip=True))
+                
+                if parts:
+                    title = " | ".join(parts)
+                else:
+                    title = card.get_text(" ", strip=True)[:150]  # Жестко режем хвост
             except Exception:
                 filtered += 1
                 continue

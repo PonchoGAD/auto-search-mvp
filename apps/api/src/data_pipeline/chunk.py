@@ -61,6 +61,13 @@ def chunk_text_by_chars(text: str, size: int = 1200, overlap: int = 200) -> list
     if "каталог" in text.lower():
         text = text[:800]
 
+    # Добавляем принудительную расстановку точек на местах переносов и спецсимволов
+    text = text.replace('\n', '. ')
+    text = text.replace(';', '. ')
+    text = text.replace('•', '. ')
+    text = text.replace('*', '. ')
+
+    # Теперь старый метод штатно нарежет этот текст без переполнения лимитов
     sentences = re.split(r'(?<=[.!?])\s+', text)
 
     chunks = []

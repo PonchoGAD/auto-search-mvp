@@ -78,6 +78,10 @@ def extract_mileage(text: str) -> Optional[int]:
             continue
 
     return None
+    # 🔥 Спасаем машины из ТГ "Без пробега" и конвертируем их в 0 км (если не без пробега ПО РФ).
+        if "без пробега" in text and "по рф" not in text and "по россии" not in text:
+             if not re.search(r"\b\d{1,3}[\s.,]?\d{3}\s*(км|km)", text):
+                 return 0
 
 
 def extract_fuel(text: str) -> Optional[str]:
@@ -136,7 +140,8 @@ def _sanitize_mileage_value(v: Optional[int]) -> Optional[int]:
     except Exception:
         return None
 
-    if v < 10:
+    # 🔥 Разрешаем пробеги >= 0 км, чтобы не удалять абсолютно новые машины!
+    if v < 0:
         return None
     if v > 1_500_000:
         return None

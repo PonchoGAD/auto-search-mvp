@@ -170,6 +170,10 @@ def extract_mileage(text):
 
     t = text.replace("\xa0", " ")
 
+    if "без пробега" in t.lower() and "по рф" not in t.lower() and "по россии" not in t.lower():
+        if not re.search(r"\b\d{4,7}\s*(км|km)", t.lower()):
+            return 0
+
     m = RE_MILEAGE_LABEL.search(t)
     if m:
         try:
@@ -256,7 +260,11 @@ def extract_car_entities(title, content):
     fuel = extract_fuel(text)
 
     # ❗ финальная очистка
-    if mileage is not None and mileage < 500:
+    # ❗ финальная очистка
+    if mileage is not None and mileage < 0:
+        mileage = None
+    elif mileage is not None and 20 < mileage < 500:
+        # Убираем возможные ошибки вроде "мощность 250 л.с.", но сохраняем 0-20км (салонный авто)
         mileage = None
 
     # 🔥 fallback brand extraction

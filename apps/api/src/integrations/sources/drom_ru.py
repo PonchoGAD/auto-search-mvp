@@ -99,7 +99,13 @@ def fetch_drom_ru_serp(limit: int = 20) -> List[Dict]:
 
             try:
                 ad_url = card.get("href")
-                title = card.get_text(" ", strip=True)
+                # 🔥 ВАЖНО: разделитель ' | ' предотвращает склеивание слов (2020Москва105тыс). 
+                # Так normalize легко найдет пробег и вид топлива!
+                title = card.get_text(" | ", strip=True)
+                
+                # Если текст получился больше 400 знаков, значит он зацепил блок "Похожие", обрезаем.
+                if len(title) > 400:
+                    title = title[:400]
             except Exception:
                 continue
 

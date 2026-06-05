@@ -1,9 +1,8 @@
-#  apps\api\src\data_pipeline\ingest.py
-
 import os
+import re
 import asyncio
 from typing import List, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from db.session import SessionLocal
 from db.models import RawDocument
@@ -14,6 +13,20 @@ from db.models import RawDocument
 
 from integrations.sources.telegram import fetch_telegram
 
+try:
+    from integrations.sources.auto_ru import fetch_auto_ru_serp
+except ImportError:
+    fetch_auto_ru_serp = None
+
+try:
+    from integrations.sources.drom_ru import fetch_drom_ru_serp
+except ImportError:
+    fetch_drom_ru_serp = None
+
+try:
+    from integrations.sources.avito import fetch_avito_serp
+except ImportError:
+    fetch_avito_serp = None
 
 # Форумы (HTTP, без Playwright)
 from integrations.sources.benzclub import fetch_benzclub_listings
@@ -33,7 +46,9 @@ from services.ingest_quality import (
 # INDEXING (QDRANT)
 # =========================
 
-from data_pipeline.index import index_raw_documents
+from data_pipeline.normalize import run_normalize
+from data_pipeline.chunk import run_chunk
+from data_pipeline.index import run_index
 
 # =========================
 # ENV CONFIG
@@ -58,7 +73,7 @@ BMWCLUB_LIMIT = int(os.getenv("BMWCLUB_LIMIT", "30"))
 # =========================
 
 def _parse_sources() -> List[str]:
-    return [
+    return[
         s.strip().lower()
         for s in INGEST_SOURCES_RAW.split(",")
         if s.strip()
@@ -66,16 +81,9 @@ def _parse_sources() -> List[str]:
 
 
 def _ensure_event_loop() -> asyncio.AbstractEventLoop:
-    """
-    FastAPI/AnyIO может выполнять этот код в worker thread без event loop.
-    Поэтому принудительно создаём loop и привязываем к текущему потоку.
-    """
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            raise RuntimeError("event loop is closed")
-        return loop
-    except Exception:
+        return asyncio.get_running_loop()
+    except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         return loop
@@ -92,12 +100,6 @@ def _run_coro(loop: asyncio.AbstractEventLoop, coro):
 def run_ingest() -> Dict[str, int]:
     """
     Универсальный ingest pipeline + anti-noise gate.
-
-    ГАРАНТИИ:
-    - ingest ВЫКЛЮЧЕН в prod без ENABLE_INGEST=true
-    - DEMO режим ограничивает объём данных
-    - сохраняем только реальные поля RawDocument
-    - после ingest идёт индексация в Qdrant
     """
 
     if ENV == "prod" and not ENABLE_INGEST:
@@ -105,78 +107,65 @@ def run_ingest() -> Dict[str, int]:
         return {"saved": 0, "indexed": 0, "skipped": 0}
 
     loop = _ensure_event_loop()
-
     session = SessionLocal()
     sources = _parse_sources()
 
-    all_items: List[Dict] = []
+    all_items: List[Dict] =[]
     skipped_duplicates = 0
     stats = SkipStats()
 
     try:
-        # -------------------------
         # TELEGRAM
-        # -------------------------
         if "telegram" in sources:
             try:
-                items = fetch_telegram()
+                items = _run_coro(loop, fetch_telegram(limit_per_channel=None))
                 all_items.extend(items or [])
-                print(f"[INGEST][TELEGRAM] fetched: {len(items or [])}")
+                print(f"[INGEST][TELEGRAM] fetched: {len(items or[])}")
             except Exception as e:
                 print(f"[INGEST][ERROR] telegram failed: {e}")
 
-        # -------------------------
         # AUTO.RU
-        # -------------------------
-        if "auto_ru" in sources:
+        if "auto_ru" in sources and fetch_auto_ru_serp:
             try:
                 items = _run_coro(loop, fetch_auto_ru_serp(limit=AUTO_RU_LIMIT))
                 all_items.extend(items or [])
-                print(f"[INGEST][AUTO.RU] fetched: {len(items or [])}")
+                print(f"[INGEST][AUTO.RU] fetched: {len(items or[])}")
             except Exception as e:
                 print(f"[INGEST][ERROR] auto.ru failed: {e}")
 
-        # -------------------------
-        # DROM.RU
-        # -------------------------
-        if "drom_ru" in sources:
+        # DROM.RU (🔥 ИСПРАВЛЕН БЛОК)
+        if "drom_ru" in sources and fetch_drom_ru_serp:
             try:
                 items = _run_coro(loop, fetch_drom_ru_serp(limit=DROM_RU_LIMIT))
                 all_items.extend(items or [])
-                print(f"[INGEST][DROM.RU] fetched: {len(items or [])}")
+                print(f"[INGEST][DROM.RU] fetched: {len(items or[])}")
             except Exception as e:
                 print(f"[INGEST][ERROR] drom.ru failed: {e}")
 
-        # -------------------------
         # AVITO
-        # -------------------------
-        if "avito" in sources:
+        if "avito" in sources and fetch_avito_serp:
             try:
                 items = _run_coro(loop, fetch_avito_serp(limit=AVITO_LIMIT))
-                all_items.extend(items or [])
-                print(f"[INGEST][AVITO] fetched: {len(items or [])}")
+                all_items.extend(items or[])
+                print(f"[INGEST][AVITO] fetched: {len(items or[])}")
             except Exception as e:
                 print(f"[INGEST][ERROR] avito failed: {e}")
 
-        # -------------------------
         # BENZCLUB
-        # -------------------------
         if "benzclub" in sources:
             try:
                 items = fetch_benzclub_listings(limit=BENZCLUB_LIMIT)
-                all_items.extend(items or [])
-                print(f"[INGEST][BENZCLUB] fetched: {len(items or [])}")
+                all_items.extend(items or[])
+                print(f"[INGEST][BENZCLUB] fetched: {len(items or[])}")
             except Exception as e:
                 print(f"[INGEST][ERROR] benzclub failed: {e}")
 
-        # -------------------------
         # BMWCLUB
-        # -------------------------
         if "bmwclub" in sources:
             try:
                 items = fetch_bmwclub_listings(limit=BMWCLUB_LIMIT)
                 all_items.extend(items or [])
-                print(f"[INGEST][BMWCLUB] fetched: {len(items or [])}")
+                print(f"[INGEST][BMWCLUB] fetched: {len(items or[])}")
             except Exception as e:
                 print(f"[INGEST][ERROR] bmwclub failed: {e}")
 
@@ -184,16 +173,15 @@ def run_ingest() -> Dict[str, int]:
             print("[INGEST][WARN] no items fetched")
             return {"saved": 0, "indexed": 0, "skipped": 0}
 
-        # -------------------------
-        # DEMO LIMIT REMOVED
-        # -------------------------
         print(f"[INGEST] total items before processing: {len(all_items)}")
-        # demo cap removed — processing full dataset
 
-        # -------------------------
+        if DEMO_INGEST:
+            all_items = all_items[:DEMO_INGEST_LIMIT]
+            print(f"[INGEST][DEMO] limited to {len(all_items)} items")
+
         # ANTI-NOISE + SAVE
-        # -------------------------
-        saved_docs: List[RawDocument] = []
+        saved_docs: List[RawDocument] =[]
+        seen_urls_in_batch = set()  # 🔥 Трекер дубликатов внутри одного сбора
 
         for item in all_items:
             stats.total += 1
@@ -203,11 +191,23 @@ def run_ingest() -> Dict[str, int]:
 
             if not source_url:
                 stats.add(skip=True, reason="no_source_url")
+                print(f"[DB][SAVE] skipped=1 reason=no_source_url url={source_url}", flush=True)
                 continue
+
+            # 🔥 ЗАЩИТА ОТ UNIQUE VIOLATION: Пропускаем дубли внутри текущего массива
+            if source_url in seen_urls_in_batch:
+                skipped_duplicates += 1
+                stats.add(skip=True, reason="duplicate_in_batch")
+                continue
+            
+            seen_urls_in_batch.add(source_url)
 
             exists = (
                 session.query(RawDocument)
-                .filter(RawDocument.source_url == source_url)
+                .filter(
+                    RawDocument.source == source,
+                    RawDocument.source_url == source_url,
+                )
                 .first()
             )
             if exists:
@@ -219,37 +219,44 @@ def run_ingest() -> Dict[str, int]:
             content = item.get("content") or ""
             raw_text = f"{title}\n{content}".strip()
 
-            skip, skip_meta = should_skip_doc(
-                text=raw_text,
-                source=source,
-            )
-            if skip:
-                stats.add(skip=True, reason=skip_meta.get("reason", "unknown"))
+            if not raw_text or len(raw_text) < 10:
+                stats.add(skip=True, reason="content_too_short")
                 continue
 
-            final_content, _meta = enrich_text_with_meta(
-                raw_text=raw_text,
-                source=source,
-            )
+            skip, skip_meta = should_skip_doc(text=raw_text, source=source)
+            if skip:
+                reason = skip_meta.get("reason", "unknown")
+                stats.add(skip=True, reason=reason)
+                continue
 
+            final_content, _meta = enrich_text_with_meta(raw_text=raw_text, source=source)
+
+            # Сохраняем документ в БД
             doc = RawDocument(
                 source=source,
                 source_url=source_url,
                 title=title,
                 content=final_content,
-                fetched_at=datetime.utcnow(),
+                fetched_at=datetime.now(timezone.utc),
             )
 
             session.add(doc)
             saved_docs.append(doc)
             stats.add(skip=False, reason="ok")
 
-        session.commit()
+        # 🔥 БЕЗОПАСНЫЙ КОММИТ
+        try:
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            print(f"[INGEST][ERROR] Database commit failed (duplicate or constraint): {e}")
 
-        # -------------------------
-        # INDEX → QDRANT
-        # -------------------------
-        indexed = index_raw_documents(saved_docs)
+        # NORMALIZE -> CHUNK -> INDEX
+        pipeline_limit = max(len(saved_docs), 500)
+
+        run_normalize(limit=pipeline_limit, force_rebuild=False)
+        run_chunk(limit=pipeline_limit, force_rebuild=False)
+        indexed = run_index(limit=max(pipeline_limit * 3, 1000), force_rebuild=False)
 
         print(
             f"[INGEST] saved={len(saved_docs)}, "

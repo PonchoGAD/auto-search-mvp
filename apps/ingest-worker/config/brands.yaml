@@ -1,29 +1,35 @@
 brands:
-
   # =========================
   # EUROPE
   # =========================
+
   bmw:
     en: ["bmw"]
     ru: ["бмв"]
     aliases:
       - "bayerische motoren werke"
       - "bmv"
+      - "bmw group"
 
   audi:
     en: ["audi"]
     ru: ["ауди"]
 
   mercedes:
-    en: ["mercedes", "mercedes-benz"]
+    en: ["mercedes", "mercedes-benz", "mb"]
     ru: ["мерседес", "мерседес-бенц", "мерс"]
     aliases:
       - "mers"
       - "mersedes"
+      - "мерседес бенц"
+      - "мерс бенц"
 
   volkswagen:
     en: ["volkswagen", "vw"]
     ru: ["фольксваген", "фв"]
+    aliases:
+      - "фольцваген"
+      - "volks"
 
   porsche:
     en: ["porsche"]
@@ -68,6 +74,11 @@ brands:
   land_rover:
     en: ["land rover"]
     ru: ["ленд ровер"]
+    aliases:
+      - "range rover"
+      - "рендж ровер"
+      - "discovery sport"
+      - "lr"
 
   jaguar:
     en: ["jaguar"]
@@ -88,14 +99,92 @@ brands:
   lamborghini:
     en: ["lamborghini"]
     ru: ["ламборгини"]
+    aliases:
+      - "lambo"
+      - "ламба"
 
   maserati:
     en: ["maserati"]
     ru: ["мазерати"]
 
+  maybach:
+    en: ["maybach"]
+    ru: ["майбах"]
+
+  alpina:
+    en: ["alpina"]
+    ru: ["альпина"]
+
+  aston_martin:
+    en: ["aston martin"]
+    ru: ["астон мартин"]
+
+  bugatti:
+    en: ["bugatti"]
+    ru: ["бугатти"]
+
+  cupra:
+    en: ["cupra"]
+    ru: ["купра"]
+
+  dacia:
+    en: ["dacia"]
+    ru: ["дачия"]
+    aliases:
+      - "дация"
+
+  fiat:
+    en: ["fiat"]
+    ru: ["фиат"]
+
+  koenigsegg:
+    en: ["koenigsegg"]
+    ru: ["кёнигсегг"]
+
+  lancia:
+    en: ["lancia"]
+    ru: ["ланча"]
+    aliases:
+      - "ланчия"
+
+  lotus:
+    en: ["lotus"]
+    ru: ["лотус"]
+
+  mclaren:
+    en: ["mclaren"]
+    ru: ["макларен"]
+
+  polestar:
+    en: ["polestar"]
+    ru: ["полестар"]
+    aliases:
+      - "полстар"
+
+  rover:
+    en: ["rover"]
+    ru: ["ровер"]
+
+  saab:
+    en: ["saab"]
+    ru: ["сааб"]
+
+  smart:
+    en: ["smart"]
+    ru: ["смарт"]
+
+  vauxhall:
+    en: ["vauxhall"]
+    ru: ["воксхолл"]
+
+  iveco:
+    en: ["iveco"]
+    ru: ["ивеко"]
+
   # =========================
   # JAPAN
   # =========================
+
   toyota:
     en: ["toyota"]
     ru: ["тойота"]
@@ -127,6 +216,9 @@ brands:
   mitsubishi:
     en: ["mitsubishi"]
     ru: ["митсубиси"]
+    aliases:
+      - "mitsubisi"
+      - "мицубиси"
 
   suzuki:
     en: ["suzuki"]
@@ -140,9 +232,26 @@ brands:
     en: ["daihatsu"]
     ru: ["дайхатсу"]
 
+  datsun:
+    en: ["datsun"]
+    ru: ["датсун"]
+
+  acura:
+    en: ["acura"]
+    ru: ["акура"]
+
+  scion:
+    en: ["scion"]
+    ru: ["сайон"]
+
+  mitsuoka:
+    en: ["mitsuoka"]
+    ru: ["мицуока"]
+
   # =========================
   # USA
   # =========================
+
   ford:
     en: ["ford"]
     ru: ["форд"]
@@ -157,7 +266,7 @@ brands:
 
   gmc:
     en: ["gmc"]
-    ru: ["джиэмси", "джи-эм-си"]
+    ru: ["джиэмси"]
 
   jeep:
     en: ["jeep"]
@@ -183,9 +292,50 @@ brands:
     en: ["buick"]
     ru: ["бьюик"]
 
+  ram:
+    en: ["ram"]
+    ru: ["рам"]
+
+  hummer:
+    en: ["hummer"]
+    ru: ["хаммер"]
+
+  rivian:
+    en: ["rivian"]
+    ru: ["ривиан"]
+
+  lucid:
+    en: ["lucid"]
+    ru: ["люсид"]
+
+  fisker:
+    en: ["fisker"]
+    ru: ["фискер"]
+
+  pontiac:
+    en: ["pontiac"]
+    ru: ["понтиак"]
+
+  plymouth:
+    en: ["plymouth"]
+    ru: ["плимут"]
+
+  oldsmobile:
+    en: ["oldsmobile"]
+    ru: ["олдсмобиль"]
+
+  mercury:
+    en: ["mercury"]
+    ru: ["меркури"]
+
+  saturn:
+    en: ["saturn"]
+    ru: ["сатурн"]
+
   # =========================
   # CHINA
   # =========================
+
   chery:
     en: ["chery"]
     ru: ["чери"]
@@ -197,6 +347,8 @@ brands:
   haval:
     en: ["haval"]
     ru: ["хавейл"]
+    aliases:
+      - "хавал"
 
   exeed:
     en: ["exeed"]
@@ -206,6 +358,14 @@ brands:
     en: ["omoda"]
     ru: ["омода"]
 
+  jaecoo:
+    en: ["jaecoo"]
+    ru: ["джейку"]
+
+  jetour:
+    en: ["jetour"]
+    ru: ["джетур"]
+
   changan:
     en: ["changan"]
     ru: ["чанган"]
@@ -213,34 +373,54 @@ brands:
   byd:
     en: ["byd"]
     ru: ["бид"]
+    aliases:
+      - "бюд"
 
   great_wall:
-    en: ["great wall"]
-    ru: ["грит вол", "грейt вол"]
+    en: ["great wall", "gwm"]
+    ru: ["грит вол", "грейt вол", "грейт волл"]
 
   tank:
     en: ["tank"]
     ru: ["танк"]
 
+  wey:
+    en: ["wey"]
+    ru: ["вэй", "вей"]
+
+  ora:
+    en: ["ora"]
+    ru: ["ора"]
+
   hongqi:
     en: ["hongqi"]
     ru: ["хунци"]
+    aliases:
+      - "хончи"
 
   faw:
     en: ["faw"]
     ru: ["фав"]
 
+  bestune:
+    en: ["bestune", "faw bestune"]
+    ru: ["бестун"]
+
   jac:
     en: ["jac"]
     ru: ["джак"]
+    aliases:
+      - "жак"
 
   dongfeng:
-    en: ["dongfeng"]
-    ru: ["донгфенг"]
+    en: ["dongfeng", "dfm"]
+    ru: ["донгфенг", "дунфэн"]
 
   baic:
     en: ["baic"]
     ru: ["байк"]
+    aliases:
+      - "баик"
 
   gac:
     en: ["gac"]
@@ -249,6 +429,9 @@ brands:
   li_auto:
     en: ["li auto", "lixiang"]
     ru: ["лисян"]
+    aliases:
+      - "li"
+      - "lixiang"
 
   zeekr:
     en: ["zeekr"]
@@ -265,34 +448,222 @@ brands:
   lynk_co:
     en: ["lynk & co", "lynk co"]
     ru: ["линк энд ко"]
+    aliases:
+      - "lynk"
+      - "lynkco"
 
+  nio:
+    en: ["nio"]
+    ru: ["нио"]
+
+  xpeng:
+    en: ["xpeng"]
+    ru: ["икспенг"]
+    aliases:
+      - "хпенг"
+
+  jetta:
+    en: ["jetta"]
+    ru: ["джетта"]
+
+  kaiyi:
+    en: ["kaiyi"]
+    ru: ["каи"]
+
+  swm:
+    en: ["swm"]
+    ru: ["свм"]
+
+  forthing:
+    en: ["forthing"]
+    ru: ["фортинг"]
+
+  skywell:
+    en: ["skywell"]
+    ru: ["скайвел"]
+    aliases:
+      - "скайвелл"
+
+  livan:
+    en: ["livan"]
+    ru: ["ливан"]
+    aliases:
+      - "ливэн"
+
+  lifan:
+    en: ["lifan"]
+    ru: ["лифан"]
+
+  zotye:
+    en: ["zotye"]
+    ru: ["зоти"]
+
+  brilliance:
+    en: ["brilliance"]
+    ru: ["бриллианс"]
+
+  haima:
+    en: ["haima"]
+    ru: ["хайма"]
+
+  mg:
+    en: ["mg", "morris garages"]
+    ru: ["мг", "эмджи"]
+
+  seres:
+    en: ["seres"]
+    ru: ["серес"]
+
+  aito:
+    en: ["aito"]
+    ru: ["аито", "айто"]
+
+  oting:
+    en: ["oting"]
+    ru: ["отинг"]
+
+  roewe:
+    en: ["roewe"]
+    ru: ["роев"]
+    aliases:
+      - "роэв"
+
+  dayun:
+    en: ["dayun"]
+    ru: ["даюн"]
 
   # =========================
-  # SOUTH KOREA
+  # KOREA
   # =========================
 
   hyundai:
     en: ["hyundai"]
-    ru: ["хендай", "хёндэ"]
-    aliases: ["hyunday"]
+    ru: ["хендай", "хьюндай"]
+    aliases:
+      - "hyunday"
+      - "hyandai"
+      - "хюндай"
 
   kia:
     en: ["kia"]
     ru: ["киа"]
-    aliases: []
 
   genesis:
     en: ["genesis"]
     ru: ["генезис"]
-
-  ssangyong:
-    en: ["ssangyong"]
-    ru: ["ссангйонг", "санг йонг"]
+    aliases:
+      - "дженезис"
 
   daewoo:
     en: ["daewoo"]
-    ru: ["дэу"]
+    ru: ["дэу", "деу"]
 
-  samsung:
-    en: ["samsung"]
-    ru: ["самсунг"]
+  ssangyong:
+    en: ["ssangyong", "ssang yong"]
+    ru: ["сангйонг", "ссангйонг"]
+
+  renault_samsung:
+    en: ["renault samsung", "samsung motors"]
+    ru: ["рено самсунг"]
+
+  kg_mobility:
+    en: ["kg mobility"]
+    ru: ["кг мобилити"]
+    aliases:
+      - "kgm"
+
+  # =========================
+  # RUSSIA & CIS
+  # =========================
+
+  lada:
+    en: ["lada", "vaz"]
+    ru: ["ваз", "лада"]
+    aliases:
+      - "samara"
+      - "niva"
+      - "жигули"
+
+  moskvich:
+    en: ["moskvich"]
+    ru: ["москвич"]
+    aliases:
+      - "azlk"
+      - "азлк"
+
+  gaz:
+    en: ["gaz"]
+    ru: ["газ"]
+    aliases:
+      - "volga"
+      - "волга"
+      - "gazelle"
+      - "газель"
+
+  uaz:
+    en: ["uaz"]
+    ru: ["уаз"]
+    aliases:
+      - "patriot"
+      - "патриот"
+
+  aurus:
+    en: ["aurus"]
+    ru: ["аурус"]
+
+  evolute:
+    en: ["evolute"]
+    ru: ["эволют"]
+
+  xcite:
+    en: ["xcite"]
+    ru: ["иксайт"]
+
+  ravon:
+    en: ["ravon"]
+    ru: ["равон"]
+
+  zaz:
+    en: ["zaz"]
+    ru: ["заз"]
+    aliases:
+      - "запорожец"
+      - "таврия"
+
+  izh:
+    en: ["izh"]
+    ru: ["иж"]
+    aliases:
+      - "ода"
+
+  tagaz:
+    en: ["tagaz"]
+    ru: ["тагаз"]
+
+  luaz:
+    en: ["luaz"]
+    ru: ["луаз"]
+
+  kamaz:
+    en: ["kamaz"]
+    ru: ["камаз"]
+
+  maz:
+    en: ["maz"]
+    ru: ["маз"]
+
+  ural:
+    en: ["ural"]
+    ru: ["урал"]
+
+  # =========================
+  # EXTRA / GLOBAL
+  # =========================
+
+  mahindra:
+    en: ["mahindra"]
+    ru: ["махиндра"]
+
+  tata:
+    en: ["tata"]
+    ru: ["тата"]

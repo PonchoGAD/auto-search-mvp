@@ -7,6 +7,7 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.types import Message
 
+# В зависимости от вашей структуры, импорт может быть из data_pipeline.telegram_filters или utils.telegram_filters
 from utils.telegram_filters import is_valid_telegram_post
 
 
@@ -34,8 +35,25 @@ def load_channels() -> List[str]:
     Пример:
     TG_CHANNELS=@cars_ru,@auto_moscow
     """
-    TG_CHANNELS_RAW = os.getenv("TG_CHANNELS", "")
-    return [c.strip() for c in TG_CHANNELS_RAW.split(",") if c.strip()]
+
+    raw = os.getenv("TG_CHANNELS", "")
+    out =[]
+
+    for c in raw.split(","):
+        c = c.strip()
+        if not c:
+            continue
+
+        if "t.me/" in c:
+            c = c.split("t.me/")[-1].strip("/")
+            c = "@" + c
+
+        if not c.startswith("@"):
+            c = "@" + c
+
+        out.append(c)
+
+    return out
 
 
 async def _fetch_from_channel(
@@ -44,11 +62,11 @@ async def _fetch_from_channel(
     limit: int,
 ) -> List[Dict]:
     """
-    Fetch + HARD anti-noise фильтр на уровне источника.
-    Здесь мусор умирает окончательно.
+    Fetch + минимальный anti-noise на уровне источника.
+    Бизнес-логика фильтрации остаётся в ingest_quality.
     """
 
-    items: List[Dict] = []
+    items: List[Dict] =[]
 
     total_messages = 0
     skipped_invalid = 0
@@ -61,31 +79,66 @@ async def _fetch_from_channel(
             skipped_invalid += 1
             continue
 
-        if not msg.text:
+        text = msg.text or msg.message or msg.raw_text
+
+        if not text:
             skipped_invalid += 1
             continue
 
-        text = msg.text.strip()
+        text = text.strip()
 
-        # 🔒 защита от коротких мусорных постов
-        if len(text) < 50:
+        # Машины не продают в 2 словах
+        if len(text) < 40:
             skipped_invalid += 1
             continue
 
-        # 🔒 HARD ANTI-NOISE FILTER
+        low = text.lower()
+
+        # Быстрый отсев откровенного флуда
+        if any(x in low for x in ["обсуждение", "комментарии", "подписывайтесь", "ссылка в профиле"]):
+            skipped_invalid += 1
+            continue
+
+        # skip forwarded ads spam
+        if getattr(msg, "fwd_from", None):
+            skipped_invalid += 1
+            continue
+
+        # 🔥 ГЛАВНАЯ ПРОВЕРКА ЧЕРЕЗ ФИЛЬТР
         ok, reason = is_valid_telegram_post(text)
 
         if not ok:
+            # Можно раскомментировать для отладки: 
+            # print(f"[TG SKIP] {reason} -> {text[:50]}...")
+            skipped_invalid += 1
+            continue
+
+        # limit message length
+        if len(text) > 5000:
+            text = text[:5000]
+
+        # skip repost chains
+        if text.count("http") > 5:
+            skipped_invalid += 1
+            continue
+
+        # dedupe identical posts
+        if any(x["content"] == text for x in items):
             skipped_invalid += 1
             continue
 
         source_url = f"https://t.me/{channel.lstrip('@')}/{msg.id}"
 
+        title_line = text.split("\n")[0]
+
+        if len(title_line) < 20:
+            title_line = text[:120]
+
         items.append(
             {
                 "source": "telegram",
                 "source_url": source_url,
-                "title": text[:120].replace("\n", " ").strip(),
+                "title": title_line.replace("\n", " ").strip(),
                 "content": text,
                 "created_at": msg.date.isoformat() if getattr(msg, "date", None) else None,
                 "created_at_ts": int(msg.date.timestamp()) if getattr(msg, "date", None) else None,
@@ -101,6 +154,9 @@ async def _fetch_from_channel(
         f"accepted={accepted}, "
         f"skipped={skipped_invalid}"
     )
+
+    if accepted == 0:
+        print(f"[TELEGRAM][WARN] channel {channel} returned 0 valid posts")
 
     return items
 
@@ -124,28 +180,33 @@ async def fetch_telegram(limit_per_channel: int | None = None) -> List[Dict]:
 
     if not TG_API_ID or not TG_API_HASH or not TG_SESSION_STRING:
         print("[TELEGRAM][WARN] Telegram ENV variables are not properly set")
-        return []
+        return[]
 
     channels = load_channels()
     if not channels:
         print("[TELEGRAM][WARN] no channels configured")
-        return []
+        return[]
 
     limit = limit_per_channel or TG_FETCH_LIMIT
-    results: List[Dict] = []
+    results: List[Dict] =[]
 
     async with TelegramClient(
         StringSession(TG_SESSION_STRING),
         TG_API_ID,
         TG_API_HASH,
     ) as client:
+
+        tasks =[]
+
         for channel in channels:
-            await asyncio.sleep(random.uniform(1.5, 3.0))
-            try:
-                items = await _fetch_from_channel(client, channel, limit)
-                results.extend(items)
-            except Exception as e:
-                print(f"[TELEGRAM][ERROR] {channel}: {e}")
+            await asyncio.sleep(random.uniform(2.0, 4.5))
+            tasks.append(_fetch_from_channel(client, channel, limit))
+
+        results_nested = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for r in results_nested:
+            if isinstance(r, list):
+                results.extend(r)
 
     print(f"[TELEGRAM] total accepted from all channels: {len(results)}")
 

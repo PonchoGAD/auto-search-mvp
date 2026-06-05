@@ -5,7 +5,6 @@ import os
 
 from core.settings import settings
 
-from data_pipeline.ingest import run_ingest
 from data_pipeline.index import index_raw_documents
 
 from db.session import SessionLocal
@@ -36,19 +35,28 @@ def _check_demo_allowed():
 
 
 # =====================================================
+# INGEST DISABLED ENDPOINT
+# =====================================================
+
+@router.post("/ingest")
+def ingest_disabled():
+    return {"status": "disabled", "reason": "ingest runs in ingest-worker"}
+
+
+# =====================================================
 # DEMO SEED ENDPOINT
 # =====================================================
 
 @router.post(
     "/demo/seed",
-    summary="Seed demo data (ingest + index)",
+    summary="Seed demo data (index only)",
 )
 def demo_seed():
     """
     DEMO ENDPOINT.
 
     Делает:
-    1) ingest (ограниченное количество документов)
+    1) Загружает последние документы
     2) index -> Qdrant
     3) возвращает результат
 
@@ -60,17 +68,6 @@ def demo_seed():
     """
 
     _check_demo_allowed()
-
-    # -------------------------
-    # INGEST (RAW DOCUMENTS)
-    # -------------------------
-    try:
-        run_ingest()
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"ingest failed: {e}",
-        )
 
     # -------------------------
     # LOAD RECENT RAW DOCS

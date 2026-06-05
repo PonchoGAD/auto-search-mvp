@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 from typing import List
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 from db.session import SessionLocal
@@ -23,8 +23,7 @@ class SearchHistoryItem(BaseModel):
     empty_result: bool
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # =========================

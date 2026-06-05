@@ -15,11 +15,40 @@ class AnswerBuilder:
         structured: StructuredQuery,
         results: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
+
+        # 🔒 FINAL RESULT GUARD (brand mismatch protection)
+        if structured.brand:
+            filtered =[]
+            for r in results:
+                brand = r.get("brand")
+                if not brand:
+                    continue
+                if brand.lower() == structured.brand.lower():
+                    filtered.append(r)
+
+            # применяем только если сохраняется >=1 результата
+            if len(filtered) >= 1:
+                results = filtered
+
+        # 🔒 MODEL GUARD
+        if structured.model:
+            filtered =[]
+            for r in results:
+                model = r.get("model")
+                if not model:
+                    continue
+                if model.lower() == structured.model.lower():
+                    filtered.append(r)
+
+            # model фильтр более строгий
+            if len(filtered) >= 2:
+                results = filtered
+
         if not results:
             return {
                 "summary": "По вашему запросу подходящих вариантов не найдено.",
                 "highlights": [],
-                "sources": [],
+                "sources":[],
             }
 
         # Краткое резюме
@@ -39,7 +68,7 @@ class AnswerBuilder:
         return {
             "summary": summary,
             "highlights": highlights,
-            "sources": [
+            "sources":[
                 {"name": name, "url": url}
                 for name, url in sources
             ],
@@ -66,16 +95,4 @@ class AnswerBuilder:
         self,
         results: List[Dict[str, Any]],
     ) -> List[str]:
-        bullets = []
-
-        for r in results:
-            text = (
-                f"{r.get('brand')} {r.get('model', '')}, "
-                f"{r.get('year', '—')} г., "
-                f"{r.get('mileage', '—')} км, "
-                f"{r.get('price', '—')} ₽ — "
-                f"{r.get('why_match')}"
-            )
-            bullets.append(text)
-
-        return bullets
+        bullets =

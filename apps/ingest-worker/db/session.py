@@ -1,8 +1,9 @@
-# apps/ingest-worker/db/session.py
-
 import os
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker
+
+from shared.db.base import Base
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
@@ -19,4 +20,8 @@ SessionLocal = sessionmaker(
     bind=engine,
 )
 
-Base = declarative_base()
+_all_ = [
+    "Base",
+    "engine",
+    "SessionLocal",
+]

@@ -1,9 +1,8 @@
-def chunk_text(text: str, chunk_size: int = 500):
-    if not text:
-        return []
+# DEPRECATED
+# Worker must not own a separate chunk pipeline.
+# Use API pipeline: apps/api/src/data_pipeline/chunk.py
 
-    chunks = []
-    for i in range(0, len(text), chunk_size):
-        chunks.append(text[i:i + chunk_size])
-
-    return chunks
+raise RuntimeError(
+    "apps/ingest-worker/data_pipeline/chunk.py is deprecated. "
+    "Use src.data_pipeline.chunk from API pipeline."
+)

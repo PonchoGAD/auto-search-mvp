@@ -1,51 +1,61 @@
-from datetime import datetime, timezone
-from typing import List
-from qdrant_client import QdrantClient
-from qdrant_client.models import VectorParams, Distance, PointStruct, Filter
-from core.settings import settings
-from urllib.parse import urlparse
 import os
+from datetime import datetime, timezone
+from typing import List, Optional, Any, Dict
+
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance,
+    PointStruct,
+    SearchParams,
+    VectorParams,
+    PayloadSchemaType,
+)
+
+COLLECTION_NAME = "auto_search_chunks"
+
+# Читаем из окружения (нужно добавить QDRANT_DEBUG=1 в docker-compose.prod.yml)
+QDRANT_DEBUG = os.getenv("QDRANT_DEBUG", "0").strip() == "1"
 
 
 class QdrantStore:
     """
     Qdrant vector storage.
 
-    ГАРАНТИИ:
-    - created_at ВСЕГДА присутствует в payload
-    - created_at_ts (unix) ВСЕГДА присутствует
-    - created_at_source фиксируется
-    - recency не ломается из-за ingest / источников
+    Canonical payload contract:
+    {
+      "raw_id": int | None,
+      "normalized_id": int | None,
+      "listing_id": str | None,
+      "source": str | None,
+      "source_url": str | None,
+      "brand": str | None,
+      "model": str | None,
+      "year": int | None,
+      "mileage": int | None,
+      "price": int | None,
+      "fuel": str | None,
+      "city": str | None,
+      "image_url": str | None,
+      "photos": list[str] | None,
+      "sale_intent": int | None,
+      "quality_score": float | None,
+      "chunk_index": int | None,
+      "created_at_ts": int | None,
+    }
+
+    Notes:
+    - brand/model must be canonical keys only
+    - qdrant.py does not recover taxonomy, only validates and normalizes schema
+    - created_at fields are hardened for recency-safe retrieval
     """
 
-    def __init__(self):
-        # settings.qdrant_url = "http://qdrant:6333"
-        u = settings.qdrant_url
-        parsed = urlparse(u)
+    ALLOWED_FUELS = {"petrol", "diesel", "hybrid", "electric", "gas", "gas_petrol"}
 
-        host = parsed.hostname or os.getenv("QDRANT_HOST", "qdrant")
-        port = parsed.port or int(os.getenv("QDRANT_PORT", "6333"))
-
-        self.collection = (
-            settings.qdrant_collection
-            or os.getenv("QDRANT_COLLECTION", "auto_search_chunks")
-        )
-
-        try:
-            self.client = QdrantClient(
-                host=host,
-                port=port,
-                check_compatibility=False,
-            )
-        except TypeError:
-            self.client = QdrantClient(
-                host=host,
-                port=port,
-            )
-
-        print(
-            f"[QDRANT] api client host={host} port={port} collection={self.collection}",
-            flush=True,
+    def __init__(self, host: str = "qdrant", port: int = 6333):
+        self.client = QdrantClient(
+            host=host,
+            port=port,
+            check_compatibility=False,
         )
 
     # =====================================================
@@ -62,27 +72,125 @@ class QdrantStore:
                     size=vector_size,
                     distance=Distance.COSINE,
                 ),
+                hnsw_config={
+                    "m": 32,
+                    "ef_construct": 256,
+                    "full_scan_threshold": 1000,
+                },
             )
-            print(
-                f"[QDRANT] collection created: {self.collection}",
-                flush=True,
+            print(f"[QDRANT] collection created: {COLLECTION_NAME}", flush=True)
+            self._create_payload_indexes()
+
+    def ensure_collection(self, vector_size: int = 768):
+        """Гарантирует существование коллекции и необходимых индексов."""
+        self.create_collection(vector_size)
+
+    def _create_payload_indexes(self):
+        """Создает оптимальные индексы для ускорения фильтрации и поиска."""
+        try:
+            print("[QDRANT] creating payload indexes...", flush=True)
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="brand", field_schema=PayloadSchemaType.KEYWORD
             )
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="fuel", field_schema=PayloadSchemaType.KEYWORD
+            )
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="price", field_schema=PayloadSchemaType.INTEGER
+            )
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="mileage", field_schema=PayloadSchemaType.INTEGER
+            )
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="year", field_schema=PayloadSchemaType.INTEGER
+            )
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="listing_id", field_schema=PayloadSchemaType.KEYWORD
+            )
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="source_url", field_schema=PayloadSchemaType.KEYWORD
+            )
+            print("[QDRANT] payload indexes created successfully", flush=True)
+        except Exception as e:
+            print(f"[QDRANT][WARN] payload indexes creation failed: {e}", flush=True)
 
     # =====================================================
-    # PAYLOAD NORMALIZATION (RECENCY HARDENING)
+    # DEBUG HELPERS
     # =====================================================
 
-    def _normalize_created_at(self, payload: dict) -> dict:
-        """
-        Гарантирует наличие:
-        - created_at (ISO str)
-        - created_at_ts (int)
-        - created_at_source (source | ingested)
-        """
+    def _debug_log(self, message: str) -> None:
+        if QDRANT_DEBUG:
+            print(f"[QDRANT][DEBUG] {message}", flush=True)
 
+    def _summarize_filter(self, query_filter: object) -> str:
+        if query_filter is None:
+            return "none"
+
+        try:
+            if isinstance(query_filter, dict):
+                keys = sorted(query_filter.keys())
+                return ",".join(keys) if keys else "dict_empty"
+
+            summary_parts: List[str] = []
+
+            for attr in ("must", "should", "must_not"):
+                value = getattr(query_filter, attr, None)
+                if value:
+                    summary_parts.append(f"{attr}:{len(value)}")
+
+            if summary_parts:
+                return ";".join(summary_parts)
+
+            return query_filter.__class__.__name__
+        except Exception:
+            return "uninspectable_filter"
+
+    # =====================================================
+    # CANONICAL NORMALIZATION HELPERS
+    # =====================================================
+
+    def _norm_str(self, value: Any) -> Optional[str]:
+        if isinstance(value, str):
+            value = value.strip().lower()
+            return value or None
+        return None
+
+    def _norm_int(self, value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        try:
+            if isinstance(value, str):
+                value = value.replace(" ", "").replace("\u00A0", "").replace("\xa0", "")
+            return int(value)
+        except Exception:
+            return None
+
+    def _norm_float(self, value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except Exception:
+            return None
+
+    def _norm_sale_intent(self, value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return 1 if value else 0
+        if isinstance(value, (int, float)):
+            return 1 if int(value) > 0 else 0
+        if isinstance(value, str):
+            s = value.strip().lower()
+            if s in {"1", "true", "yes", "y"}:
+                return 1
+            if s in {"0", "false", "no", "n"}:
+                return 0
+        return None
+
+    def _normalize_created_at(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         raw = payload.get("created_at")
 
-        # 1️⃣ datetime из payload
         if isinstance(raw, datetime):
             dt = raw
             if not dt.tzinfo:
@@ -93,7 +201,6 @@ class QdrantStore:
             payload.setdefault("created_at_source", "source")
             return payload
 
-        # 2️⃣ ISO string из payload
         if isinstance(raw, str):
             try:
                 dt = datetime.fromisoformat(raw)
@@ -107,13 +214,119 @@ class QdrantStore:
             except Exception:
                 pass
 
-        # 3️⃣ Fallback — ingest time
+        created_at_ts = self._norm_int(payload.get("created_at_ts"))
+        if created_at_ts is not None and created_at_ts > 0:
+            dt = datetime.fromtimestamp(created_at_ts, tz=timezone.utc)
+            payload["created_at"] = dt.isoformat()
+            payload["created_at_ts"] = created_at_ts
+            payload.setdefault("created_at_source", "normalized")
+            return payload
+
         now = datetime.now(tz=timezone.utc)
         payload["created_at"] = now.isoformat()
         payload["created_at_ts"] = int(now.timestamp())
         payload["created_at_source"] = "ingested"
-
         return payload
+
+    def _normalize_payload_schema(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if not payload:
+            return {}
+
+        current_year = datetime.now(tz=timezone.utc).year
+
+        brand = self._norm_str(payload.get("brand"))
+        model = self._norm_str(payload.get("model"))
+        fuel = self._norm_str(payload.get("fuel"))
+
+        if fuel:
+            fuel = fuel.strip().lower()
+
+            fuel_map = {
+                "бензин": "petrol",
+                "дизель": "diesel",
+                "электро": "electric",
+                "электр": "electric",
+                "гибрид": "hybrid",
+                "газ": "gas"
+            }
+
+            fuel = fuel_map.get(fuel, fuel)
+
+            if fuel not in self.ALLOWED_FUELS:
+                fuel = None
+
+        price = self._norm_int(payload.get("price"))
+        if price is not None and (price <= 0 or price < 10_000 or price > 200_000_000):
+            price = None
+
+        mileage = self._norm_int(payload.get("mileage"))
+        if mileage is not None:
+            if mileage < 0 or mileage > 700_000:
+                mileage = None
+
+        year = self._norm_int(payload.get("year"))
+        if year is not None and (year < 1985 or year > current_year + 1):
+            year = None
+
+        sale_intent = self._norm_sale_intent(payload.get("sale_intent"))
+        quality_score = self._norm_float(payload.get("quality_score"))
+        if quality_score is not None:
+            quality_score = max(0.0, min(1.0, quality_score))
+
+        normalized: Dict[str, Any] = {
+            "raw_id": self._norm_int(payload.get("raw_id")),
+            "normalized_id": self._norm_int(payload.get("normalized_id")),
+            "listing_id": self._norm_str(payload.get("listing_id")),
+            "source": self._norm_str(payload.get("source")),
+            "source_url": payload.get("source_url") if isinstance(payload.get("source_url"), str) else None,
+            "brand": brand,
+            "model": model,
+            "year": year,
+            "mileage": mileage,
+            "price": price,
+            "fuel": fuel,
+            "sale_intent": sale_intent,
+            "quality_score": quality_score,
+            "chunk_index": self._norm_int(payload.get("chunk_index")),
+            "created_at_ts": self._norm_int(payload.get("created_at_ts")),
+        }
+
+        normalized["doc_id"] = self._norm_int(payload.get("doc_id"))
+        normalized["chunk_id"] = self._norm_int(payload.get("chunk_id"))
+        normalized["title"] = payload.get("title") if isinstance(payload.get("title"), str) else None
+        normalized["title_text"] = payload.get("title_text") if isinstance(payload.get("title_text"), str) else None
+        normalized["content"] = payload.get("content") if isinstance(payload.get("content"), str) else None
+        normalized["currency"] = payload.get("currency") if isinstance(payload.get("currency"), str) else None
+        normalized["region"] = self._norm_str(payload.get("region"))
+        normalized["city"] = self._norm_str(payload.get("city"))
+        normalized["image_url"] = payload.get("image_url") if isinstance(payload.get("image_url"), str) else None
+        
+        photos_val = payload.get("photos")
+        if isinstance(photos_val, list):
+            normalized["photos"] = [str(p) for p in photos_val if p]
+        else:
+            normalized["photos"] = []
+
+        normalized["paint_condition"] = (
+            payload.get("paint_condition") if isinstance(payload.get("paint_condition"), str) else None
+        )
+        normalized["vector_type"] = payload.get("vector_type") if isinstance(payload.get("vector_type"), str) else None
+        normalized["brand_model"] = f"{brand or ''} {model or ''}".strip() or None
+        normalized["doc_quality"] = self._norm_int(payload.get("doc_quality"))
+        normalized["created_at"] = payload.get("created_at") if isinstance(payload.get("created_at"), str) else None
+        normalized["created_at_source"] = (
+            payload.get("created_at_source") if isinstance(payload.get("created_at_source"), str) else None
+        )
+
+        return normalized
+
+    def build_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if not payload:
+            return {}
+        normalized = self._normalize_payload_schema(payload)
+        normalized = self._normalize_created_at(normalized)
+        normalized["created_at_ts"] = self._norm_int(normalized.get("created_at_ts"))
+        return normalized
 
     # =====================================================
     # UPSERT
@@ -121,27 +334,18 @@ class QdrantStore:
 
     def upsert(self, points: List[PointStruct]):
         if not points:
+            print("[QDRANT] no points to upsert", flush=True)
             return
 
         normalized_points: List[PointStruct] = []
 
         for p in points:
-            payload = p.payload or {}
-
-            # HARD NORMALIZATION
-            if payload.get("brand"):
-                payload["brand"] = str(payload["brand"]).strip().lower()
-
-            if payload.get("fuel"):
-                payload["fuel"] = str(payload["fuel"]).strip().lower()
-
-            if payload.get("city"):
-                payload["city"] = str(payload["city"]).strip().lower()
-
-            if payload.get("region"):
-                payload["region"] = str(payload["region"]).strip().lower()
-
-            payload = self._normalize_created_at(payload)
+            if not p.payload:  # Защита: пропуск пустых payload
+                continue
+            payload = self.build_payload(p.payload or {})
+            if not payload:    # Защита: пропуск пустых payload
+                continue
+            print(f"[DEBUG][UPSERT] brand={payload.get('brand')} model={payload.get('model')}", flush=True)
 
             normalized_points.append(
                 PointStruct(
@@ -151,15 +355,17 @@ class QdrantStore:
                 )
             )
 
-        self.client.upsert(
-            collection_name=self.collection,
-            points=normalized_points,
-        )
+        batch_size = 128
+        total = len(normalized_points)
 
-        print(
-            f"[QDRANT] upserted points: {len(normalized_points)}",
-            flush=True,
-        )
+        for i in range(0, total, batch_size):
+            batch = normalized_points[i:i + batch_size]
+            self.client.upsert(
+                collection_name=COLLECTION_NAME,
+                points=batch,
+            )
+
+        print(f"[QDRANT] upserted points: {total}", flush=True)
 
     # =====================================================
     # SEARCH
@@ -169,12 +375,70 @@ class QdrantStore:
         self,
         vector: List[float],
         limit: int = 20,
-        query_filter: Filter | None = None,
+        query_filter: Optional[Any] = None,
+        query_text: Optional[str] = None,
     ):
-        return self.client.search(
-            collection_name=self.collection,
-            query_vector=vector,
-            limit=limit,
-            query_filter=query_filter,
-            with_payload=True,
+        requested_limit = int(limit) if isinstance(limit, int) else 20
+        if requested_limit <= 0:
+            requested_limit = 20
+
+        has_filter = query_filter is not None
+        filter_summary = self._summarize_filter(query_filter)
+
+        self._debug_log(
+            f"search request limit={requested_limit} "
+            f"filter_present={has_filter} "
+            f"filter_summary={filter_summary}"
         )
+
+        try:
+            cnt = self.client.count(collection_name=COLLECTION_NAME, exact=False)
+            self._debug_log(f"collection approx_count={getattr(cnt, 'count', cnt)}")
+        except Exception as e:
+            self._debug_log(f"count failed: {e}")
+
+        response = self.client.query_points(
+            collection_name=COLLECTION_NAME,
+            query=vector,
+            limit=requested_limit,
+            with_payload=True,
+            with_vectors=False,
+            query_filter=query_filter,
+        )
+
+        points = response.points if hasattr(response, "points") else []
+
+        self._debug_log(f"vector hits returned={len(points)}")
+
+        # 🔥 УДАЛЕН FALLBACK БЕЗ ФИЛЬТРОВ. 
+        # Если по фильтрам 0 машин - возвращаем 0. Отключать фильтры НЕЛЬЗЯ (иначе будет 23к вместо 20к)
+        if not points and query_text:
+            self._debug_log("vector search empty, NO fallback allowed to preserve strict limits")
+
+        filtered_points = []
+        for p in points:
+            payload = p.payload or {}
+            if not payload:  # Защита: пропуск пустых payload
+                continue
+            built_payload = self.build_payload(payload)
+            # НЕ возвращать payload без listing_id
+            if built_payload and built_payload.get("listing_id"):
+                p.payload = built_payload
+                filtered_points.append(p)
+
+        points = filtered_points
+
+        self._debug_log(
+            f"search complete limit={requested_limit} "
+            f"filter_present={has_filter} "
+            f"hits={len(points)}"
+        )
+
+        return points
+
+
+QDRANT_HOST = os.getenv("QDRANT_HOST", "qdrant")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+
+_shared_store = QdrantStore(host=QDRANT_HOST, port=QDRANT_PORT)
+qdrant_client = _shared_store.client

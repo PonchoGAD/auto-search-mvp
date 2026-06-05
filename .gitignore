@@ -41,6 +41,10 @@ docker-data/
 # compose с секретами не пушим
 infra/compose.yml
 
+# prod env с реальными ключами — никогда не пушим
+infra/docker/.env.prod
+infra/docker/.env.prod.*
+
 # =========================
 # PLAYWRIGHT
 # =========================

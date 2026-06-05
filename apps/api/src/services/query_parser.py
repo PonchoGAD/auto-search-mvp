@@ -1,304 +1,497 @@
-from typing import List, Optional, Dict, Tuple
-from pydantic import BaseModel, Field
+from typing import Optional, Tuple
 import re
-import yaml
-from pathlib import Path
-import datetime
+from datetime import datetime
+
+from domain.query_schema import StructuredQuery
+from services.query_normalizer import normalize_query
+from services.taxonomy_service import taxonomy_service
 
 
-# =========================
-# SAFE DIGITS NORMALIZER
-# =========================
-def _digits_only(s: str) -> str:
-    """
-    Оставляет только цифры.
-    Чистит NBSP, пробелы, точки, запятые и любые разделители.
-    """
-    if not s:
-        return ""
-    s = str(s).replace("\xa0", " ")
-    return re.sub(r"[^\d]", "", s)
+MODEL_TOKEN_RE = re.compile(
+    r"^[a-zа-я]+(?:[-_ ]?[a-zа-я0-9]+)\d[a-zа-я0-9-]$",
+    re.IGNORECASE,
+)
+
+CITY_MAP = {
+    "москва": "moskva",
+    "спб": "spb",
+    "питер": "spb",
+    "санкт-петербург": "spb",
+    "екатеринбург": "ekaterinburg",
+    "казань": "kazan",
+    "новосибирск": "novosibirsk",
+    "алматы": "almaty",
+    "астана": "astana",
+}
+
+STOP_TOKENS = {
+    "до", "от", "с", "после", "не", "старше", "младше", "раньше", "ниже",
+    "года", "год", "лет", "км", "тыс", "млн", "руб", "р", "бензин",
+    "дизель", "гибрид", "электро", "electric", "hybrid", "diesel", "petrol",
+    "пробег", "без", "окрас", "бит", "крашен", "цена", "купить", "продажа",
+    "машина", "авто", "тачка", "седан", "кроссовер", "внедорожник",
+    "свежая", "свежий", "новая", "новый", "последний", "последняя",
+}
 
 
-# =========================
-# LOAD BRANDS (SINGLE SOURCE OF TRUTH)
-# =========================
-def load_brands() -> Dict[str, Dict[str, List[str]]]:
-    """
-    Загружает brands.yaml один раз.
+def _normalize_spaces(text: str) -> str:
+    text = (text or "").replace("\u00A0", " ").replace("\xa0", " ")
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
-    Ожидаемый формат:
-    {
-      "bmw": {
-        "en": [...],
-        "ru": [...],
-        "aliases": [...]
-      }
-    }
-    """
+
+def _normalize_parse_text(text: str) -> str:
+    text = (text or "").lower()
+    text = text.replace("ё", "е")
+
+    text = re.sub(r"(?<=\d)\s+(?=км\b)", " ", text)
+    text = re.sub(r"(?<=\d)\s+(?=тыс\b)", " ", text)
+    text = re.sub(r"(?<=\d)\s+(?=тысяч\b)", " ", text)
+
+    text = re.sub(r"\b(\d+(?:[.,]\d+)?)\s*млн\b", r"\1 млн", text)
+    text = re.sub(r"\b(\d+(?:[.,]\d+)?)\s*миллион(?:а|ов)?\b", r"\1 млн", text)
+    text = re.sub(r"\b(\d+(?:[.,]\d+)?)\s*м\b", r"\1 млн", text)
+
+    text = re.sub(r"\b(\d+(?:[.,]\d+)?)\s*к\b", r"\1к", text)
+    text = re.sub(r"\b(\d+(?:[.,]\d+)?)\s*k\b", r"\1к", text)
+
+    text = re.sub(r"\be[\s-]?(\d{3})\b", r"e\1", text)
+    text = re.sub(r"\bgx[\s-]?(\d{3})\b", r"gx\1", text)
+    text = re.sub(r"\bcx[\s-]?(\d)\b", r"cx-\1", text)
+    text = re.sub(r"\bcr[\s-]?v\b", "cr-v", text)
+    text = re.sub(r"\bx[\s-]?trail\b", "x-trail", text)
+
+    return _normalize_spaces(text)
+
+
+def _normalize_model_token(value: str) -> str:
+    value = (value or "").lower().strip()
+    value = value.replace("-", "").replace("_", "").replace(" ", "")
+    return value
+
+
+def _looks_like_model_token(token: str) -> bool:
+
+    token = (token or "").strip().lower()
+
+    if not token:
+        return False
+
+    if token in STOP_TOKENS:
+        return False
+
+    if token.isdigit():
+        return False
+
+    if re.fullmatch(r"(19|20)\d{2}", token):
+        return False
+
+    if re.search(r"[a-zа-я]", token) and re.search(r"\d", token):
+        return True
+
+    if "-" in token:
+        return True
+
+    return bool(MODEL_TOKEN_RE.match(token))
+
+
+def _parse_price_value(num_str: str, unit: str | None) -> Optional[int]:
+
+    if not num_str:
+        return None
+
+    raw = str(num_str).strip().replace(" ", "").replace(",", ".")
+
     try:
-        base_dir = Path(__file__).resolve().parent.parent  # .../src
-        brands_path = base_dir / "config" / "brands.yaml"
+        value = float(raw)
+    except:
+        return None
 
-        with open(brands_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-            return data.get("brands", {})
+    unit_norm = (unit or "").lower()
 
-    except Exception as e:
-        print(f"[QUERY][WARN] failed to load brands.yaml: {e}")
-        return {}
+    if unit_norm in {"млн", "миллион", "м"}:
+        value *= 1_000_000
 
+    elif unit_norm in {"тыс", "к", "k"}:
+        value *= 1000
 
-BRANDS_CONFIG = load_brands()
+    v = int(value)
 
+    if 10000 <= v <= 200000000:
+        return v
 
-# =========================
-# SCHEMA
-# =========================
-class StructuredQuery(BaseModel):
-    raw_query: Optional[str] = None
-
-    brand: Optional[str] = None
-    brand_confidence: float = 0.0
-    model: Optional[str] = None
-
-    price_max: Optional[int] = None
-    mileage_max: Optional[int] = None
-    year_min: Optional[int] = None
-
-    fuel: Optional[str] = None
-    paint_condition: Optional[str] = None
-    city: Optional[str] = None
-    region: Optional[str] = None
-
-    keywords: List[str] = Field(default_factory=list)
-    exclusions: List[str] = Field(default_factory=list)
-
-    class Config:
-        extra = "forbid"
+    return None
 
 
-# =========================
-# MAIN ENTRY
-# =========================
-def parse_query(raw_text: str) -> StructuredQuery:
-    raw_text = (raw_text or "").strip()
+def _parse_mileage_value(num_str: str, unit: str | None):
 
-    if not raw_text:
-        return StructuredQuery(raw_query=raw_text)
+    if not num_str:
+        return None
+
+    raw = str(num_str).replace(",", ".")
 
     try:
-        llm_result = _parse_with_llm(raw_text)
-        sq = StructuredQuery(**llm_result)
-        sq.raw_query = raw_text
-        return sq
+        value = float(raw)
+    except:
+        return None
 
-    except Exception:
-        return _parse_with_fallback(raw_text)
+    unit_norm = (unit or "").lower()
+
+    if unit_norm in {"тыс", "к"}:
+        value *= 1000
+
+    value = int(value)
+
+    if 0 <= value <= 1500000:
+        return value
+
+    return None
 
 
-# =========================
-# LLM PLACEHOLDER
-# =========================
-def _parse_with_llm(raw_text: str) -> dict:
-    raise RuntimeError("LLM not implemented yet")
+def _has_mileage_context(text: str):
+
+    return bool(
+
+        re.search(
+            r"(пробег|км|km|тыс\s*км|т\.км)",
+            text,
+            re.I
+        )
+    )
 
 
-# =========================
-# FALLBACK PARSER (RULE-BASED)
-# =========================
-def _parse_with_fallback(raw_text: str) -> StructuredQuery:
-    text = (raw_text or "").lower().replace("\xa0", " ").strip()
-    result = StructuredQuery(raw_query=raw_text)
+def _extract_price_min(text: str) -> Optional[int]:
 
-    # -------------------------
-    # BRAND
-    # -------------------------
-    brand, confidence = _extract_brand(text)
+    patterns = [
+        r"\bот\s*(\d+(?:[\s.,]\d+)?)\s*(млн)\b",
+        r"\bот\s*(\d+(?:[\s.,]\d+)?)\s*(тыс|к)\b",
+        r"\bот\s*(\d+(?:[\s.,]\d+)?)\s*(₽|руб|р\.?|р)\b",
+    ]
+
+    for p in patterns:
+
+        m = re.search(
+            p,
+            text,
+            re.I
+        )
+
+        if not m:
+            continue
+
+        value = _parse_price_value(
+            m.group(1),
+            m.group(2)
+        )
+
+        if value:
+            return value
+
+    return None
+
+
+def _extract_mileage_min(
+        text: str
+)->Optional[int]:
+
+    patterns=[
+
+        r"\bот\s*(\d+)\s*(тыс|км|km|к)\b",
+
+        r"\bпробег\s*от\s*(\d+)\s*(тыс|км|km|к)\b",
+
+    ]
+
+    for p in patterns:
+
+        m=re.search(
+            p,
+            text,
+            re.I
+        )
+
+        if not m:
+            continue
+
+        v=_parse_mileage_value(
+            m.group(1),
+            m.group(2)
+        )
+
+        if v:
+            return v
+
+    return None
+
+
+def _extract_mileage_max(text: str):
+
+    patterns=[
+
+        r"\bдо\s*(\d+)\s*(тыс|км|km|к)\b",
+
+        r"\bпробег.*?до\s*(\d+)\s*(тыс|км|km|к)\b"
+
+    ]
+
+    for p in patterns:
+
+        m=re.search(
+            p,
+            text,
+            re.I
+        )
+
+        if not m:
+            continue
+
+        v=_parse_mileage_value(
+            m.group(1),
+            m.group(2)
+        )
+
+        if v:
+            return v
+
+    return None
+
+
+def _extract_price_max(
+        text:str,
+        mileage_context:bool
+):
+
+    if mileage_context and re.search(
+            r"\d+\s*(км|тыс\s*км|пробег)",
+            text,
+            re.I
+    ):
+        return None
+
+    patterns=[
+
+        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(млн)\b",
+
+        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(тыс|к)\b",
+
+        r"\bдо\s*(\d+(?:[\s.,]\d+)?)\s*(₽|руб|р\.?|р)\b"
+
+    ]
+
+    for p in patterns:
+
+        m=re.search(
+            p,
+            text,
+            re.I
+        )
+
+        if not m:
+            continue
+
+        matched=m.group(0).lower()
+
+        unit=m.group(2)
+
+        unit_candidate=(unit or "").lower()
+
+        if mileage_context:
+
+            if unit_candidate in {
+                "к",
+                "тыс",
+                "тысяч",
+                "км",
+                "km"
+            }:
+                continue
+
+            matched_text=matched.lower()
+
+            if (
+                "км" in matched_text
+                or "пробег" in matched_text
+                or "тыс" in matched_text
+            ):
+                continue
+
+        value=_parse_price_value(
+            m.group(1),
+            unit
+        )
+
+        if value:
+            return value
+
+    return None
+
+
+def _extract_city(text:str):
+
+    for raw,canonical in CITY_MAP.items():
+
+        if re.search(
+                rf"\b{raw}\b",
+                text,
+                re.I
+        ):
+            return canonical
+
+    return None
+
+
+def _extract_brand_model(text):
+
+    return taxonomy_service.resolve_entities(text)
+
+
+def _parse_with_llm(raw_text:str):
+    raise RuntimeError()
+
+
+def parse_query(raw_text: str)->StructuredQuery:
+
+    raw_text=(raw_text or "").strip()
+
+    text=_normalize_parse_text(
+        normalize_query(raw_text)
+    )
+
+    return _parse_with_fallback(text)
+
+
+def _parse_with_fallback(
+        raw_text:str
+)->StructuredQuery:
+
+    text=_normalize_parse_text(raw_text)
+
+    result=StructuredQuery(
+        raw_query=raw_text
+    )
+
+    current_year=datetime.utcnow().year
+
+    brand,model,confidence=\
+        _extract_brand_model(text)
+
     if brand:
-        result.brand = brand.lower().strip()
-        result.brand_confidence = float(confidence)
+        result.brand=brand
+        result.brand_confidence=confidence
 
-    # -------------------------
-    # MILEAGE (max) — FIXED
-    # -------------------------
+    if model:
+        result.model=model
 
-    # 1️⃣ строгий пробег: 100 000 км / до 100 000 км / 100 тыс км
-    m = re.search(
-        r"(?:пробег\s*)?(?:до|<=|<)?\s*([\d\s\xa0.,]+)\s*(тыс\s*км|км|km)\b",
+    possible_brands=[]
+
+    splitters={
+        "или",
+        "либо",
+        "/",
+        ","
+    }
+
+    if brand:
+        possible_brands.append(brand)
+
+    for token in re.findall(
+        r"[a-zа-я0-9-]+",
+        text,
+        re.I
+    ):
+
+        if token in splitters:
+            continue
+
+        canonical_b=taxonomy_service.canonicalize_brand(token)
+
+        if canonical_b:
+
+            if canonical_b not in possible_brands:
+
+                possible_brands.append(
+                    canonical_b
+                )
+
+    result.brands=possible_brands
+
+    result.fuel=_extract_fuel(text)
+
+    mileage_context=_has_mileage_context(
         text
     )
 
-    if m:
-        raw = m.group(1)
-        unit = (m.group(2) or "").replace(" ", "")
+    result.mileage_max=_extract_mileage_max(text)
 
-        digits = re.sub(r"[^\d]", "", raw)
-        if digits:
-            val = int(digits)
+    result.mileage_min=_extract_mileage_min(text)
 
-            if "тыс" in unit:
-                val *= 1000
+    if result.mileage_max is not None:
 
-            if val > 0:
-                result.mileage_max = val
+        result.price_max=None
 
-                # удаляем этот кусок из текста чтобы price не схватил
-                text = text[:m.start()] + text[m.end():]
-
-    # -------------------------
-    # PRICE (max) — FIXED
-    # -------------------------
-
-    # 2.5 млн
-    m = re.search(r"(?:до|<=|<)?\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион|m)\b", text)
-    if m:
-        value = float(m.group(1).replace(",", "."))
-        result.price_max = int(value * 1_000_000)
     else:
-        # только если есть руб / ₽
-        m = re.search(
-            r"(?:до|<=|<)?\s*([\d\s\xa0.,]+)\s*(₽|руб|р\b)",
-            text
+
+        result.price_max=_extract_price_max(
+            text,
+            mileage_context
         )
-        if m:
-            digits = re.sub(r"[^\d]", "", m.group(1))
-            if digits:
-                result.price_max = int(digits)
 
-    # -------------------------
-    # YEAR
-    # -------------------------
-    current_year = datetime.datetime.now().year
-
-    m = re.search(r"не\s*старше\s*(\d+)\s*лет", text)
-    if m:
-        years = int(m.group(1))
-        result.year_min = current_year - years
-
-    m = re.search(r"не\s*старше\s*(20\d{2}|19\d{2})\b", text)
-    if m:
-        result.year_min = int(m.group(1))
-
-    # -------------------------
-    # FUEL
-    # -------------------------
-    if "бенз" in text:
-        result.fuel = "petrol"
-    elif "диз" in text:
-        result.fuel = "diesel"
-    elif "гибрид" in text:
-        result.fuel = "hybrid"
-    elif "электро" in text or "электр" in text:
-        result.fuel = "electric"
-    elif "газ" in text or "гбо" in text:
-        result.fuel = "gas_petrol"
-
-    # -------------------------
-    # PAINT CONDITION
-    # -------------------------
-    if "без окрас" in text or "не бит" in text or "родная краска" in text:
-        result.paint_condition = "original"
-    elif "крашен" in text or "бит" in text:
-        result.paint_condition = "repainted"
-
-    # -------------------------
-    # CITY
-    # -------------------------
-    m = re.search(
-        r"\b(москва|спб|питер|екатеринбург|казань|новосибирск|алматы|астана)\b",
-        text,
+    result.price_min=_extract_price_min(
+        text
     )
-    if m:
-        result.city = m.group(1)
 
-    # -------------------------
-    # REGION (простая эвристика)
-    # -------------------------
-    regions = [
-        "московская область",
-        "ленинградская область",
-        "краснодарский край",
-        "татарстан",
-    ]
+    result.city=_extract_city(text)
 
-    for r in regions:
-        if r in text:
-            result.region = r
-            break
+    if result.city:
 
-    # -------------------------
-    # RECENCY INTENT
-    # -------------------------
-    if any(w in text for w in ["свеж", "нов", "последн"]):
-        result.keywords.append("recent")
+        city_region={
 
-    # -------------------------
-    # KEYWORDS / EXCLUSIONS
-    # -------------------------
-    tokens = re.findall(r"[a-zа-я0-9]+", text)
+            "moskva":"moscow_region",
 
-    STOP_TOKENS = {
-        "до", "без", "и", "или", "не",
-        "бит", "крашен",
-        "км", "тыс", "руб", "р", "₽",
-        "лет", "старше",
-        "год", "года",
-    }
+            "spb":"spb_region",
 
-    for t in tokens:
+            "almaty":"almaty_region",
 
-        # если это уже распарсенный бренд  не добавляем
-        if result.brand and t == result.brand:
-            continue
+            "astana":"astana_region"
 
-        # если это топливо  не добавляем
-        if result.fuel and t in {"бенз", "бензин", "диз", "дизель", "гибрид", "электро", "газ"}:
-            continue
+        }
 
-        if t.startswith("не") and len(t) > 2 and t not in {"не"}:
-            result.exclusions.append(t[2:])
-            continue
+        result.region=city_region.get(
+            result.city
+        )
+
+    tokens=re.findall(
+        r"[a-zа-я0-9-]+",
+        text,
+        re.I
+    )
+
+    for token in tokens:
+
+        t=token.lower()
 
         if t in STOP_TOKENS:
             continue
 
         if t not in result.keywords:
-            result.keywords.append(t)
+
+            result.keywords.append(
+                t
+            )
+
+    result.debug={
+
+        "pipeline":[
+
+            "normalize",
+            "brand_model",
+            "year",
+            "fuel",
+            "price",
+            "mileage",
+            "keywords"
+
+        ]
+    }
 
     return result
-
-
-# =========================
-# BRAND EXTRACTION LOGIC
-# =========================
-def _extract_brand(text: str) -> Tuple[Optional[str], float]:
-    if not BRANDS_CONFIG:
-        return None, 0.0
-
-    for brand, cfg in BRANDS_CONFIG.items():
-        words = (cfg.get("en", []) or []) + (cfg.get("ru", []) or [])
-        aliases = cfg.get("aliases", []) or []
-
-        for w in words:
-            w = (w or "").lower().strip()
-            if not w:
-                continue
-            if re.search(rf"\b{re.escape(w)}\b", text):
-                return brand, 1.0
-
-        for a in aliases:
-            a = (a or "").lower().strip()
-            if not a:
-                continue
-            if re.search(rf"\b{re.escape(a)}\b", text):
-                return brand, 0.8
-
-        for w in words:
-            w = (w or "").lower().strip()
-            if not w:
-                continue
-            if w in text:
-                return brand, 0.6
-
-    return None, 0.0

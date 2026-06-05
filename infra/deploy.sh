@@ -51,9 +51,14 @@ check_deps() {
     docker compose version >/dev/null 2>&1 || error "docker compose plugin не найден"
     command -v curl    >/dev/null 2>&1 || warn "curl не найден — health-check будет пропущен"
     [[ -f "$SEARCH_COMPOSE" ]] || error "Не найден: $SEARCH_COMPOSE"
-    [[ -f "$BOT_COMPOSE" ]]    || error "Не найден: $BOT_COMPOSE"
     [[ -f "$SEARCH_ENV" ]]     || error ".env.prod не найден: $SEARCH_ENV"
-    info "Зависимости: OK"
+    info "Зависимости Search Core: OK"
+}
+
+check_deps_all() {
+    check_deps
+    [[ -f "$BOT_COMPOSE" ]] || error "Не найден: $BOT_COMPOSE — загрузи tg-bot в /opt/auto-search-tg-bot/"
+    info "Зависимости Bot: OK"
 }
 
 # ─── Создание shared network (ВАЖНО: до запуска compose) ─────────────────────
@@ -214,7 +219,7 @@ stop_all() {
 
 # ─── Полный деплой ───────────────────────────────────────────────────────────
 deploy_all() {
-    check_deps
+    check_deps_all
     ensure_shared_network
     start_search
     start_bot
@@ -233,9 +238,9 @@ deploy_all() {
 # ─── Main ────────────────────────────────────────────────────────────────────
 CMD="${1:-all}"
 case "$CMD" in
-    all)           deploy_all ;;
+    all)           check_deps_all && ensure_shared_network && start_search && start_bot && check_health ;;
     search)        check_deps && ensure_shared_network && start_search ;;
-    bot)           check_deps && ensure_shared_network && start_bot ;;
+    bot)           check_deps_all && ensure_shared_network && start_bot ;;
     restart-bot)   restart_bot ;;
     rebuild-bot)   rebuild_bot ;;
     health)        check_health ;;

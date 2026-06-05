@@ -10,9 +10,8 @@ python = "^3.11"
 playwright = "^1.42.0"
 redis = "^5.0"
 openai = "^1.0.0"
-sentence-transformers = "2.7.0"
-torch = "2.2.2"
 numpy = "<2"
+# torch и sentence-transformers устанавливаются в Dockerfile отдельно (CPU-only)
 
 # API
 fastapi = "^0.110.0"

@@ -6,7 +6,11 @@ class StructuredQuery(BaseModel):
     """
     Canonical structured query used across the search pipeline.
 
-    query_parser → StructuredQuery → search_service → vector_db
+    query_parser → StructuredQuery
+    → search_service
+    → vector_db
+    → bot_api
+    → telegram_bot
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -16,15 +20,24 @@ class StructuredQuery(BaseModel):
 
     # brand + model
     brand: Optional[str] = None
-    brands: List[str] = Field(default_factory=list) # 🔥 ДОБАВЛЕНО: для поиска "или"
+
+    # OR search:
+    # bmw или audi
+    brands: List[str] = Field(default_factory=list)
+
     brand_confidence: float = 0.0
+
     model: Optional[str] = None
 
     # numeric filters
+    price_min: Optional[int] = None
     price_max: Optional[int] = None
+
+    mileage_min: Optional[int] = None
     mileage_max: Optional[int] = None
+
     year_min: Optional[int] = None
-    year_max: Optional[int] = None # 🔥 ДОБАВЛЕНО: для "2023 года" (точно)
+    year_max: Optional[int] = None
 
     # categorical filters
     fuel: Optional[str] = None
@@ -35,7 +48,18 @@ class StructuredQuery(BaseModel):
     region: Optional[str] = None
 
     # semantic hints
-    keywords: List[str] = Field(default_factory=list)
+    keywords: List[str] = Field(
+        default_factory=list
+    )
 
-    # negative filters
-    exclusions: List[str] = Field(default_factory=list)
+    # exclusions
+    exclusions: List[str] = Field(
+        default_factory=list
+    )
+
+    # bot-api debug
+    request_id: Optional[str] = None
+
+    debug: dict = Field(
+        default_factory=dict
+    )

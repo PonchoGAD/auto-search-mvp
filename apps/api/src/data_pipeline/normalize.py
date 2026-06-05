@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Tuple, Any
 from collections import Counter
 
@@ -33,11 +33,50 @@ CITY_BLACKLIST = {
 }
 
 # Слова-маркеры, по которым мы будем понимать, что это НЕ продажа машины
-SPAM_PATTERNS =[
+SPAM_PATTERNS = [
     "запчасти", "разбор", "по запчастям", "бампер", "фара", "капот", "крыло", "дверь",
     "двигатель", "двс", "акпп", "мкпп", "коробка", "приборка", "диски", "шины", "колеса", "резина",
     "ремонт", "ошибка", "чек", "подскажите", "вопрос", "куплю", "ищу", "приобрету", "замена", 
     "сервис", "колодки", "масло", "ваносы", "ксентри", "xentry", "кодирование", "чиптюнинг", "чип тюнинг"
+]
+
+CITIES_DB = {
+    "москва": ("Москва", "Московская область"),
+    "мск": ("Москва", "Московская область"),
+    "санкт-петербург": ("Санкт-Петербург", "Ленинградская область"),
+    "спб": ("Санкт-Петербург", "Ленинградская область"),
+    "владивосток": ("Владивосток", "Приморский край"),
+    "краснодар": ("Краснодар", "Краснодарский край"),
+    "сочи": ("Сочи", "Краснодарский край"),
+    "новосибирск": ("Новосибирск", "Новосибирская область"),
+    "екатеринбург": ("Екатеринбург", "Свердловская область"),
+    "нижний новгород": ("Нижний Новгород", "Нижегородская область"),
+    "казань": ("Казань", "Татарстан"),
+    "челябинск": ("Челябинск", "Челябинская область"),
+    "омск": ("Омск", "Омская область"),
+    "самара": ("Самара", "Самарская область"),
+    "ростов": ("Ростов-на-Дону", "Ростовская область"),
+    "уфа": ("Уфа", "Башкортостан"),
+    "красноярск": ("Красноярск", "Красноярский край"),
+    "пермь": ("Пермь", "Пермский край"),
+    "воронеж": ("Воронеж", "Воронежская область"),
+    "волгоград": ("Волгоград", "Волгоградская область"),
+    "тольятти": ("Тольятти", "Самарская область"),
+    "иркутск": ("Иркутск", "Иркутская область"),
+    "тюмень": ("Тюмень", "Тюменская область"),
+    "хабаровск": ("Хабаровск", "Хабаровский край"),
+    "барнаул": ("Барнаул", "Алтайский край"),
+    "ульяновск": ("Ульяновск", "Ульяновская область"),
+    "ярославль": ("Ярославль", "Ярославская область"),
+}
+
+REGIONS = [
+    "московская область", "ленинградская область", "приморский край", "краснодарский край",
+    "новосибирская область", "свердловская область", "нижегородская область", "татарстан",
+    "челябинская область", "омской область", "самарская область", "ростовская область",
+    "башкортостан", "красноярский край", "пермский край", "воронежская область",
+    "волгоградская область", "иркутская область", "тюменская область", "хабаровский край",
+    "алтайский край", "ульяновская область", "ярославская область", "дагестан", "чечня"
 ]
 
 
@@ -77,11 +116,12 @@ def extract_mileage(text: str) -> Optional[int]:
         except:
             continue
 
-    return None
     # 🔥 Спасаем машины из ТГ "Без пробега" и конвертируем их в 0 км (если не без пробега ПО РФ).
-        if "без пробега" in text and "по рф" not in text and "по россии" not in text:
-             if not re.search(r"\b\d{1,3}[\s.,]?\d{3}\s*(км|km)", text):
-                 return 0
+    if "без пробега" in text and "по рф" not in text and "по россии" not in text and "по р.ф." not in text:
+         if not re.search(r"\b\d{1,3}[\s.,]?\d{3}\s*(км|km)", text):
+             return 0
+
+    return None
 
 
 def extract_fuel(text: str) -> Optional[str]:
@@ -107,7 +147,7 @@ def extract_fuel(text: str) -> Optional[str]:
 
 def extract_sale(text: str) -> str:
     lower = (text or "").lower()
-    if any(x in lower for x in["продам", "продаю", "продажа", "цена", "₽", "руб"]):
+    if any(x in lower for x in ["продам", "продаю", "продажа", "цена", "₽", "руб"]):
         return "1"
     return "0"
 
@@ -153,9 +193,9 @@ def _brand_is_explicit_in_text(brand: Optional[str], text: str) -> bool:
         return False
 
     try:
-        aliases = taxonomy_service.get_brand_aliases(brand) or[]
+        aliases = taxonomy_service.get_brand_aliases(brand) or []
     except Exception:
-        aliases =[]
+        aliases = []
 
     text_norm = taxonomy_service.normalize_text(text or "")
     for alias in aliases:
@@ -235,7 +275,7 @@ FUEL_MAP = {
 }
 
 
-SALE_PATTERNS =[
+SALE_PATTERNS = [
     "продаю",
     "продам",
     "продажа",
@@ -282,7 +322,7 @@ def _is_speed_noise(text: str) -> bool:
         return True
 
     t = (text or "").lower()
-    return any(x in t for x in[
+    return any(x in t for x in [
         "км/ч", "km/h", "скорость", "средняя скорость",
     ])
 
@@ -314,7 +354,7 @@ def clean_text(text: str):
         return ""
 
     text = text.replace("₽", " ₽ ")
-    drom_garbage =[
+    drom_garbage = [
         "Спецтехника", "Отзывы", "Каталог", "Шины", "Форумы", "ОСАГО", "ПДД", "Проверка по VIN",
     ]
     for g in drom_garbage:
@@ -328,7 +368,7 @@ def strip_drom_noise(text: str):
     if not text:
         return ""
 
-    cut_markers =[
+    cut_markers = [
         "Отзывы владельцев",
         "Мнения владельцев",
         "Вы смотрите раздел",
@@ -360,53 +400,45 @@ def strip_drom_noise(text: str):
     return cleaned
 
 
-def extract_fields(text: str) -> Dict[str, Optional[object]]:
+def extract_image_url(raw: RawDocument, text: str) -> Optional[str]:
+    # 1. Извлечение из медиа-данных и атрибутов raw-документа
+    for attr in ["image_url", "image", "preview_url", "preview", "photos", "photo", "media"]:
+        if hasattr(raw, attr):
+            val = getattr(raw, attr)
+            if val:
+                if isinstance(val, str) and val.startswith("http"):
+                    return val
+                elif isinstance(val, list) and len(val) > 0 and isinstance(val[0], str) and val[0].startswith("http"):
+                    return val[0]
+    
+    if hasattr(raw, "meta") and raw.meta:
+        meta_str = str(raw.meta)
+        m = re.search(r"https?://[^\s'\"<>]+?\.(?:jpg|jpeg|png|webp)", meta_str, re.IGNORECASE)
+        if m:
+            return m.group(0)
+
+    # 2. Поиск прямой ссылки в тексте
+    m = re.search(r"https?://[^\s'\"<>]+?\.(?:jpg|jpeg|png|webp)", text, re.IGNORECASE)
+    if m:
+        return m.group(0)
+
+    # 3. Fallback None
+    return None
+
+
+def extract_fields(text: str, raw: Optional[RawDocument] = None) -> Dict[str, Optional[object]]:
     text = text or ""
     text = text.replace("\u00A0", " ").replace("\xa0", " ")
     lower = text.lower()
 
     mileage = None
     fuel = None
+    price = None
+    year = None
+    city = None
+    region = None
 
-    # 🔥 DROM HARD PARSE (УЛУЧШЕННЫЙ)
-    m = re.search(r"пробег[^\d]{0,10}?([\d\s]{3,10})", lower)
-    if m:
-        try:
-            val = int(re.sub(r"[^\d]", "", m.group(1)))
-            if 0 <= val <= 1_500_000:
-                mileage = val
-        except:
-            pass
-
-    if not mileage:
-        m = re.search(r"(\d{2,3})\s*(?:тыс|т\.км|ткм)", lower)
-        if m:
-            try:
-                val = int(m.group(1)) * 1000
-                if 0 <= val <= 1_500_000:
-                    mileage = val
-            except:
-                pass
-
-    if not mileage:
-        m = re.search(r"(\d[\d\s]{3,10})\s*(км|km)", lower)
-        if m:
-            try:
-                val = int(re.sub(r"[^\d]", "", m.group(1)))
-                if 0 <= val <= 1_500_000:
-                    mileage = val
-            except:
-                pass
-
-    m = re.search(r"\b(бензин|дизель|гибрид|электро|электр|газ|hybrid|diesel|petrol|electric|ev|гбо|lpg|phev)\b", lower)
-    if m:
-        matched_str = m.group(1).lower()
-        if matched_str in ("электр", "ev"): matched_str = "электро"
-        if matched_str == "гбо": matched_str = "газ"
-        fuel = FUEL_MAP.get(matched_str, None)
-
-    current_year = datetime.utcnow().year
-    title_part = text[:180]
+    current_year = datetime.now(timezone.utc).year
 
     def _valid_year(value: int) -> bool:
         return 1985 <= value <= current_year + 1
@@ -417,157 +449,157 @@ def extract_fields(text: str) -> Dict[str, Optional[object]]:
     def _valid_mileage(value: int) -> bool:
         return 0 <= value <= 1_500_000
 
-    def _extract_year(source_text: str) -> Optional[int]:
-        matches = RE_YEAR.findall(source_text or "")
-        if not matches:
-            return None
+    # 🔥 УЛУЧШЕННОЕ ИЗВЛЕЧЕНИЕ ГОДА
+    year_patterns = [
+        r"\b(19\d{2}|20\d{2})\s*(?:г\.в|г\.|г|год|года)\b",
+        r"\b(19\d{2}|20\d{2})\b"
+    ]
+    for pat in year_patterns:
+        matches = re.findall(pat, lower)
         for y in matches:
             try:
-                y_int = int(y)
-                if _valid_year(y_int):
-                    return y_int
+                val = int(y)
+                if _valid_year(val):
+                    year = val
+                    break
             except:
                 continue
-        return None
+        if year:
+            break
 
-    def _extract_price(source_text: str) -> Optional[int]:
-        m = RE_PRICE.search(source_text)
-        if m:
-            raw = _digits_only(m.group(1))
-            try:
-                val = int(raw)
-                if _valid_price(val):
-                    return val
-            except:
-                pass
-
-        m = RE_PRICE_TITLE_GLUE.search(source_text)
-        if m:
-            raw = _digits_only(m.group(1))
-            try:
-                val = int(raw)
-                if _valid_price(val):
-                    return val
-            except:
-                pass
-        return None
-
-    def _extract_title_fallback_price(source_text: str) -> Optional[int]:
-        m = re.search(r"^\D{0,15}(\d[\d\s\u00A0]{4,12})", source_text)
-        if not m:
-            return None
-        raw = _digits_only(m.group(1))
-        if not raw:
-            return None
+    # 🔥 УЛУЧШЕННОЕ ИЗВЛЕЧЕНИЕ ЦЕНЫ (Поддержка "млн", "миллиона")
+    mln_match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:млн|миллиона|миллионов)\b", lower)
+    if mln_match:
         try:
-            val = int(raw)
+            val = float(mln_match.group(1).replace(",", "."))
+            val_rub = int(val * 1_000_000)
+            if _valid_price(val_rub):
+                price = val_rub
         except:
-            return None
-        if _valid_year(val):
-            return None
-        if val < 100_000:
-            return None
-        nearby = source_text[max(0, m.start(1) - 20):m.end(1) + 20].lower()
-        prefix = source_text[:m.start(1)].lower()
-        if any(x in nearby for x in["км", "km", "тыс", "т.км"]) or "пробег" in prefix:
-            return None
-        if _valid_price(val):
-            return val
-        return None
+            pass
 
-    def _extract_mileage(source_text: str) -> Optional[int]:
-        if _is_speed_noise(source_text):
-            return None
-        lowered = (source_text or "").lower()
+    if not price:
+        price_patterns = [
+            r"цена\s*[:-]?\s*(\d[\d\s\.\,]{4,11})(?:\s*₽|\s*руб|\s*р\b|\b|$)",
+            r"(?<!\d)(\d[\d\s\u00A0]{3,12})\s*(₽|руб(?:\.|лей)?|р\b)(!?\d)",
+        ]
+        for pat in price_patterns:
+            for m in re.finditer(pat, lower):
+                raw_p = re.sub(r"[^\d]", "", m.group(1))
+                try:
+                    val = int(raw_p)
+                    if _valid_price(val):
+                        price = val
+                        break
+                except:
+                    pass
+            if price:
+                break
 
-        m = re.search(r"\bпробег[:\s]+(\d[\d\s\u00A0]{2,10})\b", lowered, re.IGNORECASE)
+    if not price:
+        m = RE_PRICE_TITLE_GLUE.search(text)
         if m:
             try:
                 val = int(_digits_only(m.group(1)))
-                if _valid_mileage(val):
-                    return val
+                if _valid_price(val):
+                    price = val
             except:
                 pass
 
-        m = RE_MILEAGE.search(source_text)
-        if m:
-            raw = _digits_only(m.group(1))
-            unit = (m.group(2) or "").lower()
-            try:
-                val = int(raw)
-                if "тыс" in unit or "т.км" in unit:
-                    val *= 1000
-                if _valid_mileage(val):
-                    return val
-            except:
-                pass
+    # 🔥 УЛУЧШЕННОЕ ИЗВЛЕЧЕНИЕ ПРОБЕГА
+    if "без пробега" in lower and "по рф" not in lower and "по россии" not in lower and "по р.ф." not in lower:
+        if not re.search(r"\b\d{1,3}[\s.,]?\d{3}\s*(км|km)", lower):
+            mileage = 0
 
-        m = RE_MILEAGE_K.search(lowered)
+    if mileage is None:
+        m = re.search(r"пробег[^\d]{0,10}?([\d\s]{3,10})", lower)
         if m:
             try:
-                raw = m.group(1).replace(",", ".")
-                val = int(float(raw) * 1000)
+                val = int(re.sub(r"[^\d]", "", m.group(1)))
                 if _valid_mileage(val):
-                    return val
+                    mileage = val
             except:
                 pass
 
-        fallback = extract_mileage(source_text)
-        if isinstance(fallback, int) and _valid_mileage(fallback):
-            return fallback
-
-        return None
-
-    year = _extract_year(title_part) or _extract_year(text)
-    price = _extract_price(title_part) or _extract_price(text) or _extract_title_fallback_price(title_part)
     if mileage is None:
-        mileage = _extract_mileage(title_part)
+        m = re.search(r"(\d{1,3})\s*(?:тыс|т\.км|ткм)", lower)
+        if m:
+            try:
+                val = int(m.group(1)) * 1000
+                if _valid_mileage(val):
+                    mileage = val
+            except:
+                pass
+
     if mileage is None:
-        mileage = _extract_mileage(text)
+        m = re.search(r"(\d[\d\s]{2,10})\s*(км|km)\b", lower)
+        if m:
+            try:
+                val = int(re.sub(r"[^\d]", "", m.group(1)))
+                if _valid_mileage(val):
+                    mileage = val
+            except:
+                pass
 
-    if mileage is not None and mileage < 0:
-        mileage = None
+    if mileage is None:
+        fallback = extract_mileage(text)
+        if fallback is not None and _valid_mileage(fallback):
+            mileage = fallback
 
-    if not fuel:
-        fuel_matches = RE_FUEL.findall(lower)
-        if fuel_matches:
-            normalized =[]
-            for raw_fuel in fuel_matches:
-                value = str(raw_fuel).lower().strip()
-                mapped = FUEL_MAP.get(value)
-                if mapped:
-                    normalized.append(mapped)
-
-            # 🔥 ПРИОРИТЕТ ТОПЛИВА: Сначала проверяем на электро/гибрид, потом бензин/дизель
-            if "electric" in normalized:
-                fuel = "electric"
-            elif "hybrid" in normalized:
-                fuel = "hybrid"
-            elif "gas_petrol" in normalized:
-                fuel = "gas_petrol"
-            elif "diesel" in normalized:
-                fuel = "diesel"
-            elif "gas" in normalized:
-                fuel = "gas"
-            elif normalized:
-                fuel = normalized[0]
-
-    if not fuel:
-        fuel = extract_fuel(text)
+    # 🔥 УЛУЧШЕННОЕ ИЗВЛЕЧЕНИЕ ТОПЛИВА
+    fuel_patterns = {
+        "electric": r"\b(электро|электромобиль|electric|ev)\b",
+        "hybrid": r"\b(гибрид|hybrid|phev|hev)\b",
+        "diesel": r"\b(дизель|дизельный|диз|diesel|tdi|cdi|dci)\b",
+        "gas_petrol": r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ|газ\s+бензин|бензин\s+газ)\b",
+        "gas": r"\b(газ|lpg|cng|гбо)\b",
+        "petrol": r"\b(бензин|бензиновый|бенз|petrol|gasoline|mpi|fsi|tsi|tfsi)\b",
+    }
+    for fuel_key, pattern in fuel_patterns.items():
+        if re.search(pattern, lower):
+            fuel = fuel_key
+            break
 
     paint_condition = None
-    if any(x in lower for x in["без окраса", "без окрасов", "без окрас", "не бит", "не крашен", "не крашена"]):
+    if any(x in lower for x in ["без окраса", "без окрасов", "без окрас", "не бит", "не крашен", "не крашена"]):
         paint_condition = "original"
-    elif any(x in lower for x in["крашен", "крашена", "окрас", "бит"]):
+    elif any(x in lower for x in ["крашен", "крашена", "окрас", "бит"]):
         paint_condition = "repainted"
 
+    # 🔥 ИЗВЛЕЧЕНИЕ ГОРОДА И РЕГИОНА (из source-атрибутов)
+    if raw:
+        for attr in ["city", "region", "location"]:
+            if hasattr(raw, attr):
+                val = getattr(raw, attr)
+                if val and isinstance(val, str) and val.strip():
+                    if attr == "city" or attr == "location":
+                        city = val.strip()
+                    else:
+                        region = val.strip()
+
+    # Извлечение города из текста
+    if not city:
+        for word, (c_val, r_val) in CITIES_DB.items():
+            if re.search(rf"\b{word}\b", lower):
+                city = c_val
+                region = r_val
+                break
+
+    if not region:
+        for reg in REGIONS:
+            if reg in lower:
+                region = reg.title()
+                break
+
     return {
-        "year": year if isinstance(year, int) else None,
-        "mileage": mileage if isinstance(mileage, int) else None,
-        "price": price if isinstance(price, int) and price > 0 else None,
-        "currency": "RUB" if isinstance(price, int) and price > 0 else None,
-        "fuel": fuel if isinstance(fuel, str) else None,
+        "year": year,
+        "mileage": mileage,
+        "price": price,
+        "currency": "RUB" if price else None,
+        "fuel": fuel,
         "paint_condition": paint_condition,
+        "city": city,
+        "region": region,
     }
 
 
@@ -609,6 +641,18 @@ def _extract_canonical_entities(title_text: str, body_text: str) -> Tuple[Option
 
 
 def _build_normalized_document_kwargs(raw: RawDocument, normalized_text: str, brand: Optional[str], model: Optional[str], fields: Dict[str, Any], sale_intent: bool, quality_score: float) -> Dict[str, Any]:
+    # Сбор и нормализация created_at
+    raw_created_at = getattr(raw, "created_at", None)
+    if not raw_created_at:
+        raw_created_at_ts = getattr(raw, "created_at_ts", None)
+        if raw_created_at_ts:
+            try:
+                raw_created_at = datetime.fromtimestamp(int(raw_created_at_ts), tz=timezone.utc).isoformat()
+            except:
+                pass
+    if not raw_created_at:
+        raw_created_at = datetime.now(timezone.utc).isoformat()
+
     kwargs: Dict[str, Any] = {
         "raw_id": raw.id,
         "source": raw.source,
@@ -636,6 +680,26 @@ def _build_normalized_document_kwargs(raw: RawDocument, normalized_text: str, br
 
     if "quality_score" in model_columns:
         kwargs["quality_score"] = quality_score
+
+    # Динамическая поддержка обогащенных данных
+    if "city" in model_columns:
+        kwargs["city"] = fields.get("city")
+
+    if "region" in model_columns:
+        kwargs["region"] = fields.get("region")
+
+    if "image_url" in model_columns:
+        kwargs["image_url"] = fields.get("image_url")
+
+    if "created_at" in model_columns:
+        kwargs["created_at"] = raw_created_at
+
+    if "created_at_ts" in model_columns:
+        try:
+            ts = int(datetime.fromisoformat(raw_created_at).timestamp())
+        except:
+            ts = int(datetime.now(timezone.utc).timestamp())
+        kwargs["created_at_ts"] = ts
 
     return kwargs
 
@@ -675,7 +739,13 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 session.delete(exists)
                 session.flush()
 
+            # Фильтр: если нет title -> пропускаем
             title_text = normalize_title_format((raw.title or "").strip())
+            if not title_text:
+                print(f"[DEBUG NORMALIZE] Пропущено (нет title): raw_id={raw.id}")
+                skipped += 1
+                continue
+
             raw_body_text = (raw.content or "").strip()
             body_text = strip_drom_noise(raw_body_text)
 
@@ -781,13 +851,16 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             if search_model == final_brand:
                 search_model = None
 
-            extracted_fields = extract_fields(raw_text)
+            extracted_fields = extract_fields(raw_text, raw=raw)
             if extracted_fields:
                 for k, v in extracted_fields.items():
                     if v is not None and fields.get(k) is None:
                         fields[k] = v
 
-            # 🔥 HARD fallback — ищем везде
+            # 🔥 Извлечение ссылки на изображение
+            if not fields.get("image_url"):
+                fields["image_url"] = extract_image_url(raw, raw_text)
+
             # 🔥 АВТООПРЕДЕЛЕНИЕ ТОПЛИВА ПО МАРКЕ (Спасаем Zeekr, Li, Tesla и т.д.)
             def _infer_fuel(b):
                 b = (b or "").lower()
@@ -798,7 +871,7 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             if not fields.get("fuel"):
                 fields["fuel"] = _infer_fuel(final_brand)
 
-            # 🔥 HARD fallback — ищем везде
+            # 🔥 HARD fallback — ищем везде топливо
             if not fields.get("fuel"):
                 fuel_fallback = extract_fuel(raw_text) or extract_fuel(title_text) or extract_fuel(raw_body_text)
                 if fuel_fallback: fields["fuel"] = _normalize_fuel_value(fuel_fallback)
@@ -835,6 +908,13 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                     try: fields["year"] = int(entities.get("year"))
                     except: pass
 
+            # Фильтр: если нет price -> пропускаем
+            final_price = fields.get("price")
+            if final_price is None:
+                print(f"[DEBUG NORMALIZE] Пропущено (нет price): {title_text[:50]}")
+                skipped += 1
+                continue
+
             sale = detect_sale_intent(raw_text)
             if sale == 0:
                 sale = int(extract_sale(raw_text))
@@ -861,6 +941,9 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 "fuel": fields.get("fuel"),
                 "mileage": fields.get("mileage"),
                 "price": fields.get("price"),
+                "city": fields.get("city"),
+                "region": fields.get("region"),
+                "image_url": fields.get("image_url")[:60] if fields.get("image_url") else None,
             })
 
             doc_kwargs = _build_normalized_document_kwargs(
@@ -869,7 +952,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 quality_score=quality_score,
             )
 
-            # 🔥 SQL ПАТЧ: Если ссылка уже есть - просто обновляем её без падения (Upsert)
             # 🔥 SQL ПАТЧ: UPSERT - Если объявление с таким URL уже есть, обновляем его, а не падаем с ошибкой
             from sqlalchemy.dialects.postgresql import insert
 

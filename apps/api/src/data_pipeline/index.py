@@ -120,7 +120,19 @@ def _is_probable_search_or_category_url(source: str | None, source_url: str | No
     if not url.startswith(("http://", "https://")):
         return True
 
-    generic_bad_parts =[
+    # Исключение: если URL содержит явный идентификатор карточки товара,
+    # не отбрасываем его на основе общих признаков разделов.
+    has_numeric_id = bool(re.search(r"/\d+(\.html|\.htm)?$", url)) or bool(re.search(r"[/-]\d{5,}(?:\b|$|[?])", url))
+    has_uuid = bool(re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", url))
+    is_telegram_post = "t.me/" in url and bool(re.search(r"/\d+$", url))
+
+    if has_numeric_id or has_uuid or is_telegram_post:
+        explicit_search_params = ["?q=", "&q=", "?query=", "&query=", "?text=", "&text=", "?search", "&search"]
+        if any(param in url for param in explicit_search_params):
+            return True
+        return False
+
+    generic_bad_parts = [
         "/search",
         "/search/",
         "/catalog",
@@ -156,7 +168,7 @@ def _is_probable_search_or_category_url(source: str | None, source_url: str | No
         return True
 
     if source == "avito":
-        avito_garbage =[
+        avito_garbage = [
             "/all/avtomobili",
             "/rossiya/avtomobili",
             "/avtomobili?s=",
@@ -226,14 +238,36 @@ def _validate_canonical_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     payload["quality_score"] = _norm_float(payload.get("quality_score"))
 
     payload["brand_model"] = f"{payload.get('brand') or ''} {payload.get('model') or ''}".strip() or None
-    return payload
 
-    print("[DEBUG AFTER VALIDATE]", {
-    "brand": payload.get("brand"),
-    "model": payload.get("model"),
-    "fuel": payload.get("fuel"),
-    "mileage": payload.get("mileage"),
-})
+    # Валидация медиа-данных и гео-привязки
+    payload["city"] = _norm_str(payload.get("city"))
+    payload["region"] = _norm_str(payload.get("region"))
+    payload["image_url"] = payload.get("image_url") or None
+
+    photos = payload.get("photos")
+    if isinstance(photos, list):
+        payload["photos"] = [str(p) for p in photos if p]
+    else:
+        payload["photos"] = []
+
+    payload["listing_id"] = _norm_str(payload.get("listing_id"))
+    payload["doc_id"] = _norm_int(payload.get("doc_id"))
+
+    # Валидация временных меток
+    payload["created_at"] = payload.get("created_at") or datetime.now(timezone.utc).isoformat()
+    payload["created_at_ts"] = _norm_int(payload.get("created_at_ts")) or int(datetime.now(timezone.utc).timestamp())
+
+    # Логгирование перед завершением функции
+    if os.getenv("DEBUG_PIPELINE") == "1":
+        print("[DEBUG AFTER VALIDATE]", {
+            "brand": payload.get("brand"),
+            "model": payload.get("model"),
+            "fuel": payload.get("fuel"),
+            "mileage": payload.get("mileage"),
+            "listing_id": payload.get("listing_id"),
+        })
+
+    return payload
 
 
 def _should_index_listing_doc(doc: NormalizedDocument, chunk: DocumentChunk) -> Tuple[bool, str]:
@@ -290,7 +324,7 @@ def _should_index_listing_doc(doc: NormalizedDocument, chunk: DocumentChunk) -> 
             or (vehicle_signals >= 3 and year is not None)
         )
 
-        suspicious_chat_markers =[
+        suspicious_chat_markers = [
             "кто что думает",
             "подскажите",
             "это норм",
@@ -324,7 +358,7 @@ def _should_index_listing_doc(doc: NormalizedDocument, chunk: DocumentChunk) -> 
 # =====================================================
 
 def build_structured_text(doc: NormalizedDocument) -> str:
-    parts =[]
+    parts = []
 
     brand = _norm_str(getattr(doc, "brand", None))
     model = _norm_str(getattr(doc, "model", None))
@@ -399,7 +433,7 @@ def index_document_chunks(
             print("[INDEX][WARN] no document chunks found", flush=True)
             return 0
 
-        points: List[PointStruct] =[]
+        points: List[PointStruct] = []
         now = datetime.now(tz=timezone.utc)
 
         skipped_empty_text = 0
@@ -415,26 +449,19 @@ def index_document_chunks(
                 (doc.normalized_text or "") + " " + (ch.chunk_text or "")
             )[:800]
             if not chunk_text:
-                print("[INDEX DEBUG] empty chunk_text:", {
-                    "doc_id": getattr(doc, "id", None),
-                    "title": getattr(doc, "title", None)
-                })
                 skipped_empty_text += 1
                 continue
 
             source_url = getattr(doc, "source_url", None)
             title_text = _clean_text(getattr(doc, "title", "") or "")
 
-            if not source_url or not title_text:
-                print("[INDEX DEBUG] missing url/title but KEEPING")
-
             should_index, reason = _should_index_listing_doc(doc, ch)
 
-            if not should_index:
-                print("[INDEX DEBUG] bypass filter:", reason, getattr(doc, "source_url", None))
+            if not should_index and os.getenv("DEBUG_PIPELINE") == "1":
+                print(f"[INDEX DEBUG] skip reason={reason} url={source_url}", flush=True)
 
             structured_text = build_structured_text(doc)
-            vectors =[]
+            vectors = []
 
             brand = _norm_str(getattr(doc, "brand", None))
             model = _norm_str(getattr(doc, "model", None))
@@ -475,6 +502,14 @@ title {title_text}
             if not vectors:
                 continue
 
+            # Извлечение/генерация стабильного listing_id (safe dedup)
+            doc_id = getattr(doc, "id", None)
+            listing_id = getattr(doc, "listing_id", None) or doc_id
+            if not listing_id and source_url:
+                listing_id = hashlib.md5(source_url.encode()).hexdigest()[:16]
+            else:
+                listing_id = str(listing_id) if listing_id is not None else None
+
             created_at_ts = getattr(doc, "created_at_ts", None)
             if created_at_ts is None:
                 created_at_ts = int(now.timestamp())
@@ -487,12 +522,11 @@ title {title_text}
             if not currency:
                 currency = "RUB"
 
-            print("[DEBUG BEFORE VALIDATE]", {
-                "brand": getattr(doc, "brand", None),
-                "model": getattr(doc, "model", None),
-                "fuel": getattr(doc, "fuel", None),
-                "mileage": getattr(doc, "mileage", None),
-            })
+            city = getattr(doc, "city", None)
+            region = getattr(doc, "region", None)
+            image_url = getattr(doc, "image_url", None)
+            photos = getattr(doc, "photos", None)
+
 
             title_lower = (getattr(doc, "title", "") or "").lower()
 
@@ -522,14 +556,19 @@ title {title_text}
                 "mileage": getattr(doc, "mileage", None),
                 "year": getattr(doc, "year", None),
                 "fuel": getattr(doc, "fuel", None),
-                "region": _norm_str(getattr(doc, "region", None)),
+                
+                "city": city,
+                "region": region or _norm_str(getattr(doc, "region", None)),
+                "image_url": image_url,
+                "photos": photos,
                 "paint_condition": getattr(doc, "paint_condition", None),
 
                 "sale_intent": getattr(doc, "sale_intent", None),
                 "quality_score": getattr(doc, "quality_score", None),
 
-                "doc_id": getattr(doc, "id", None),
-                "normalized_id": getattr(doc, "id", None),
+                "doc_id": doc_id,
+                "listing_id": listing_id,
+                "normalized_id": doc_id,
                 "chunk_id": getattr(ch, "id", None),
                 "chunk_index": getattr(ch, "chunk_index", None),
                 "content": chunk_text,

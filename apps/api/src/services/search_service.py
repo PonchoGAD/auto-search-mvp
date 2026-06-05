@@ -7,6 +7,7 @@ import yaml
 import os
 import json
 import re
+import hashlib
 
 from rank_bm25 import BM25Okapi
 
@@ -44,12 +45,12 @@ def _bm25_score(query: str, docs: List[str]) -> float:
     if not query_norm:
         return 0.0
 
-    prepared_docs =[_normalize_token_text(d) for d in docs if d]
+    prepared_docs = [_normalize_token_text(d) for d in docs if d]
     prepared_docs = [d for d in prepared_docs if d]
     if not prepared_docs:
         return 0.0
 
-    tokenized_docs =[d.split() for d in prepared_docs]
+    tokenized_docs = [d.split() for d in prepared_docs]
     tokenized_query = query_norm.split()
     if not tokenized_query:
         return 0.0
@@ -229,7 +230,7 @@ class SearchService:
                 "referrer",
             )
 
-            filtered_query =[]
+            filtered_query = []
             for k, v in parse_qsl(parsed.query, keep_blank_values=True):
                 key_norm = (k or "").strip().lower()
                 if key_norm.startswith(tracking_prefixes):
@@ -318,7 +319,7 @@ class SearchService:
         if structured.mileage_max:
             add(f"mileage under {structured.mileage_max}")
 
-        for kw in getattr(structured, "keywords", []) or[]:
+        for kw in getattr(structured, "keywords", []) or []:
             add(str(kw))
 
         if not parts:
@@ -332,7 +333,12 @@ class SearchService:
         structured: StructuredQuery,
         route: str,
     ) -> Tuple[bool, List[str]]:
-        reasons: List[str] =[]
+        reasons: List[str] = []
+
+        # 1. Избавление от "похожих сеток" drom
+        content_text = str(payload.get("content") or "")
+        if content_text.count("₽") > 6 or content_text.count("руб") > 6:
+            reasons.append("trash_drom_similar_grid")
 
         brand_value = _normalize_token_text(structured.brand or "")
         model_value = _normalize_model_strict(structured.model or "")
@@ -342,50 +348,103 @@ class SearchService:
 
         source_name = str(payload.get("source") or "").strip().lower()
 
+        # Проверка Telegram на неявное объявление о продаже
         if source_name == "telegram" and payload.get("price") is None:
             sale_intent = str(payload.get("sale_intent") or "0").strip()
             if sale_intent not in {"1", "true", "True"}:
                 reasons.append("telegram_non_sale_no_price")
 
-        if route in {"structured", "brand_only"} and brand_value:
-            if payload_brand and payload_brand != brand_value:
-                if getattr(structured, "brands", None):
-                    if payload_brand not in structured.brands:
-                        reasons.append("brand_mismatch")
-                else:
-                    reasons.append("brand_mismatch")
+        # Марка
+        brands_list = getattr(structured, "brands", None)
+        if brands_list:
+            brands_list_norm = [_normalize_token_text(b) for b in brands_list]
+            if payload_brand not in brands_list_norm:
+                reasons.append("brand_mismatch_multi")
+        elif brand_value:
+            if not payload_brand:
+                reasons.append("brand_missing")
+            elif payload_brand != brand_value:
+                reasons.append("brand_mismatch")
 
-        if structured.price_max is not None:
-            price_val = payload.get("price")
-            if price_val is not None:
+        # Модель
+        if model_value:
+            if not payload_model:
+                reasons.append("model_missing")
+            elif not _model_soft_match(payload_model, model_value):
+                reasons.append("model_mismatch")
+
+        # Топливо (Строгая фильтрация при явном запросе)
+        fuel_query = (structured.fuel or "").strip().lower()
+        if fuel_query:
+            payload_fuel = (payload.get("fuel") or "").strip().lower()
+            if not payload_fuel:
+                reasons.append("fuel_missing")
+            elif payload_fuel != fuel_query:
+                reasons.append("fuel_mismatch")
+
+        # Цена (УСИЛЕННЫЙ ФИЛЬТР: Не пропускать None, если цена явно задана пользователем)
+        price_val = payload.get("price")
+        price_max_query = structured.price_max
+        price_min_query = getattr(structured, "price_min", None)
+
+        if price_max_query is not None or price_min_query is not None:
+            if price_val is None:
+                reasons.append("price_missing")
+            else:
                 try:
-                    float(price_val)
+                    price_f = float(price_val)
+                    if price_max_query is not None and price_f > float(price_max_query):
+                        reasons.append("price_overflow")
+                    if price_min_query is not None and price_f < float(price_min_query):
+                        reasons.append("price_underflow")
                 except Exception:
                     reasons.append("price_invalid")
 
+        # Пробег (УСИЛЕННЫЙ ФИЛЬТР: Не пропускать None, если пробег задан пользователем)
+        mileage_val = payload.get("mileage")
         if structured.mileage_max is not None:
-            mileage_val = payload.get("mileage")
-            if mileage_val is not None:
+            if mileage_val is None:
+                reasons.append("mileage_missing")
+            else:
                 try:
                     if float(mileage_val) > float(structured.mileage_max):
                         reasons.append("mileage_overflow")
                 except Exception:
                     reasons.append("mileage_invalid")
 
-        if structured.year_min is not None:
-            year_val = payload.get("year")
-            if year_val is not None:
+        # Год (Строгая фильтрация на верхнюю и нижнюю границы)
+        year_val = payload.get("year")
+        year_min_query = structured.year_min
+        year_max_query = getattr(structured, "year_max", None)
+        if year_min_query is not None or year_max_query is not None:
+            if year_val is None:
+                reasons.append("year_missing")
+            else:
                 try:
-                    if int(year_val) < int(structured.year_min):
+                    y_int = int(year_val)
+                    if year_min_query is not None and y_int < int(year_min_query):
                         reasons.append("year_too_old")
+                    if year_max_query is not None and y_int > int(year_max_query):
+                        reasons.append("year_too_new")
                 except Exception:
                     reasons.append("year_invalid")
 
-        if route == "structured" and model_value:
-            if not payload_model:
-                reasons.append("model_missing")
-            elif not _model_soft_match(payload_model, model_value):
-                reasons.append("model_mismatch")
+        # Город и Регион (Строгая фильтрация при наличии в запросе)
+        city_query = getattr(structured, "city", None)
+        if city_query:
+            payload_city = payload.get("city")
+            if not payload_city:
+                reasons.append("city_missing")
+            elif _normalize_token_text(payload_city) != _normalize_token_text(city_query):
+                reasons.append("city_mismatch")
+
+        region_query = getattr(structured, "region", None)
+        if region_query:
+            payload_region = payload.get("region")
+            if not payload_region:
+                reasons.append("region_missing")
+            elif _normalize_token_text(payload_region) != _normalize_token_text(region_query):
+                reasons.append("region_mismatch")
 
         return len(reasons) == 0, reasons
 
@@ -457,7 +516,7 @@ class SearchService:
     ) -> Tuple[float, Dict[str, float]]:
         signals = self._compute_soft_signals(payload, structured, semantic_score, route)
 
-        docs =[]
+        docs = []
         for key in ("title", "title_text", "content"):
             if payload.get(key):
                 docs.append(str(payload.get(key)))
@@ -484,13 +543,13 @@ class SearchService:
         for key, weight in weights.items():
             final_score += signals.get(key, 0.0) * weight
 
-        # 🔥 ЖЕСТКИЕ ШТРАФЫ ДЛЯ FALLBACK РЕЖИМА (ЕСЛИ ФИЛЬТРЫ ПРОПУСТИЛИ МУСОР)
+        # Дополнительные штрафы при несовпадении ключевых параметров
         if structured.fuel:
             p_fuel = payload.get("fuel")
             if not p_fuel:
-                final_score *= 0.15  # Уничтожаем скор за отсутствие топлива
+                final_score *= 0.15
             elif p_fuel != structured.fuel:
-                final_score *= 0.01  # Полностью гасим несовпадающее топливо
+                final_score *= 0.01
 
         if structured.mileage_max is not None:
             p_mil = payload.get("mileage")
@@ -498,16 +557,15 @@ class SearchService:
                 p_year = payload.get("year")
                 try:
                     if not (p_year and int(p_year) >= 2024):
-                        final_score *= 0.3 # Штрафуем за скрытый пробег у б/у авто
+                        final_score *= 0.3
                 except:
                     final_score *= 0.3
             elif p_mil > structured.mileage_max:
                 final_score *= 0.01
 
-        # Штраф за отсутствующий год, если мы ищем по году
         if structured.year_min is not None or getattr(structured, "year_max", None) is not None:
             if payload.get("year") is None:
-                final_score *= 0.1  # Жестко штрафуем
+                final_score *= 0.1
 
         return final_score, signals
 
@@ -527,9 +585,9 @@ class SearchService:
         rerank_slice = results[:max_rerank]
         tail_slice = results[max_rerank:]
 
-        pairs =[]
+        pairs = []
         for r in rerank_slice:
-            text_parts =[]
+            text_parts = []
             for key in ("brand", "model", "year", "fuel", "mileage", "price"):
                 value = r.get(key)
                 if value is not None:
@@ -615,6 +673,12 @@ class SearchService:
         )
 
         debug: Dict[str, Any] = {
+            "pipeline": [
+                "parse",
+                "expand",
+                "retrieve",
+                "rerank"
+            ],
             "query": {
                 "raw_query": structured.raw_query,
                 "brand": structured.brand,
@@ -625,7 +689,7 @@ class SearchService:
                 "year_min": structured.year_min,
             },
             "route": route,
-            "retrieval_stages":[],
+            "retrieval_stages": [],
             "filtering": {
                 "checked_candidates": 0,
                 "discarded_candidates": 0,
@@ -637,7 +701,7 @@ class SearchService:
                 "completeness_avg": 0.0,
                 "price_fit_avg": 0.0,
                 "mileage_fit_avg": 0.0,
-                "top_score_breakdowns":[],
+                "top_score_breakdowns": [],
             },
             "dedup": {
                 "skipped_by_point_id_duplicate": 0,
@@ -653,14 +717,15 @@ class SearchService:
         }
 
         try:
-            from redis import Redis
-            redis = Redis(
-                host="redis",
-                port=6379,
+            import redis as _redis_lib
+            from core.settings import settings as _settings
+            _r = _redis_lib.from_url(
+                _settings.redis_url,
                 socket_timeout=1,
                 socket_connect_timeout=1,
+                decode_responses=True,
             )
-            cached = redis.get(cache_key)
+            cached = _r.get(cache_key)
             if cached:
                 debug["final"]["cache_hit"] = True
                 return json.loads(cached)
@@ -680,11 +745,11 @@ class SearchService:
                 pass
 
         # 🔥 СБОРКА ЖЕСТКИХ ФИЛЬТРОВ ДЛЯ БАЗЫ ДАННЫХ (QDRANT)
-        must_conditions =[]
+        must_conditions = []
 
-        brands_to_filter =[]
+        brands_to_filter = []
         if getattr(structured, "brands", None):
-            brands_to_filter =[b for b in structured.brands if b in WHITELIST_SET]
+            brands_to_filter = [b for b in structured.brands if b in WHITELIST_SET]
         elif brand_filter_value and brand_filter_value in WHITELIST_SET:
             brands_to_filter = [brand_filter_value]
 
@@ -694,8 +759,7 @@ class SearchService:
                     FieldCondition(key="brand", match=MatchValue(value=brands_to_filter[0]))
                 )
             else:
-                # OR condition для "бмв или ауди"
-                should_brands =[FieldCondition(key="brand", match=MatchValue(value=b)) for b in brands_to_filter]
+                should_brands = [FieldCondition(key="brand", match=MatchValue(value=b)) for b in brands_to_filter]
                 must_conditions.append(Filter(should=should_brands))
 
         if fuel_filter_value:
@@ -708,7 +772,24 @@ class SearchService:
                 FieldCondition(key="mileage", range=Range(lte=int(structured.mileage_max)))
             )
 
-        # Поддержка точного года и диапазона ("не старше 2023" vs "2023 года")
+        if structured.price_max is not None:
+            must_conditions.append(
+                FieldCondition(key="price", range=Range(lte=int(structured.price_max)))
+            )
+
+        # Поддержка оптимизации запросов по городам и регионам
+        city_filter_value = getattr(structured, "city", None)
+        if city_filter_value:
+            must_conditions.append(
+                FieldCondition(key="city", match=MatchValue(value=city_filter_value))
+            )
+
+        region_filter_value = getattr(structured, "region", None)
+        if region_filter_value:
+            must_conditions.append(
+                FieldCondition(key="region", match=MatchValue(value=region_filter_value))
+            )
+
         year_range_args = {}
         if structured.year_min is not None:
             year_range_args["gte"] = int(structured.year_min)
@@ -720,17 +801,11 @@ class SearchService:
                 FieldCondition(key="year", range=Range(**year_range_args))
             )
 
-        if structured.price_max is not None:
-            must_conditions.append(
-                FieldCondition(key="price", range=Range(lte=int(structured.price_max)))
-            )
-
         query_filter = Filter(must=must_conditions) if must_conditions else None
 
-        all_hits =[]
+        all_hits = []
         try:
             for vec in vectors:
-                # 🔥 ТЕПЕРЬ ПЕРЕДАЕМ НАШ ФИЛЬТР В ВЕКТОРНУЮ БАЗУ
                 stage_hits = self.store.search(
                     vector=vec,
                     limit=500,
@@ -790,57 +865,12 @@ class SearchService:
         discard_counter = Counter()
 
         semantic_values = []
-        freshness_values =[]
+        freshness_values = []
         completeness_values = []
         price_fit_values = []
-        mileage_fit_values =[]
+        mileage_fit_values = []
 
-        def _post_filter(payload, structured):
-            # 🔥 ОТСЕВ МУСОРА: Если в тексте чанка больше 6 цен, это сетка "Похожие объявления" с Drom
-            content_text = str(payload.get("content") or "")
-            if content_text.count("₽") > 6 or content_text.count("руб") > 6:
-                return False
-
-            if getattr(structured, "brands", None):
-                if payload.get("brand") not in structured.brands:
-                    return False
-            elif structured.brand:
-                if payload.get("brand") != structured.brand:
-                    return False
-
-            if structured.model:
-                if not payload.get("model"):
-                    return False
-                if not _model_soft_match(payload.get("model", ""), structured.model):
-                    return False
-
-            # 🔥 ЖЕСТКИЙ ФИЛЬТР ПО ТОПЛИВУ
-            if structured.fuel:
-                payload_fuel = payload.get("fuel")
-                if not payload_fuel or payload_fuel != structured.fuel:
-                    return False
-
-            # 🔥 АБСОЛЮТНО ЖЕСТКИЙ ФИЛЬТР ПО ПРОБЕГУ
-            if structured.mileage_max is not None:
-                m = payload.get("mileage")
-                if m is None:
-                    return False  # Нет пробега = не пропускаем в лимитный поиск
-                elif m > structured.mileage_max:
-                    return False
-
-            # 🔥 ЖЕСТКИЙ ФИЛЬТР ПО ГОДУ
-            y = payload.get("year")
-            if structured.year_min is not None:
-                if y is None or int(y) < structured.year_min:
-                    return False
-            if getattr(structured, "year_max", None) is not None:
-                if y is None or int(y) > structured.year_max:
-                    return False
-
-            return True
-
-        post_filter_kept = 0
-
+        # 🔥 СТРОГИЙ ПОСТ-ФИЛЬТР ДЛЯ КАНДИДАТОВ
         for doc_key, payload in doc_payloads.items():
             debug["filtering"]["checked_candidates"] += 1
 
@@ -852,13 +882,6 @@ class SearchService:
                 debug["filtering"]["discarded_candidates"] += 1
                 continue
 
-            semantic = float(doc_scores.get(doc_key, 0.0) or 0.0)
-
-            if not _post_filter(payload, structured):
-                continue
-            
-            post_filter_kept += 1
-
             passed, discard_reasons = self._passes_hard_filters(payload, structured, route)
             if not passed:
                 debug["filtering"]["discarded_candidates"] += 1
@@ -866,6 +889,7 @@ class SearchService:
                     discard_counter[reason] += 1
                 continue
 
+            semantic = float(doc_scores.get(doc_key, 0.0) or 0.0)
             final_score, signals = self._score_candidate(payload, structured, semantic, route)
 
             semantic_values.append(signals.get("semantic", 0.0))
@@ -874,7 +898,7 @@ class SearchService:
             price_fit_values.append(signals.get("price_fit", 0.0))
             mileage_fit_values.append(signals.get("mileage_fit", 0.0))
 
-            reasons_list =[
+            reasons_list = [
                 f"semantic={round(signals.get('semantic', 0.0), 4)}",
                 f"text_match={round(signals.get('text_match', 0.0), 4)}",
                 f"freshness={round(signals.get('freshness', 0.0), 4)}",
@@ -892,39 +916,7 @@ class SearchService:
 
             scored_results.append((final_score, payload, signals, reasons_list))
 
-        if post_filter_kept == 0 and doc_payloads:
-            print("[DEBUG SEARCH FALLBACK] post-filter killed everything, using top raw docs", flush=True)
-            for doc_key, payload in list(doc_payloads.items())[:50]:
-                
-                # 🔥 СТРОГИЙ ЗАПРЕТ ПОДМЕНЫ МАРКИ И МОДЕЛИ В РЕЖИМЕ СПАСЕНИЯ (FALLBACK)
-                if structured.brand and payload.get("brand"):
-                    if payload.get("brand") != structured.brand:
-                        continue
-                if structured.model and payload.get("model"):
-                    if not _model_soft_match(payload.get("model", ""), structured.model):
-                        continue
-
-                semantic = float(doc_scores.get(doc_key, 0.0) or 0.0)
-                final_score, signals = self._score_candidate(payload, structured, semantic, route)
-                reasons_list =[
-                    f"semantic={round(signals.get('semantic', 0.0), 4)}",
-                    f"text_match={round(signals.get('text_match', 0.0), 4)}",
-                    f"freshness={round(signals.get('freshness', 0.0), 4)}",
-                    f"completeness={round(signals.get('completeness', 0.0), 4)}",
-                    f"price_fit={round(signals.get('price_fit', 0.0), 4)}",
-                    f"mileage_fit={round(signals.get('mileage_fit', 0.0), 4)}",
-                    f"fuel_match={round(signals.get('fuel_match', 0.0), 4)}",
-                    f"brand_match={round(signals.get('brand_match', 0.0), 4)}",
-                    f"model_match={round(signals.get('model_match', 0.0), 4)}",
-                    f"source_quality={round(signals.get('source_quality', 0.0), 4)}",
-                    f"sale_intent={round(signals.get('sale_intent', 0.0), 4)}",
-                    f"representation_quality={round(signals.get('representation_quality', 0.0), 4)}",
-                    f"final={round(final_score, 6)}",
-                ]
-                scored_results.append((final_score, payload, signals, reasons_list))
-
         print("[DEBUG SEARCH FILTERING]", {
-            "post_filter_kept": post_filter_kept,
             "scored_results": len(scored_results),
             "discard_reasons": dict(discard_counter),
         }, flush=True)
@@ -944,7 +936,11 @@ class SearchService:
 
         scored_results.sort(key=lambda x: x[0], reverse=True)
 
-        results: List[Dict[str, Any]] =[]
+        results: List[Dict[str, Any]] = []
+        
+        # 🔥 СТРОГИЙ DEDUP ПО ВСЕМ ПАРАМЕТРАМ ИДЕНТИФИКАЦИИ
+        seen_listing_ids = set()
+        seen_doc_ids = set()
         seen_canonical_urls = set()
         seen_fingerprints = set()
         source_counter: Dict[str, int] = {}
@@ -956,6 +952,26 @@ class SearchService:
 
             canonical_url = self._canonicalize_source_url(source_url)
             fingerprint = self._build_listing_fingerprint(payload)
+
+            # ГАРАНТИЯ listing_id: получение или генерация стабильного listing_id
+            listing_id = payload.get("listing_id") or payload.get("id") or payload.get("raw_id") or payload.get("doc_id")
+            if not listing_id:
+                if source_url:
+                    listing_id = hashlib.md5(source_url.encode("utf-8")).hexdigest()[:16]
+                else:
+                    title_part = str(payload.get("title") or payload.get("title_text") or "car")
+                    price_part = str(payload.get("price") or "0")
+                    raw_str = f"{title_part}_{price_part}"
+                    listing_id = hashlib.md5(raw_str.encode("utf-8")).hexdigest()[:16]
+            listing_id = str(listing_id)
+
+            doc_id = str(payload.get("doc_id") or payload.get("raw_id") or listing_id)
+
+            if listing_id in seen_listing_ids:
+                continue
+
+            if doc_id in seen_doc_ids:
+                continue
 
             if canonical_url and canonical_url in seen_canonical_urls:
                 debug["dedup"]["skipped_by_canonical_url_duplicate"] += 1
@@ -971,7 +987,45 @@ class SearchService:
             if source_counter[source_name] >= MAX_RESULTS_PER_SOURCE:
                 continue
 
+            # Изображения и фотографии
+            image_url = payload.get("image_url") or ""
+            photos = payload.get("photos") or ([image_url] if image_url else [])
+
+            # Географическая локация (нормализация city)
+            city = payload.get("city") or payload.get("region") or ""
+
+            # Дата публикации (нормализация created_at)
+            created_at_ts = payload.get("created_at_ts")
+            created_at = payload.get("created_at")
+            if not created_at and created_at_ts:
+                try:
+                    created_at = datetime.fromtimestamp(created_at_ts, tz=timezone.utc).isoformat()
+                except:
+                    pass
+            if not created_at:
+                created_at = datetime.now(timezone.utc).isoformat()
+
+            # Дополнительное поле "is_fresh" = True/False (если created_at < 3 дней)
+            is_fresh = False
+            if created_at_ts:
+                try:
+                    now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+                    is_fresh = (now_ts - int(created_at_ts)) < (3 * 86400)
+                except:
+                    pass
+            else:
+                try:
+                    dt = datetime.fromisoformat(created_at)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    age_seconds = (datetime.now(timezone.utc) - dt).total_seconds()
+                    is_fresh = age_seconds < (3 * 86400)
+                except:
+                    pass
+
             row = {
+                "listing_id": listing_id,
+                "doc_id": doc_id,
                 "brand": payload.get("brand"),
                 "model": payload.get("model"),
                 "year": payload.get("year"),
@@ -980,16 +1034,24 @@ class SearchService:
                 "currency": payload.get("currency", "RUB"),
                 "fuel": payload.get("fuel"),
                 "region": payload.get("region"),
+                "city": city,
                 "paint_condition": payload.get("paint_condition"),
                 "score": round(final_score, 6),
                 "why_match": " + ".join(reasons),
                 "source_url": source_url,
                 "source_name": source_name,
                 "score_breakdown": {k: round(v, 6) for k, v in signals.items()},
+                "image_url": image_url,
+                "photos": photos,
+                "created_at": created_at,
+                "created_at_ts": created_at_ts,
+                "is_fresh": is_fresh,
             }
 
             results.append(row)
 
+            seen_listing_ids.add(listing_id)
+            seen_doc_ids.add(doc_id)
             if canonical_url:
                 seen_canonical_urls.add(canonical_url)
             if fingerprint:
@@ -1008,13 +1070,13 @@ class SearchService:
             )
 
             if structured.brand:
-                results =[
+                results = [
                     r for r in results
                     if (r.get("brand") or "").lower() == structured.brand.lower()
                 ] or results
 
             if structured.fuel:
-                boosted =[]
+                boosted = []
                 for r in results:
                     payload_fuel = (r.get("fuel") or "").lower()
                     if structured.fuel == "electric":
@@ -1031,7 +1093,7 @@ class SearchService:
                 results = sorted(boosted, key=lambda x: x["score"], reverse=True)
 
             if canonical_model:
-                boosted =[]
+                boosted = []
                 for r in results:
                     if r.get("model") and _model_soft_match(r.get("model", ""), canonical_model):
                         r["score"] *= 1.4
@@ -1045,104 +1107,26 @@ class SearchService:
         except Exception as e:
             print(f"[RERANK][WARN] skipped: {e}", flush=True)
 
-        print("[DEBUG SEARCH FINAL]", {
-            "results": len(results),
-            "top_3":[
-                {
-                    "brand": r.get("brand"),
-                    "model": r.get("model"),
-                    "fuel": r.get("fuel"),
-                    "price": r.get("price"),
-                    "score": r.get("score"),
-                }
-                for r in results[:3]
-            ]
-        })
-
         debug["final"]["results_count"] = len(results)
 
-        if len(results) == 0:
-            print("[DEBUG SEARCH FALLBACK] Triggering Smart Rescue", flush=True)
-            f_conds = list()
-            valid_b = list()
-            
-            if getattr(structured, "brands", None):
-                for b in structured.brands:
-                    if b in WHITELIST_SET:
-                        valid_b.append(b)
-            elif canonical_brand and canonical_brand in WHITELIST_SET:
-                valid_b.append(canonical_brand)
-                
-            if len(valid_b) == 1:
-                f_conds.append(FieldCondition(key="brand", match=MatchValue(value=valid_b[0])))
-            elif len(valid_b) > 1:
-                s_brands = list()
-                for b in valid_b:
-                    s_brands.append(FieldCondition(key="brand", match=MatchValue(value=b)))
-                f_conds.append(Filter(should=s_brands))
-                    
-            f_filt = Filter(must=f_conds) if len(f_conds) > 0 else None
-            
-            # 🔥 В Rescue режиме используем ТОТ ЖЕ query_filter со ВСЕМИ жесткими ограничениями
+        if results:
             try:
-                extra_hits = self.store.search(
-                    vector=query_vector,
-                    limit=40,
-                    query_filter=query_filter, 
-                    query_text=query_text,
+                import redis as _redis_lib
+                from core.settings import settings as _settings
+                _r = _redis_lib.from_url(
+                    _settings.redis_url,
+                    socket_timeout=1,
+                    socket_connect_timeout=1,
                 )
-            except Exception as e:
-                print(f"[DEBUG SEARCH FALLBACK] Rescue error: {e}", flush=True)
-                extra_hits = list()
-                
-            rescue_items = list()
-            
-            for doc_hit in extra_hits:
-                pld = getattr(doc_hit, "payload", None)
-                if not pld:
-                    continue
-                    
-                # СТРОГАЯ ПРОВЕРКА МАРКИ
-                p_brand = pld.get("brand")
-                if getattr(structured, "brands", None):
-                    if p_brand not in structured.brands:
-                        continue
-                elif structured.brand:
-                    if p_brand != structured.brand:
-                        continue
-                
-                # СТРОГАЯ ПРОВЕРКА МОДЕЛИ
-                p_model = pld.get("model")
-                if structured.model:
-                    if not p_model:
-                        continue
-                    if not _model_soft_match(p_model, structured.model):
-                        continue
-
-                out_dict = dict()
-                out_dict["brand"] = p_brand
-                out_dict["model"] = p_model
-                out_dict["year"] = pld.get("year")
-                out_dict["mileage"] = pld.get("mileage")
-                out_dict["price"] = pld.get("price")
-                out_dict["currency"] = pld.get("currency", "RUB")
-                out_dict["fuel"] = pld.get("fuel")
-                out_dict["region"] = pld.get("region")
-                out_dict["paint_condition"] = pld.get("paint_condition")
-                out_dict["score"] = 0.01
-                out_dict["why_match"] = "Fallback: точных совпадений по жестким фильтрам не найдено"
-                out_dict["source_url"] = pld.get("source_url")
-                out_dict["source_name"] = pld.get("source") or "unknown"
-                out_dict["score_breakdown"] = {"semantic": 0.01}
-                
-                rescue_items.append(out_dict)
-                
-            return rescue_items
+                _r.setex(cache_key, 3600, json.dumps(results))
+                debug["final"]["cache_written"] = True
+            except Exception:
+                pass
 
         return results
 
     def _text_score(self, payload: Dict[str, Any], structured: StructuredQuery) -> float:
-        text_parts: List[str] =[]
+        text_parts: List[str] = []
 
         for key in ("brand", "model", "title", "title_text", "content"):
             value = payload.get(key)
@@ -1170,7 +1154,7 @@ class SearchService:
                 if payload_fuel == fuel_value:
                     score += 0.8
 
-        for kw in getattr(structured, "keywords", []) or[]:
+        for kw in getattr(structured, "keywords", []) or []:
             kw_norm = _normalize_token_text(str(kw))
             if kw_norm and kw_norm in text:
                 score += 0.15

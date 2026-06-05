@@ -12,9 +12,9 @@ services:
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
-      - QDRANT_DEBUG=1
       - REDIS_HOST=redis
       - POSTGRES_HOST=postgres
+      - LISTINGS_FALLBACK_MAX_SCAN=500
     depends_on:
       postgres:
         condition: service_healthy
@@ -29,6 +29,7 @@ services:
       retries: 5
     networks:
       - internal
+      - shared
 
   ingest-worker:
     build:
@@ -52,10 +53,12 @@ services:
     image: postgres:16-alpine
     container_name: auto-search-postgres
     restart: always
+    env_file:
+      - .env.prod
     environment:
       POSTGRES_DB: auto_search
       POSTGRES_USER: auto
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?err}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-auto133}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -88,8 +91,7 @@ services:
       - QDRANT__STORAGE__OPTIMIZER__INDEXING_THRESHOLD=10000
     volumes:
       - qdrant_data:/qdrant/storage
-    ports:
-      - "6333:6333"
+    # Порт НЕ пробрасывается наружу — только внутренняя сеть
     networks:
       - internal
 
@@ -119,3 +121,6 @@ volumes:
 networks:
   internal:
     driver: bridge
+  shared:
+    name: auto-search-shared
+    external: true

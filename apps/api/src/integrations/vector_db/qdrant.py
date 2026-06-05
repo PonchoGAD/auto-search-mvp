@@ -8,6 +8,7 @@ from qdrant_client.models import (
     PointStruct,
     SearchParams,
     VectorParams,
+    PayloadSchemaType,
 )
 
 COLLECTION_NAME = "auto_search_chunks"
@@ -24,6 +25,7 @@ class QdrantStore:
     {
       "raw_id": int | None,
       "normalized_id": int | None,
+      "listing_id": str | None,
       "source": str | None,
       "source_url": str | None,
       "brand": str | None,
@@ -32,6 +34,9 @@ class QdrantStore:
       "mileage": int | None,
       "price": int | None,
       "fuel": str | None,
+      "city": str | None,
+      "image_url": str | None,
+      "photos": list[str] | None,
       "sale_intent": int | None,
       "quality_score": float | None,
       "chunk_index": int | None,
@@ -76,6 +81,40 @@ class QdrantStore:
                 },
             )
             print(f"[QDRANT] collection created: {COLLECTION_NAME}", flush=True)
+            self._create_payload_indexes()
+
+    def ensure_collection(self, vector_size: int = 768):
+        """Гарантирует существование коллекции и необходимых индексов."""
+        self.create_collection(vector_size)
+
+    def _create_payload_indexes(self):
+        """Создает оптимальные индексы для ускорения фильтрации и поиска."""
+        try:
+            print("[QDRANT] creating payload indexes...", flush=True)
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="brand", field_schema=PayloadSchemaType.KEYWORD
+            )
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="fuel", field_schema=PayloadSchemaType.KEYWORD
+            )
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="price", field_schema=PayloadSchemaType.INTEGER
+            )
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="mileage", field_schema=PayloadSchemaType.INTEGER
+            )
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="year", field_schema=PayloadSchemaType.INTEGER
+            )
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="listing_id", field_schema=PayloadSchemaType.KEYWORD
+            )
+            self.client.create_payload_index(
+                COLLECTION_NAME, field_name="source_url", field_schema=PayloadSchemaType.KEYWORD
+            )
+            print("[QDRANT] payload indexes created successfully", flush=True)
+        except Exception as e:
+            print(f"[QDRANT][WARN] payload indexes creation failed: {e}", flush=True)
 
     # =====================================================
     # DEBUG HELPERS
@@ -192,6 +231,9 @@ class QdrantStore:
         return payload
 
     def _normalize_payload_schema(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if not payload:
+            return {}
+
         current_year = datetime.now(tz=timezone.utc).year
 
         brand = self._norm_str(payload.get("brand"))
@@ -236,6 +278,7 @@ class QdrantStore:
         normalized: Dict[str, Any] = {
             "raw_id": self._norm_int(payload.get("raw_id")),
             "normalized_id": self._norm_int(payload.get("normalized_id")),
+            "listing_id": self._norm_str(payload.get("listing_id")),
             "source": self._norm_str(payload.get("source")),
             "source_url": payload.get("source_url") if isinstance(payload.get("source_url"), str) else None,
             "brand": brand,
@@ -257,6 +300,15 @@ class QdrantStore:
         normalized["content"] = payload.get("content") if isinstance(payload.get("content"), str) else None
         normalized["currency"] = payload.get("currency") if isinstance(payload.get("currency"), str) else None
         normalized["region"] = self._norm_str(payload.get("region"))
+        normalized["city"] = self._norm_str(payload.get("city"))
+        normalized["image_url"] = payload.get("image_url") if isinstance(payload.get("image_url"), str) else None
+        
+        photos_val = payload.get("photos")
+        if isinstance(photos_val, list):
+            normalized["photos"] = [str(p) for p in photos_val if p]
+        else:
+            normalized["photos"] = []
+
         normalized["paint_condition"] = (
             payload.get("paint_condition") if isinstance(payload.get("paint_condition"), str) else None
         )
@@ -271,10 +323,11 @@ class QdrantStore:
         return normalized
 
     def build_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if not payload:
+            return {}
         normalized = self._normalize_payload_schema(payload)
         normalized = self._normalize_created_at(normalized)
         normalized["created_at_ts"] = self._norm_int(normalized.get("created_at_ts"))
-        print("[DEBUG AFTER BUILD PAYLOAD]", normalized)
         return normalized
 
     # =====================================================
@@ -289,7 +342,11 @@ class QdrantStore:
         normalized_points: List[PointStruct] = []
 
         for p in points:
+            if not p.payload:  # Защита: пропуск пустых payload
+                continue
             payload = self.build_payload(p.payload or {})
+            if not payload:    # Защита: пропуск пустых payload
+                continue
             print(f"[DEBUG][UPSERT] brand={payload.get('brand')} model={payload.get('model')}", flush=True)
 
             normalized_points.append(
@@ -309,10 +366,6 @@ class QdrantStore:
                 collection_name=COLLECTION_NAME,
                 points=batch,
             )
-
-        if normalized_points:
-            sample = normalized_points[0].payload
-            print(f"[QDRANT] sample payload schema: {sample}", flush=True)
 
         print(f"[QDRANT] upserted points: {total}", flush=True)
 
@@ -364,9 +417,18 @@ class QdrantStore:
         if not points and query_text:
             self._debug_log("vector search empty, NO fallback allowed to preserve strict limits")
 
+        filtered_points = []
         for p in points:
             payload = p.payload or {}
-            p.payload = self.build_payload(payload)
+            if not payload:  # Защита: пропуск пустых payload
+                continue
+            built_payload = self.build_payload(payload)
+            # НЕ возвращать payload без listing_id
+            if built_payload and built_payload.get("listing_id"):
+                p.payload = built_payload
+                filtered_points.append(p)
+
+        points = filtered_points
 
         self._debug_log(
             f"search complete limit={requested_limit} "
@@ -380,7 +442,5 @@ class QdrantStore:
 QDRANT_HOST = os.getenv("QDRANT_HOST", "qdrant")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 
-qdrant_client = QdrantClient(
-    host=QDRANT_HOST,
-    port=QDRANT_PORT,
-)
+_shared_store = QdrantStore(host=QDRANT_HOST, port=QDRANT_PORT)
+qdrant_client = _shared_store.client

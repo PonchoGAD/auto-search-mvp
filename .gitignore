@@ -45,6 +45,9 @@ infra/compose.yml
 infra/docker/.env.prod
 infra/docker/.env.prod.*
 
+# промт-файлы с секретами — только локально
+infra/MASTER_PROMPT_TG_BOT.md
+
 # =========================
 # PLAYWRIGHT
 # =========================

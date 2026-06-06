@@ -55,7 +55,6 @@ class QdrantStore:
         self.client = QdrantClient(
             host=host,
             port=port,
-            check_compatibility=False,
         )
 
     # =====================================================

@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import asyncio
 import os
 import time
 import uuid
@@ -19,15 +20,26 @@ from api.v1.listings import router as listings_router
 from core.settings import settings
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    print("[STARTUP] pre-loading reranker model...", flush=True)
+async def _preload_reranker():
+    """Load reranker in background so uvicorn starts accepting requests immediately."""
     try:
+        print("[STARTUP] pre-loading reranker model in background...", flush=True)
+        loop = asyncio.get_event_loop()
         from services.search_service import get_reranker
-        get_reranker()
+        await loop.run_in_executor(None, get_reranker)
         print("[STARTUP] reranker ready", flush=True)
     except Exception as e:
         print(f"[STARTUP][WARN] reranker pre-load failed: {e}", flush=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Always create DB tables on startup (no Alembic migrations yet)
+    Base.metadata.create_all(bind=engine)
+    print("[STARTUP] DB tables ensured", flush=True)
+
+    # Load reranker in background — server accepts requests immediately
+    asyncio.create_task(_preload_reranker())
     yield
 
 
@@ -107,5 +119,4 @@ app.include_router(metrics_router, prefix="/api/v1")
 app.include_router(admin_router)
 
 # ⚠️ допустимо для MVP
-if settings.DEBUG:
-    Base.metadata.create_all(bind=engine)
+# Tables are created in lifespan on every startup (idempotent)

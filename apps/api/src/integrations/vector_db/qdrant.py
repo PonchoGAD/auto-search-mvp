@@ -345,8 +345,6 @@ class QdrantStore:
             payload = self.build_payload(p.payload or {})
             if not payload:    # Защита: пропуск пустых payload
                 continue
-            print(f"[DEBUG][UPSERT] brand={payload.get('brand')} model={payload.get('model')}", flush=True)
-
             normalized_points.append(
                 PointStruct(
                     id=p.id,

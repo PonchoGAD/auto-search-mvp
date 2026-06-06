@@ -5,8 +5,6 @@ from integrations.vector_db.qdrant import qdrant_client
 from core.settings import settings
 
 router = APIRouter()
-store = QdrantStore()
-client = store.client
 
 
 @router.get("/metrics")

@@ -92,7 +92,7 @@ def save_items(items):
                 )
                 .first()
             )
-            if exists:
+            if existing:
                 skipped += 1
                 print(f"[DB][SAVE] reason_skip=duplicate url={url}", flush=True)
                 continue

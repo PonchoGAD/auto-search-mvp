@@ -340,6 +340,22 @@ def _extract_city(text:str):
     return None
 
 
+def _extract_fuel(text: str) -> Optional[str]:
+    text = (text or "").lower()
+    patterns = [
+        ("electric",  r"\b(электро|электромобиль|electric|ev)\b"),
+        ("hybrid",    r"\b(гибрид|hybrid|phev|hev)\b"),
+        ("diesel",    r"\b(дизель|дизельный|диз|diesel|tdi|cdi|dci)\b"),
+        ("gas_petrol",r"\b(газ\s*/\s*бензин|бензин\s*/\s*газ|газ\s+бензин|бензин\s+газ)\b"),
+        ("gas",       r"\b(газ|lpg|cng|гбо)\b"),
+        ("petrol",    r"\b(бензин|бензиновый|бенз|petrol|gasoline|mpi|fsi|tsi|tfsi)\b"),
+    ]
+    for fuel, pattern in patterns:
+        if re.search(pattern, text):
+            return fuel
+    return None
+
+
 def _extract_brand_model(text):
 
     return taxonomy_service.resolve_entities(text)

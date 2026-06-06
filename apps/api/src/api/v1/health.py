@@ -47,7 +47,7 @@ def run_readiness_checks() -> tuple[bool, dict[str, str], dict[str, int]]:
     # -------------------------
     start = time.time()
     try:
-        qdrant_client.get_collections(timeout=2)
+        qdrant_client.get_collections()
         checks["qdrant"] = "ok"
     except Exception as e:
         checks["qdrant"] = "error"
@@ -95,7 +95,7 @@ def health():
     return {
         "status": "ok",
         "service": "auto-search-api",
-        "env": getattr(settings, "ENV", None) or "dev",
+        "env": settings.env,
     }
 
 

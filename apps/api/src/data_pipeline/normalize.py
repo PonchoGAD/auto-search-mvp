@@ -481,7 +481,7 @@ def extract_fields(text: str, raw: Optional[RawDocument] = None) -> Dict[str, Op
     if not price:
         price_patterns = [
             r"цена\s*[:-]?\s*(\d[\d\s\.\,]{4,11})(?:\s*₽|\s*руб|\s*р\b|\b|$)",
-            r"(?<!\d)(\d[\d\s\u00A0]{3,12})\s*(₽|руб(?:\.|лей)?|р\b)(!?\d)",
+            r"(?<!\d)(\d[\d\s\u00A0]{3,12})\s*\|?\s*(₽|руб(?:\.|лей)?|р\b)(?!\d)",
         ]
         for pat in price_patterns:
             for m in re.finditer(pat, lower):
@@ -676,7 +676,7 @@ def _build_normalized_document_kwargs(raw: RawDocument, normalized_text: str, br
         model_columns = set()
 
     if "sale_intent" in model_columns:
-        kwargs["sale_intent"] = sale_intent
+        kwargs["sale_intent"] = int(sale_intent)
 
     if "quality_score" in model_columns:
         kwargs["quality_score"] = quality_score

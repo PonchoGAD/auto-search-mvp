@@ -20,14 +20,14 @@ def _is_speed_noise(text: str) -> bool:
     return any(x in t for x in["км/ч", "km/h", "скорость", "средняя скорость"])
 
 
-RE_PRICE = re.compile(r"(\d[\d\s\u00A0]{3,12})\s*(₽|руб|р)\b", re.IGNORECASE)
-RE_PRICE_GLUE = re.compile(r"(\d[\d\s\u00A0]{3,12})(?:₽|руб|р)(?=[a-zа-я])", re.IGNORECASE)
+RE_PRICE = re.compile(r"(?<!\d)(\d[\d\s\u00A0]{3,12})\s*\|?\s*(₽|руб|р)\b", re.IGNORECASE)
+RE_PRICE_GLUE = re.compile(r"(?<!\d)(\d[\d\s\u00A0]{3,12})(?:₽|руб|р)(?=[a-zа-я])", re.IGNORECASE)
 
 PRICE_PATTERNS =[
-    r"(\d[\d\s\u00A0]{4,12})\s*₽",
-    r"(\d[\d\s\u00A0]{4,12})\s*руб",
-    r"(\d[\d\s\u00A0]{4,12})\s*rub",
-    r"(\d[\d\s\u00A0]{4,12})\s*р\b",
+    r"(?<!\d)(\d[\d\s\u00A0]{4,12})\s*\|?\s*₽",
+    r"(?<!\d)(\d[\d\s\u00A0]{4,12})\s*руб",
+    r"(?<!\d)(\d[\d\s\u00A0]{4,12})\s*rub",
+    r"(?<!\d)(\d[\d\s\u00A0]{4,12})\s*р",
 ]
 
 RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")

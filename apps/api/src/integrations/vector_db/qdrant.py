@@ -64,9 +64,9 @@ class QdrantStore:
     def create_collection(self, vector_size: int):
         collections = [c.name for c in self.client.get_collections().collections]
 
-        if self.collection not in collections:
+        if COLLECTION_NAME not in collections:
             self.client.create_collection(
-                collection_name=self.collection,
+                collection_name=COLLECTION_NAME,
                 vectors_config=VectorParams(
                     size=vector_size,
                     distance=Distance.COSINE,

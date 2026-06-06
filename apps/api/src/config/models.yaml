@@ -65,9 +65,9 @@ mercedes:
   cls: ["cls", "цлс", "банан"]
   gla: ["gla", "гла"]
   glb: ["glb", "глб"]
-  glc: ["glc", "глси", "x253"]
-  gle: ["gle", "гле", "w166", "v167"]
-  gls: ["gls", "глс", "x166", "x167"]
+  glc: ["glc", "glc-class", "glc class", "glcclass", "глс", "глси", "x253", "c253"]
+  gle: ["gle", "gle-class", "gle class", "gleclass", "гле", "w166", "v167", "w167"]
+  gls: ["gls", "gls-class", "gls class", "glsclass", "глс", "x166", "x167", "x167"]
   gl: ["gl", "гл"]
   ml: ["ml", "мл", "w163", "w164"]
   g_class: ["g class", "g-class", "gclass", "g63", "g500", "g55", "гелик", "гелендваген", "кубик"]
@@ -214,16 +214,19 @@ subaru:
   wrx: ["wrx", "wrx sti"]
 
 lexus:
-  rx: ["rx", "rx300", "rx330", "rx350", "rx400h", "rx450h", "рх", "рэкс"]
-  nx: ["nx", "nx200", "nx300", "нх"]
-  lx: ["lx", "lx470", "lx570", "lx600", "лх"]
+  rx: ["rx", "rx300", "rx330", "rx350", "rx400h", "rx450h", "rx500h", "рх", "рэкс"]
+  nx: ["nx", "nx200", "nx300", "nx350h", "nx450h", "нх"]
+  lx: ["lx", "lx470", "lx570", "lx600", "лх", "lexus lx"]
   gx: ["gx", "gx460", "gx470", "гх"]
   es: ["es", "es250", "es300", "es350", "ес"]
-  is: ["is", "is250", "ис"]
+  is: ["is", "is250", "is300", "ис"]
   ls: ["ls", "ls460", "ls500", "лс"]
   ux: ["ux", "ух"]
   gs: ["gs", "gs300", "gs350", "гс"]
   lc: ["lc", "lc500"]
+  lm: ["lm", "lm300h", "lm350h", "lm350", "lm500h", "lexus lm"]
+  rc: ["rc", "rc300", "rc350", "рц"]
+  ct: ["ct", "ct200h", "цт"]
 
 volvo:
   s40: ["s40", "с40"]
@@ -462,7 +465,8 @@ porsche:
   cayenne: ["cayenne", "кайен", "каен"]
   macan: ["macan", "макан"]
   panamera: ["panamera", "панамера"]
-  "911": ["911", "911 carrera"]
+  "911": ["911", "porsche 911", "порше 911", "911 carrera", "911 turbo", "911 gt3", "911 targa"]
+  "718": ["718", "porsche 718", "cayman", "boxster"]
   taycan: ["taycan", "тайкан"]
   boxster: ["boxster", "бокстер"]
   cayman: ["cayman", "кайман"]
@@ -535,3 +539,26 @@ ssangyong:
 belgee:
   x50: ["x50", "х50", "x 50"]
   x70: ["x70", "х70", "x 70"]
+
+mini:
+  hatch: ["hatch", "хэтч", "mini hatch", "мини хэтч", "3 door", "5 door"]
+  cooper: ["cooper", "купер", "cooper s", "cooper se"]
+  clubman: ["clubman", "клабмен"]
+  countryman: ["countryman", "кантримен", "контримен"]
+  paceman: ["paceman", "пейсмен"]
+  roadster: ["roadster", "роудстер"]
+  cabrio: ["cabrio", "кабрио", "cabriolet", "cabrio cooper"]
+  jcw: ["jcw", "john cooper works", "джон купер"]
+
+alphard:
+  alphard: ["alphard", "альфард", "toyota alphard"]
+
+lincoln:
+  navigator: ["navigator", "навигатор", "lincoln navigator"]
+  aviator: ["aviator", "авиатор"]
+
+cadillac:
+  escalade: ["escalade", "эскалейд"]
+  ct5: ["ct5", "ct 5"]
+  xt5: ["xt5", "xt 5"]
+  xt6: ["xt6", "xt 6"]

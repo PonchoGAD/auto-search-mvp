@@ -871,13 +871,14 @@ class SearchService:
         mileage_fit_values = []
 
         # 🔥 СТРОГИЙ ПОСТ-ФИЛЬТР ДЛЯ КАНДИДАТОВ
+        env_name = (os.getenv("ENV", "") or os.getenv("APP_ENV", "") or "dev").lower()
+        is_prod = env_name in ("prod", "production")
+        allow_dev_seed = os.getenv("ALLOW_DEV_SEED", "0").strip() == "1"
+
         for doc_key, payload in doc_payloads.items():
             debug["filtering"]["checked_candidates"] += 1
 
-            env_name = (os.getenv("ENV", "") or os.getenv("APP_ENV", "") or "dev").lower()
-            is_prod = env_name == "prod"
-
-            if is_prod and payload.get("source") == "dev_seed":
+            if is_prod and not allow_dev_seed and payload.get("source") == "dev_seed":
                 discard_counter["dev_seed_prod"] += 1
                 debug["filtering"]["discarded_candidates"] += 1
                 continue

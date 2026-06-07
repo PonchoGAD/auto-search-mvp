@@ -170,7 +170,8 @@ async def fetch_telegram(limit_per_channel: int | None = None) -> List[Dict]:
     Асинхронный fetch Telegram.
     """
 
-    if os.getenv("DISABLE_TELEGRAM", "false") == "true":
+    if os.getenv("DISABLE_TELEGRAM", "false").lower() in ("1", "true", "yes"):
+        print("[TELEGRAM] disabled via DISABLE_TELEGRAM env var")
         return []
 
     TG_API_ID = _get_int_env("TG_API_ID", 0)
@@ -179,8 +180,14 @@ async def fetch_telegram(limit_per_channel: int | None = None) -> List[Dict]:
     TG_FETCH_LIMIT = _get_int_env("TG_FETCH_LIMIT", 50)
 
     if not TG_API_ID or not TG_API_HASH or not TG_SESSION_STRING:
-        print("[TELEGRAM][WARN] Telegram ENV variables are not properly set")
-        return[]
+        print("[TELEGRAM][WARN] TG_API_ID / TG_API_HASH / TG_SESSION_STRING not set — skipping")
+        return []
+
+    # Telethon StringSession strings are base64-encoded, typically 350+ chars.
+    # A short value means placeholder/invalid — would cause interactive auth prompt in container.
+    if len(TG_SESSION_STRING) < 100:
+        print(f"[TELEGRAM][WARN] TG_SESSION_STRING too short ({len(TG_SESSION_STRING)} chars) — skipping to avoid interactive prompt")
+        return []
 
     channels = load_channels()
     if not channels:

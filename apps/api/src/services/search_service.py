@@ -373,13 +373,13 @@ class SearchService:
             elif not _model_soft_match(payload_model, model_value):
                 reasons.append("model_mismatch")
 
-        # Топливо (Строгая фильтрация при явном запросе)
+        # Топливо: отклоняем только явное НЕСООТВЕТСТВИЕ (diesel vs petrol).
+        # fuel_missing (fuel=None в listing) не является причиной отклонения —
+        # большинство реальных объявлений с drom.ru не имеют fuel в тексте.
         fuel_query = (structured.fuel or "").strip().lower()
         if fuel_query:
             payload_fuel = (payload.get("fuel") or "").strip().lower()
-            if not payload_fuel:
-                reasons.append("fuel_missing")
-            elif payload_fuel != fuel_query:
+            if payload_fuel and payload_fuel != fuel_query:
                 reasons.append("fuel_mismatch")
 
         # Цена (УСИЛЕННЫЙ ФИЛЬТР: Не пропускать None, если цена явно задана пользователем)
@@ -762,10 +762,10 @@ class SearchService:
                 should_brands = [FieldCondition(key="brand", match=MatchValue(value=b)) for b in brands_to_filter]
                 must_conditions.append(Filter(should=should_brands))
 
-        if fuel_filter_value:
-            must_conditions.append(
-                FieldCondition(key="fuel", match=MatchValue(value=fuel_filter_value))
-            )
+        # Fuel is intentionally NOT added to Qdrant hard filter.
+        # Most scraped listings lack fuel info (fuel=None) even when the physical car matches.
+        # Filtering at DB level would exclude 90%+ of real results.
+        # Fuel matching is handled as a soft signal in _score_candidate.
 
         if structured.mileage_max is not None:
             must_conditions.append(

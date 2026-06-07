@@ -44,6 +44,11 @@ infra/compose.yml
 # prod env с реальными ключами — никогда не пушим
 infra/docker/.env.prod
 infra/docker/.env.prod.*
+infra/docker/.env.tgbot
+
+# шаблоны env — коммитим (без реальных секретов)
+!infra/docker/.env.prod.example
+!infra/docker/.env.tgbot.example
 
 # промт-файлы с секретами — только локально
 infra/MASTER_PROMPT_TG_BOT.md

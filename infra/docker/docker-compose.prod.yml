@@ -103,11 +103,11 @@ services:
     ports:
       - "80:80"
     command: >-
-      /bin/sh -c "envsubst '$$NGINX_API_KEY' < /tmp/nginx.conf.tmpl > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"
+      /bin/sh -c "NGINX_API_KEY=$$API_KEY envsubst '$$NGINX_API_KEY' < /tmp/nginx.conf.tmpl > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"
     volumes:
       - ./nginx.conf:/tmp/nginx.conf.tmpl:ro
-    environment:
-      - NGINX_API_KEY=${API_KEY}
+    env_file:
+      - .env.prod
     depends_on:
       api:
         condition: service_started

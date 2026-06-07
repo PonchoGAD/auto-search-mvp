@@ -539,9 +539,10 @@ class SearchService:
             "bm25": self._env_float("SEARCH_W_BM25", 0.15),
         }
 
+        total_weight = sum(weights.values()) or 1.0
         final_score = 0.0
         for key, weight in weights.items():
-            final_score += signals.get(key, 0.0) * weight
+            final_score += signals.get(key, 0.0) * (weight / total_weight)
 
         # Дополнительные штрафы при несовпадении ключевых параметров
         if structured.fuel:
@@ -1081,15 +1082,10 @@ class SearchService:
                 for r in results:
                     payload_fuel = (r.get("fuel") or "").lower()
                     if structured.fuel == "electric":
-                        if payload_fuel == "electric":
-                            r["score"] *= 1.3
-                        else:
-                            r["score"] *= 0.3
+                        multiplier = 1.0 if payload_fuel == "electric" else 0.3
                     else:
-                        if payload_fuel == structured.fuel:
-                            r["score"] *= 1.2
-                        else:
-                            r["score"] *= 0.85
+                        multiplier = 1.0 if payload_fuel == structured.fuel else 0.85
+                    r["score"] = min(1.0, round(r["score"] * multiplier, 6))
                     boosted.append(r)
                 results = sorted(boosted, key=lambda x: x["score"], reverse=True)
 

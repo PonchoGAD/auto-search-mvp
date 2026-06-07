@@ -421,7 +421,7 @@ def _parse_with_fallback(
 
         canonical_b=taxonomy_service.canonicalize_brand(token)
 
-        if canonical_b:
+        if canonical_b and canonical_b in taxonomy_service.brand_to_aliases:
 
             if canonical_b not in possible_brands:
 

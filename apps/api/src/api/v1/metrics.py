@@ -18,7 +18,7 @@ def get_metrics():
         db.close()
 
     try:
-        collection_info = qdrant_client.get_collection(settings.QDRANT_COLLECTION)
+        collection_info = qdrant_client.get_collection(settings.qdrant_collection)
         total_chunks = collection_info.points_count
     except Exception:
         total_chunks = 0

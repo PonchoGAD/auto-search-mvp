@@ -5,14 +5,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env.tgbot
-    environment:
-      POSTGRES_DB: ${BOT_POSTGRES_DB:-auto_search_bot}
-      POSTGRES_USER: ${BOT_POSTGRES_USER:-bot}
-      POSTGRES_PASSWORD: ${BOT_POSTGRES_PASSWORD}
     volumes:
       - bot_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${BOT_POSTGRES_USER:-bot} -d ${BOT_POSTGRES_DB:-auto_search_bot} -h 127.0.0.1"]
+      test: ["CMD-SHELL", "pg_isready -U bot -d auto_search_bot -h 127.0.0.1"]
       interval: 10s
       timeout: 5s
       retries: 10

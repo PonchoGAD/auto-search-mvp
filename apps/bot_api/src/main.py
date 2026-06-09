@@ -288,14 +288,13 @@ def create_application() -> FastAPI:
         if redis_url:
             try:
                 import redis.asyncio as aioredis
-                _redis_client = aioredis.from_url(
+                client = aioredis.Redis.from_url(
                     redis_url,
                     encoding="utf-8",
                     decode_responses=True,
-                    socket_connect_timeout=2,
-                    socket_timeout=2,
                 )
-                await _redis_client.ping()
+                await client.ping()
+                _redis_client = client
                 logger.info("rate_limit_redis_connected url=%s", redis_url.split("@")[-1])
             except Exception as exc:
                 _redis_client = None

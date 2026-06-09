@@ -48,6 +48,10 @@ class FavoritesRepository:
         )
         return self.db.execute(stmt).scalar_one_or_none()
 
+    def count_by_user(self, user_id: int) -> int:
+        stmt = select(func.count(Favorite.id)).where(Favorite.user_id == user_id)
+        return int(self.db.execute(stmt).scalar() or 0)
+
     def create(self, user_id: int, payload: FavoriteCreateRequest) -> Favorite:
         listing_id = str(payload.listing_id or "").strip()
         if not listing_id:

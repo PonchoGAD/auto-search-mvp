@@ -118,8 +118,10 @@ def format_listing_card(item: dict[str, Any], index: int | None = None) -> str:
     if meta_line:
         lines.append(escape_html(meta_line))
 
-    lines.append(f"Цена: <b>{escape_html(price)}</b>")
-    lines.append(f"Пробег: {escape_html(mileage)}")
+    if item.get("price") is not None:
+        lines.append(f"Цена: <b>{escape_html(price)}</b>")
+    if item.get("mileage") is not None:
+        lines.append(f"Пробег: {escape_html(mileage)}")
 
     if color:
         lines.append(f"Цвет: {escape_html(color)}")

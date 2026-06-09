@@ -1093,9 +1093,9 @@ class SearchService:
                 boosted = []
                 for r in results:
                     if r.get("model") and _model_soft_match(r.get("model", ""), canonical_model):
-                        r["score"] *= 1.4
+                        r["score"] = min(1.0, r["score"] * 1.4)
                     else:
-                        r["score"] *= 0.6
+                        r["score"] = round(r["score"] * 0.6, 6)
                     boosted.append(r)
                 results = sorted(boosted, key=lambda x: x["score"], reverse=True)
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from src.config import get_settings
 from src.db.session import get_db
 from src.dependencies.auth import verify_internal_api_key
 from src.repositories.favorites import FavoritesRepository
@@ -50,6 +51,16 @@ def list_favorites(
     )
 
 
+def _check_favorites_limit(repo: FavoritesRepository, user_id: int) -> None:
+    limit = get_settings().FREE_FAVORITES_LIMIT
+    current = repo.count_by_user(user_id)
+    if current >= limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Лимит избранного исчерпан ({limit}). Удалите старые объявления.",
+        )
+
+
 @router.post("", response_model=FavoriteResponse)
 def create_favorite(
     payload: FavoriteCreateRequest,
@@ -58,6 +69,7 @@ def create_favorite(
 ) -> FavoriteResponse:
     user_id = _require_user_id(db, telegram_user_id)
     repo = FavoritesRepository(db)
+    _check_favorites_limit(repo, user_id)
 
     try:
         item = repo.create(user_id=user_id, payload=payload)
@@ -78,6 +90,7 @@ def create_favorite_from_search(
 ) -> FavoriteResponse:
     user_id = _require_user_id(db, telegram_user_id)
     repo = FavoritesRepository(db)
+    _check_favorites_limit(repo, user_id)
 
     try:
         favorite = repo.create_from_search_item(user_id=user_id, item=item)

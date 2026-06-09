@@ -150,6 +150,20 @@ nginx injects `X-API-Key` automatically via `envsubst` at startup — no hardcod
 
 ---
 
+## Fixed Bugs (2026-06-07 – 2026-06-09)
+
+| Commit | Fix |
+|--------|-----|
+| `a7b4b7e` | Score normalization: weights sum to 1.0, fuel boost capped at 1.0 |
+| `013958e` | Alembic deadlock: migrations moved to `alembic/versions/` |
+| `4b0e4ba` | `python-jose` → `PyJWT` in `auth.py` |
+| `123ff13` | Docker project isolation: `name:` added to both compose files |
+| `10e0214` | Score capping: model boost `*=1.4` now uses `min(1.0, ...)` |
+| `10e0214` | Favorites limit: `count_by_user()` enforced before INSERT (HTTP 429 if at limit) |
+| `10e0214` | Listing card: null price/mileage fields hidden instead of showing "не указан" |
+
+---
+
 ## Known Bugs (ordered by severity)
 
 ### SEARCH CORE
@@ -172,15 +186,10 @@ docker exec auto-search-api python -c "from db.session import engine, Base; Base
 
 ### TG BOT
 
-#### 5. [HIGH] Callback ID breaks on pagination
-`apps/bot/src/handlers/search.py` — uses `"item-{index}"` when listing_id missing.
-Fix: always use listing_id, fallback to `hash(source_url)`.
-
-#### 6. [MEDIUM] Favorites limit not checked before INSERT
-`apps/bot_api/src/repositories/favorites.py`
-
-#### 7. [MEDIUM] Rate limiting is in-memory (resets on restart)
+#### 5. [MEDIUM] Rate limiting is in-memory (resets on restart)
 Move to Redis (REDIS_URL is already in config).
+
+#### 6. [LOW] No pagination for saved searches at >5 records
 
 ---
 
@@ -199,14 +208,16 @@ Move to Redis (REDIS_URL is already in config).
 
 ### TG Bot (first deploy)
 ```
-[ ] Get BOT_TOKEN from @BotFather
-[ ] Copy .env.tgbot.example → .env.tgbot on VPS, fill all values
-[ ] SEARCH_API_KEY = API_KEY value from .env.prod
-[ ] INTERNAL_API_KEY ≥ 32 chars (same value in all 3 services)
-[ ] JWT_SECRET ≥ 32 chars
-[ ] auto-search-shared network exists (already created for search core)
-[ ] Run: docker compose -f infra/docker/docker-compose.tgbot.yml up -d --build
-[ ] Alembic migrations run automatically via bot-api-migrate container
+[x] Get BOT_TOKEN from @BotFather → @semantikauto_bot (deployed)
+[x] Copy .env.tgbot.example → .env.tgbot on VPS, filled all values
+[x] BOT_TOKEN + BOT_USERNAME (bot/config.py) AND TELEGRAM_BOT_TOKEN + TELEGRAM_BOT_USERNAME (bot_api/worker) — both sets required!
+[x] SEARCH_API_KEY = API_KEY value from .env.prod
+[x] INTERNAL_API_KEY ≥ 32 chars (same value in all 3 services)
+[x] JWT_SECRET ≥ 32 chars
+[x] auto-search-shared network exists (already created for search core)
+[x] Alembic migrations in alembic/versions/ (fixed: was causing deadlock)
+[x] auth.py uses PyJWT not python-jose (fixed: was ModuleNotFoundError)
+[ ] Set ADMIN_TELEGRAM_IDS_RAW to your Telegram user ID
 ```
 
 ---
@@ -258,11 +269,16 @@ docker ps --format 'table {{.Names}}\t{{.Status}}'
 
 | Variable | Required | Notes |
 |----------|----------|-------|
-| `TELEGRAM_BOT_TOKEN` | yes | From @BotFather |
+| `BOT_TOKEN` | yes | From @BotFather — read by `bot/src/config.py` |
+| `BOT_USERNAME` | yes | Username without @ — read by `bot/src/config.py` |
+| `TELEGRAM_BOT_TOKEN` | yes | Same token — read by `bot_api/config.py` and `worker/config.py` |
+| `TELEGRAM_BOT_USERNAME` | yes | Same username — read by `bot_api/config.py` |
 | `SEARCH_API_KEY` | yes | = API_KEY from .env.prod |
-| `INTERNAL_API_KEY` | yes | Shared secret bot↔bot-api↔worker |
+| `INTERNAL_API_KEY` | yes | Shared secret bot↔bot-api↔worker (≥ 32 chars) |
 | `JWT_SECRET` | yes | ≥ 32 chars |
 | `DATABASE_URL` | yes | `postgresql+psycopg2://bot:<pass>@bot-postgres:5432/auto_search_bot` |
-| `BOT_POSTGRES_PASSWORD` | yes | |
-| `ADMIN_TELEGRAM_IDS_RAW` | no | Comma-separated Telegram user IDs |
+| `POSTGRES_PASSWORD` | yes | Bot postgres password |
+| `ADMIN_TELEGRAM_IDS_RAW` | no | Comma-separated Telegram user IDs for admin access |
 | `PAYMENT_PROVIDER` | no | `stub` (default) / `yookassa` / `stars` |
+| `FREE_FAVORITES_LIMIT` | no | Default 50 — hard limit before HTTP 429 |
+| `SCHEDULER_POLL_INTERVAL_SEC` | no | Default 300 (5 min) |

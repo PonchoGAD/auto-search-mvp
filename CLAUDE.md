@@ -9,7 +9,7 @@ Mono-repo: семантический поисковик по объявлени
 ```
 Docker network: auto-search-shared (external, bridge)
 │
-├── [SEARCH CORE — docker-compose.prod.yml]
+├── [SEARCH CORE — docker-compose.prod.yml, name: auto-search-core]
 │   ├── nginx:80             public entry point
 │   ├── api:8000             FastAPI — shared network
 │   ├── ingest-worker        scrapes sources every 15 min
@@ -17,8 +17,9 @@ Docker network: auto-search-shared (external, bridge)
 │   ├── redis:6379           internal only
 │   └── qdrant:6333          internal only
 │
-└── [TG BOT — docker-compose.tgbot.yml]
+└── [TG BOT — docker-compose.tgbot.yml, name: auto-search-bot]
     ├── bot-api:8100         FastAPI proxy (shared network → search core)
+    ├── bot-redis:6379       Rate limiting store (bot_internal only, 64mb LRU)
     ├── tg-bot               aiogram 3 polling
     ├── worker               saved search alerts
     └── bot-postgres:5432    internal only (separate DB)
@@ -161,6 +162,8 @@ nginx injects `X-API-Key` automatically via `envsubst` at startup — no hardcod
 | `10e0214` | Score capping: model boost `*=1.4` now uses `min(1.0, ...)` |
 | `10e0214` | Favorites limit: `count_by_user()` enforced before INSERT (HTTP 429 if at limit) |
 | `10e0214` | Listing card: null price/mileage fields hidden instead of showing "не указан" |
+| `3297f32` | Redis rate limiting: bot-redis container added, in-memory replaced with Redis INCR/EXPIRE |
+| `657e890` | ADMIN_TELEGRAM_IDS_RAW=34456629 applied on VPS; bot-redis `protected-mode no` for Docker |
 
 ---
 
@@ -186,10 +189,7 @@ docker exec auto-search-api python -c "from db.session import engine, Base; Base
 
 ### TG BOT
 
-#### 5. [MEDIUM] Rate limiting is in-memory (resets on restart)
-Move to Redis (REDIS_URL is already in config).
-
-#### 6. [LOW] No pagination for saved searches at >5 records
+#### 5. [LOW] No pagination for saved searches at >5 records
 
 ---
 
@@ -259,7 +259,7 @@ docker ps --format 'table {{.Names}}\t{{.Status}}'
 | `DATABASE_URL` | yes | `postgresql+psycopg2://auto:<pass>@postgres:5432/auto_search` |
 | `API_KEY` | yes | Key for nginx → api (injected via envsubst) |
 | `POSTGRES_PASSWORD` | yes | |
-| `REDIS_URL` | yes | `redis://redis:6379/0` |
+| `REDIS_URL` | yes | `redis://redis:6379/0` (search core Redis) |
 | `OPENAI_API_KEY` | yes | Used for embeddings (`text-embedding-3-small`) |
 | `QDRANT_URL` | no | defaults to `http://qdrant:6333` |
 | `ENV` | yes | `production` |
@@ -281,4 +281,6 @@ docker ps --format 'table {{.Names}}\t{{.Status}}'
 | `ADMIN_TELEGRAM_IDS_RAW` | no | Comma-separated Telegram user IDs for admin access |
 | `PAYMENT_PROVIDER` | no | `stub` (default) / `yookassa` / `stars` |
 | `FREE_FAVORITES_LIMIT` | no | Default 50 — hard limit before HTTP 429 |
+| `REDIS_URL` | yes | `redis://auto-search-bot-redis:6379/1` — rate limiting store |
 | `SCHEDULER_POLL_INTERVAL_SEC` | no | Default 300 (5 min) |
+| `ADMIN_TELEGRAM_IDS_RAW` | no | `34456629` — уже установлено на VPS |

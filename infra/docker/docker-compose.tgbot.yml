@@ -1,6 +1,24 @@
 name: auto-search-bot
 
 services:
+  bot-redis:
+    image: redis:7-alpine
+    container_name: auto-search-bot-redis
+    restart: unless-stopped
+    command: ["redis-server", "--protected-mode", "yes", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - bot_internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   bot-postgres:
     image: postgres:16-alpine
     container_name: auto-search-bot-postgres
@@ -52,6 +70,8 @@ services:
       - .env.tgbot
     depends_on:
       bot-postgres:
+        condition: service_healthy
+      bot-redis:
         condition: service_healthy
       bot-api-migrate:
         condition: service_completed_successfully

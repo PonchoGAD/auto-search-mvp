@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict, deque
-from typing import Callable
+from typing import Callable, Optional
 from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
@@ -25,6 +25,7 @@ from src.logging import get_logger, setup_logging
 
 
 _rate_limit_state: dict[str, deque[float]] = defaultdict(deque)
+_redis_client: Optional[object] = None
 
 
 def _client_key(request: Request) -> str:
@@ -82,22 +83,34 @@ def _request_id(request: Request) -> str:
     return uuid4().hex
 
 
-def _rate_limited(request: Request) -> bool:
-    if not settings.RATE_LIMIT_ENABLED:
+def _is_health_path(path: str) -> bool:
+    return path.endswith("/health") or path.endswith("/health/ready") or path.endswith("/health/live")
+
+
+async def _rate_limited_redis(key: str, limit: int, window: int = 60) -> bool:
+    global _redis_client
+    if _redis_client is None:
         return False
 
-    path = request.url.path
-
-    if path.endswith("/health") or path.endswith("/health/ready") or path.endswith("/health/live"):
+    try:
+        import redis.asyncio as aioredis
+        r: aioredis.Redis = _redis_client  # type: ignore[assignment]
+        bucket = int(time.time() // window)
+        redis_key = f"rl:{key}:{bucket}"
+        pipe = r.pipeline()
+        pipe.incr(redis_key)
+        pipe.expire(redis_key, window * 2)
+        results = await pipe.execute()
+        count = int(results[0])
+        return count > limit
+    except Exception:
         return False
 
+
+def _rate_limited_memory(request: Request, limit: int) -> bool:
     now = time.monotonic()
     window = 60.0
-    max_requests = max(1, int(settings.RATE_LIMIT_REQUESTS_PER_MINUTE))
-    burst = max(1, int(settings.RATE_LIMIT_BURST))
-    limit = max_requests + burst
-
-    key = f"{_client_key(request)}:{path}"
+    key = f"{_client_key(request)}:{request.url.path}"
     bucket = _rate_limit_state[key]
 
     while bucket and now - bucket[0] > window:
@@ -108,6 +121,24 @@ def _rate_limited(request: Request) -> bool:
 
     bucket.append(now)
     return False
+
+
+async def _rate_limited(request: Request) -> bool:
+    if not settings.RATE_LIMIT_ENABLED:
+        return False
+
+    if _is_health_path(request.url.path):
+        return False
+
+    max_requests = max(1, int(settings.RATE_LIMIT_REQUESTS_PER_MINUTE))
+    burst = max(1, int(settings.RATE_LIMIT_BURST))
+    limit = max_requests + burst
+
+    if _redis_client is not None:
+        key = f"{_client_key(request)}:{request.url.path}"
+        return await _rate_limited_redis(key, limit)
+
+    return _rate_limited_memory(request, limit)
 
 
 def create_application() -> FastAPI:
@@ -142,7 +173,7 @@ def create_application() -> FastAPI:
         request_id = _request_id(request)
         request.state.request_id = request_id
 
-        if _rate_limited(request):
+        if await _rate_limited(request):
             logger.warning(
                 "request_rate_limited",
                 extra={
@@ -222,7 +253,9 @@ def create_application() -> FastAPI:
     app.include_router(internal_router, prefix=api_prefix)
 
     @app.on_event("startup")
-    def on_startup() -> None:
+    async def on_startup() -> None:
+        global _redis_client
+
         security_issues = settings.validate_security()
 
         if security_issues:
@@ -251,8 +284,34 @@ def create_application() -> FastAPI:
             "Database migrations must be applied with: alembic upgrade head. Base.metadata.create_all is not used.",
         )
 
+        redis_url = getattr(settings, "REDIS_URL", None)
+        if redis_url:
+            try:
+                import redis.asyncio as aioredis
+                _redis_client = aioredis.from_url(
+                    redis_url,
+                    encoding="utf-8",
+                    decode_responses=True,
+                    socket_connect_timeout=2,
+                    socket_timeout=2,
+                )
+                await _redis_client.ping()
+                logger.info("rate_limit_redis_connected url=%s", redis_url.split("@")[-1])
+            except Exception as exc:
+                _redis_client = None
+                logger.warning("rate_limit_redis_unavailable error=%s fallback=in_memory", repr(exc))
+        else:
+            logger.info("rate_limit_redis_not_configured fallback=in_memory")
+
     @app.on_event("shutdown")
-    def on_shutdown() -> None:
+    async def on_shutdown() -> None:
+        global _redis_client
+        if _redis_client is not None:
+            try:
+                await _redis_client.aclose()
+            except Exception:
+                pass
+            _redis_client = None
         logger.info("bot_api_shutdown_complete")
 
     return app

@@ -8,3 +8,4 @@ httpx==0.28.1
 PyJWT==2.10.1
 python-multipart==0.0.20
 alembic==1.14.0
+redis[asyncio]==5.2.1

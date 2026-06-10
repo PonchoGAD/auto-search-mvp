@@ -1,4 +1,24 @@
 /* =========================
+   CSS VARIABLES
+========================= */
+
+:root {
+  --gold: #C9A84C;
+  --gold-light: #E2C47A;
+  --gold-dark: #9E7A2A;
+  --black: #080808;
+  --surface: #0E0E0E;
+  --surface-2: #141414;
+  --surface-3: #1C1C1C;
+  --cream: #F5F0E8;
+  --cream-muted: rgba(245, 240, 232, 0.65);
+  --border: rgba(201, 168, 76, 0.18);
+  --border-hover: rgba(201, 168, 76, 0.45);
+  --font-display: var(--font-cormorant), 'Cormorant Garamond', Georgia, serif;
+  --font-body: var(--font-montserrat), 'Montserrat', system-ui, sans-serif;
+}
+
+/* =========================
    GLOBAL RESET
 ========================= */
 
@@ -29,20 +49,13 @@ html {
 
 body {
   min-height: 100%;
-  background: transparent !important; /* КРИТИЧНО — не перекрываем фон */
-  color: #f8fafc;
-
-  font-family: var(--font-geist-sans), Inter, system-ui, -apple-system,
-    BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-
+  background: #080808 !important;
+  color: var(--cream);
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
-
-/* =========================
-   ROOT LAYER SAFETY
-========================= */
 
 #__next,
 html,
@@ -59,10 +72,6 @@ a {
   text-decoration: none;
 }
 
-button {
-  font-family: inherit;
-}
-
 /* =========================
    FORM ELEMENTS
 ========================= */
@@ -76,30 +85,29 @@ button {
 }
 
 /* =========================
-   SCROLLBAR (Premium Dark)
+   SCROLLBAR (Gold)
 ========================= */
 
 ::-webkit-scrollbar {
-  width: 10px;
+  width: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.8);
+  background: #0A0A0A;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(99, 102, 241, 0.4);
-  border-radius: 6px;
+  background: rgba(201, 168, 76, 0.3);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(139, 92, 246, 0.6);
+  background: rgba(201, 168, 76, 0.55);
 }
 
-/* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(99, 102, 241, 0.5) rgba(15, 23, 42, 0.8);
+  scrollbar-color: rgba(201, 168, 76, 0.35) #0A0A0A;
 }
 
 /* =========================
@@ -107,8 +115,8 @@ button {
 ========================= */
 
 ::selection {
-  background: rgba(139, 92, 246, 0.4);
-  color: white;
+  background: rgba(201, 168, 76, 0.28);
+  color: #F5F0E8;
 }
 
 /* =========================
@@ -118,12 +126,4 @@ button {
 img {
   max-width: 100%;
   display: block;
-}
-
-html, body {
-  height: 100%;
-}
-
-body {
-  background: transparent !important;
 }

@@ -24,7 +24,7 @@ type SearchResult = {
 type Option = { label: string; value: string };
 
 const BRAND_OPTIONS: Option[] = [
-  { label: "Любая", value: "" },
+  { label: "Любая марка", value: "" },
   { label: "BMW", value: "BMW" },
   { label: "Mercedes-Benz", value: "Mercedes" },
   { label: "Toyota", value: "Toyota" },
@@ -42,12 +42,12 @@ const BRAND_OPTIONS: Option[] = [
   { label: "Chery", value: "Chery" },
   { label: "Exeed", value: "Exeed" },
   { label: "Haval", value: "Haval" },
-  { label: "Li Auto (Lixiang)", value: "Li Auto" },
+  { label: "Li Auto", value: "Li Auto" },
   { label: "Zeekr", value: "Zeekr" },
 ];
 
 const PRICE_OPTIONS: Option[] = [
-  { label: "Любая", value: "" },
+  { label: "Любая цена", value: "" },
   { label: "до 1.5 млн", value: "до 1.5 млн" },
   { label: "до 2 млн", value: "до 2 млн" },
   { label: "до 2.5 млн", value: "до 2.5 млн" },
@@ -59,17 +59,17 @@ const PRICE_OPTIONS: Option[] = [
 ];
 
 const MILEAGE_OPTIONS: Option[] = [
-  { label: "Любой", value: "" },
-  { label: "до 30 тыс", value: "пробег до 30 тыс" },
-  { label: "до 50 тыс", value: "пробег до 50 тыс" },
-  { label: "до 80 тыс", value: "пробег до 80 тыс" },
-  { label: "до 100 тыс", value: "пробег до 100 тыс" },
-  { label: "до 150 тыс", value: "пробег до 150 тыс" },
-  { label: "до 200 тыс", value: "пробег до 200 тыс" },
+  { label: "Любой пробег", value: "" },
+  { label: "до 30 тыс км", value: "пробег до 30 тыс" },
+  { label: "до 50 тыс км", value: "пробег до 50 тыс" },
+  { label: "до 80 тыс км", value: "пробег до 80 тыс" },
+  { label: "до 100 тыс км", value: "пробег до 100 тыс" },
+  { label: "до 150 тыс км", value: "пробег до 150 тыс" },
+  { label: "до 200 тыс км", value: "пробег до 200 тыс" },
 ];
 
 const CONDITION_OPTIONS: Option[] = [
-  { label: "Любое", value: "" },
+  { label: "Любое состояние", value: "" },
   { label: "без окраса", value: "без окраса" },
   { label: "1–2 окраса", value: "1-2 окраса" },
   { label: "не бит", value: "не бит" },
@@ -81,7 +81,7 @@ const CONDITION_OPTIONS: Option[] = [
 ];
 
 const FUEL_OPTIONS: Option[] = [
-  { label: "Любое", value: "" },
+  { label: "Любое топливо", value: "" },
   { label: "бензин", value: "бензин" },
   { label: "дизель", value: "дизель" },
   { label: "гибрид", value: "гибрид" },
@@ -133,13 +133,13 @@ export default function HomePage() {
       try {
         const res = await fetch("/api/v1/search", {
           method: "POST",
-          headers: { "Content-Type": "application/json"},
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: q }),
           signal: abortRef.current.signal,
         });
 
         if (!res.ok) {
-          throw new Error(`Search request failed: ${res.status}`);
+          throw new Error(`Ошибка запроса: ${res.status}`);
         }
 
         const data = await res.json();
@@ -189,13 +189,16 @@ export default function HomePage() {
         <header className={styles.header}>
           <div className={styles.headerTop}>
             <div className={styles.brandBlock}>
-              <h1 className={styles.title}>
-                <span className={styles.titleStrongItalic}>
-                  Поисковая платформа авто-объявлений
-                </span>
-              </h1>
+              <div className={styles.logoRow}>
+                <span className={styles.logoWord}>Auto</span>
+                <span className={styles.logoDot}>&nbsp;</span>
+                <span className={styles.logoWord}>Lux</span>
+              </div>
+              <p className={styles.tagline}>
+                Семантический поиск автомобилей
+              </p>
               <p className={styles.subtitle}>
-                Семантический поиск автомобилей по форумам и маркетплейсам
+                Форумы &nbsp;&middot;&nbsp; Маркетплейсы &nbsp;&middot;&nbsp; Частные продажи
               </p>
             </div>
 
@@ -208,15 +211,18 @@ export default function HomePage() {
               </Link>
             </nav>
           </div>
+
+          <div className={styles.divider} />
         </header>
 
         <section className={styles.panel}>
           <div className={styles.searchRow}>
             <input
               className={styles.searchInput}
-              placeholder="BMW до 2 млн, пробег до 50 тыс, без окраса"
+              placeholder="BMW X5 до 3 млн, пробег до 80 тыс, без окраса"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             />
 
             <button
@@ -224,11 +230,11 @@ export default function HomePage() {
               onClick={() => handleSearch()}
               disabled={loading}
             >
-              {loading ? "Ищем…" : "Найти"}
+              {loading ? "Поиск..." : "Найти"}
             </button>
 
             <button className={styles.secondaryBtn} onClick={clear}>
-              Очистить
+              Сбросить
             </button>
           </div>
 
@@ -241,12 +247,12 @@ export default function HomePage() {
           </div>
 
           <div className={styles.hintRow}>
-            <div className={styles.hintLabel}>Запрос:</div>
-            <div className={styles.hintValue}>{composedQuery || "—"}</div>
+            <div className={styles.hintLabel}>Запрос</div>
+            <div className={styles.hintValue}>{composedQuery || "введите параметры поиска"}</div>
           </div>
         </section>
 
-        {error && <div className={styles.error}>❌ {error}</div>}
+        {error && <div className={styles.error}>{error}</div>}
 
         {loading && (
           <section className={styles.loadingBlock}>
@@ -265,7 +271,7 @@ export default function HomePage() {
         )}
 
         <footer className={styles.footer}>
-          SaaS Semantic Auto Search © 2026
+          AutoLux &nbsp;&middot;&nbsp; Semantic Auto Search &nbsp;&middot;&nbsp; 2026
         </footer>
       </div>
     </div>

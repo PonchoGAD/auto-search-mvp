@@ -31,7 +31,16 @@ STOP_TOKENS = {
     "пробег", "без", "окрас", "бит", "крашен", "цена", "купить", "продажа",
     "машина", "авто", "тачка", "седан", "кроссовер", "внедорожник",
     "свежая", "свежий", "новая", "новый", "последний", "последняя",
+    "цвет", "цвета", "покраска",
 }
+
+# Regex matching Russian color words (stem-based)
+_COLOR_RE = re.compile(
+    r"\b(красн\w*|белый?|белая|белое|черн\w*|чёрн\w*|сер(?:ый|ая|ое|ебрист\w*)|"
+    r"синий?|синяя|голуб\w*|зелен\w*|желт\w*|коричнев\w*|бежев\w*|"
+    r"оранжев\w*|фиолетов\w*|золотист\w*|бордов\w*|вишнев\w*)\b",
+    re.I | re.UNICODE,
+)
 
 
 def _normalize_spaces(text: str) -> str:
@@ -190,34 +199,19 @@ def _extract_price_min(text: str) -> Optional[int]:
     return None
 
 
-def _extract_mileage_min(
-        text: str
-)->Optional[int]:
+def _extract_mileage_min(text: str) -> Optional[int]:
+    text = _normalize_thousands_sep(text)
 
-    patterns=[
-
-        r"\bот\s*(\d+)\s*(тыс|км|km|к)\b",
-
-        r"\bпробег\s*от\s*(\d+)\s*(тыс|км|km|к)\b",
-
+    patterns = [
+        r"\bот\s*(\d+(?:[.,]\d+)?)\s*(тыс|км|km|к)\b",
+        r"\bпробег\s*от\s*(\d+(?:[.,]\d+)?)\s*(тыс|км|km|к)\b",
     ]
 
     for p in patterns:
-
-        m=re.search(
-            p,
-            text,
-            re.I
-        )
-
+        m = re.search(p, text, re.I)
         if not m:
             continue
-
-        v=_parse_mileage_value(
-            m.group(1),
-            m.group(2)
-        )
-
+        v = _parse_mileage_value(m.group(1), m.group(2))
         if v:
             return v
 
@@ -225,31 +219,19 @@ def _extract_mileage_min(
 
 
 def _extract_mileage_max(text: str):
+    # Нормализуем 120.000 → 120000 перед применением regex
+    text = _normalize_thousands_sep(text)
 
-    patterns=[
-
-        r"\bдо\s*(\d+)\s*(тыс|км|km|к)\b",
-
-        r"\bпробег.*?до\s*(\d+)\s*(тыс|км|km|к)\b"
-
+    patterns = [
+        r"\bдо\s*(\d+(?:[.,]\d+)?)\s*(тыс|км|km|к)\b",
+        r"\bпробег.*?до\s*(\d+(?:[.,]\d+)?)\s*(тыс|км|km|к)\b",
     ]
 
     for p in patterns:
-
-        m=re.search(
-            p,
-            text,
-            re.I
-        )
-
+        m = re.search(p, text, re.I)
         if not m:
             continue
-
-        v=_parse_mileage_value(
-            m.group(1),
-            m.group(2)
-        )
-
+        v = _parse_mileage_value(m.group(1), m.group(2))
         if v:
             return v
 
@@ -338,6 +320,72 @@ def _extract_city(text:str):
             return canonical
 
     return None
+
+
+def _normalize_thousands_sep(text: str) -> str:
+    """120.000 или 120,000 → 120000 (точка/запятая как разделитель тысяч в русском)"""
+    # Только если после разделителя ровно 3 цифры (не десятичная дробь)
+    return re.sub(r"\b(\d{1,3})[.,](\d{3})\b", r"\1\2", text)
+
+
+def _extract_year(text: str) -> tuple:
+    """Возвращает (year_min, year_max) из текста запроса."""
+    current_year = datetime.utcnow().year
+    year_min: Optional[int] = None
+    year_max: Optional[int] = None
+
+    # Диапазон: "2020-2023" или "2020–2023"
+    m = re.search(r"\b((?:19|20)\d{2})\s*[-–—]\s*((?:19|20)\d{2})\b", text)
+    if m:
+        y1, y2 = int(m.group(1)), int(m.group(2))
+        if 1990 <= y1 <= current_year + 1 and 1990 <= y2 <= current_year + 1:
+            return min(y1, y2), max(y1, y2)
+
+    # "от X года" / "с X" / "после X"
+    m = re.search(r"\b(?:от|с|после)\s*((?:19|20)\d{2})\b", text, re.I)
+    if m:
+        y = int(m.group(1))
+        if 1990 <= y <= current_year + 1:
+            year_min = y
+
+    # "до X года" / "не старше X"
+    for pat in [
+        r"\bдо\s*((?:19|20)\d{2})\b",
+        r"\bне\s+старше\s+((?:19|20)\d{2})\b",
+    ]:
+        m = re.search(pat, text, re.I)
+        if m:
+            y = int(m.group(1))
+            if 1990 <= y <= current_year + 1:
+                year_max = y
+                break
+
+    if year_min is not None or year_max is not None:
+        return year_min, year_max
+
+    # Точный год: "2023 года" / "2023 год" / "2023 г."
+    m = re.search(r"\b((?:19|20)\d{2})\s*(?:год[ауе]?|г\.?)\b", text, re.I)
+    if m:
+        y = int(m.group(1))
+        if 1990 <= y <= current_year + 1:
+            return y, y
+
+    # Одиночный год без контекста цены/пробега
+    for m in re.finditer(r"\b((?:19|20)\d{2})\b", text):
+        y = int(m.group(1))
+        if 1990 <= y <= current_year + 1:
+            ctx_start = max(0, m.start() - 25)
+            ctx = text[ctx_start: m.end() + 25].lower()
+            if not re.search(r"(?:млн|тыс|руб|₽|км\b|km\b)", ctx):
+                return y, y
+
+    return year_min, year_max
+
+
+def _extract_color(text: str) -> Optional[str]:
+    """Извлекает цвет из запроса. Возвращает канонический вид ('красный' и т.п.)."""
+    m = _COLOR_RE.search(text)
+    return m.group(1).lower() if m else None
 
 
 def _extract_fuel(text: str) -> Optional[str]:
@@ -431,15 +479,25 @@ def _parse_with_fallback(
 
     result.brands=possible_brands
 
-    result.fuel=_extract_fuel(text)
+    result.fuel = _extract_fuel(text)
 
-    mileage_context=_has_mileage_context(
-        text
-    )
+    # Год выпуска
+    year_min, year_max = _extract_year(text)
+    if year_min is not None:
+        result.year_min = year_min
+    if year_max is not None:
+        result.year_max = year_max
 
-    result.mileage_max=_extract_mileage_max(text)
+    # Цвет → добавляем в keywords для семантического и BM25 поиска
+    color = _extract_color(text)
+    if color and color not in result.keywords:
+        result.keywords.append(color)
 
-    result.mileage_min=_extract_mileage_min(text)
+    mileage_context = _has_mileage_context(text)
+
+    result.mileage_max = _extract_mileage_max(text)
+
+    result.mileage_min = _extract_mileage_min(text)
 
     if result.mileage_max is not None:
 

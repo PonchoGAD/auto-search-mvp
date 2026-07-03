@@ -400,17 +400,15 @@ class SearchService:
                 except Exception:
                     reasons.append("price_invalid")
 
-        # Пробег (УСИЛЕННЫЙ ФИЛЬТР: Не пропускать None, если пробег задан пользователем)
+        # Пробег: только жёсткий отсев по overflow; null пробег не отбрасываем
+        # (большинство объявлений не имеют пробега → лучше показать с низким score, чем 0 результатов)
         mileage_val = payload.get("mileage")
-        if structured.mileage_max is not None:
-            if mileage_val is None:
-                reasons.append("mileage_missing")
-            else:
-                try:
-                    if float(mileage_val) > float(structured.mileage_max):
-                        reasons.append("mileage_overflow")
-                except Exception:
-                    reasons.append("mileage_invalid")
+        if structured.mileage_max is not None and mileage_val is not None:
+            try:
+                if float(mileage_val) > float(structured.mileage_max):
+                    reasons.append("mileage_overflow")
+            except Exception:
+                reasons.append("mileage_invalid")
 
         # Год (Строгая фильтрация на верхнюю и нижнюю границы)
         year_val = payload.get("year")
@@ -768,10 +766,9 @@ class SearchService:
         # Filtering at DB level would exclude 90%+ of real results.
         # Fuel matching is handled as a soft signal in _score_candidate.
 
-        if structured.mileage_max is not None:
-            must_conditions.append(
-                FieldCondition(key="mileage", range=Range(lte=int(structured.mileage_max)))
-            )
+        # Mileage is also NOT added to Qdrant hard filter for the same reason:
+        # most scraped listings have mileage=null. A hard Range filter would exclude them all.
+        # Mileage constraint is enforced in _check_discard_reasons (overflow only) and _mileage_score.
 
         if structured.price_max is not None:
             must_conditions.append(

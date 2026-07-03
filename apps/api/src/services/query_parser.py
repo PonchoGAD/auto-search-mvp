@@ -13,15 +13,64 @@ MODEL_TOKEN_RE = re.compile(
 )
 
 CITY_MAP = {
-    "москва": "moskva",
-    "спб": "spb",
-    "питер": "spb",
-    "санкт-петербург": "spb",
-    "екатеринбург": "ekaterinburg",
-    "казань": "kazan",
-    "новосибирск": "novosibirsk",
-    "алматы": "almaty",
-    "астана": "astana",
+    # Москва / Moscow
+    "москва": "moskva", "мск": "moskva", "moscow": "moskva",
+    # Санкт-Петербург
+    "санкт-петербург": "spb", "спб": "spb", "питер": "spb", "петербург": "spb",
+    "saint petersburg": "spb", "saint-petersburg": "spb", "st petersburg": "spb",
+    "st. petersburg": "spb", "peter": "spb",
+    # Екатеринбург
+    "екатеринбург": "ekaterinburg", "екб": "ekaterinburg", "eburg": "ekaterinburg",
+    "yekaterinburg": "ekaterinburg", "ekaterinburg": "ekaterinburg",
+    # Казань
+    "казань": "kazan", "kazan": "kazan",
+    # Новосибирск
+    "новосибирск": "novosibirsk", "нск": "novosibirsk", "novosibirsk": "novosibirsk",
+    # Краснодар
+    "краснодар": "krasnodar", "краснодарский": "krasnodar", "krasnodar": "krasnodar",
+    # Ростов-на-Дону
+    "ростов": "rostov", "ростов-на-дону": "rostov", "rostov": "rostov",
+    "rostov-on-don": "rostov",
+    # Нижний Новгород
+    "нижний новгород": "nizhny_novgorod", "нн": "nizhny_novgorod", "нижний": "nizhny_novgorod",
+    "nizhny novgorod": "nizhny_novgorod", "nizhni novgorod": "nizhny_novgorod",
+    # Уфа
+    "уфа": "ufa", "ufa": "ufa",
+    # Самара
+    "самара": "samara", "samara": "samara",
+    # Челябинск
+    "челябинск": "chelyabinsk", "чел": "chelyabinsk", "chelyabinsk": "chelyabinsk",
+    # Омск
+    "омск": "omsk", "omsk": "omsk",
+    # Красноярск
+    "красноярск": "krasnoyarsk", "krasnoyarsk": "krasnoyarsk",
+    # Пермь
+    "пермь": "perm", "perm": "perm",
+    # Воронеж
+    "воронеж": "voronezh", "voronezh": "voronezh",
+    # Волгоград
+    "волгоград": "volgograd", "volgograd": "volgograd",
+    # Тюмень
+    "тюмень": "tyumen", "tyumen": "tyumen",
+    # Иркутск
+    "иркутск": "irkutsk", "irkutsk": "irkutsk",
+    # Хабаровск
+    "хабаровск": "khabarovsk", "khabarovsk": "khabarovsk",
+    # Владивосток
+    "владивосток": "vladivostok", "vlad": "vladivostok", "vladivostok": "vladivostok",
+    # Барнаул
+    "барнаул": "barnaul", "barnaul": "barnaul",
+    # Тольятти
+    "тольятти": "tolyatti", "тлт": "tolyatti", "tolyatti": "tolyatti", "togliatti": "tolyatti",
+    # Сочи
+    "сочи": "sochi", "sochi": "sochi",
+    # Ярославль
+    "ярославль": "yaroslavl", "yaroslavl": "yaroslavl",
+    # Ульяновск
+    "ульяновск": "ulyanovsk", "ulyanovsk": "ulyanovsk",
+    # Казахстан
+    "алматы": "almaty", "almaty": "almaty",
+    "астана": "astana", "astana": "astana", "нур-султан": "astana",
 }
 
 STOP_TOKENS = {
@@ -515,22 +564,19 @@ def _parse_with_fallback(
     result.city=_extract_city(text)
 
     if result.city:
-
-        city_region={
-
-            "moskva":"moscow_region",
-
-            "spb":"spb_region",
-
-            "almaty":"almaty_region",
-
-            "astana":"astana_region"
-
+        city_region = {
+            "moskva": "moscow_region",
+            "spb": "spb_region",
+            "almaty": "almaty_region",
+            "astana": "astana_region",
+            "krasnodar": "krasnodar_region",
+            "rostov": "rostov_region",
+            "ekaterinburg": "sverdlovsk_region",
+            "kazan": "tatarstan_region",
+            "novosibirsk": "novosibirsk_region",
+            "nizhny_novgorod": "nizhny_novgorod_region",
         }
-
-        result.region=city_region.get(
-            result.city
-        )
+        result.region = city_region.get(result.city)
 
     tokens=re.findall(
         r"[a-zа-я0-9-]+",

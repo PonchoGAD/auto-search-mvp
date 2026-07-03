@@ -154,22 +154,44 @@ def fetch_detail_page(session: requests.Session, url: str) -> str | None:
         return None
 
 
-def fetch_drom_ru(limit: int = 50) -> List[Dict]:
+# Drom.ru city slugs for multi-city scraping
+_DROM_CITY_SLUGS = [
+    "moscow", "spb", "ekb", "novosibirsk", "krasnodar",
+    "rostov", "kazan", "chelyabinsk", "omsk", "samara",
+    "ufa", "krasnoyarsk", "perm", "voronezh", "volgograd",
+    "irkutsk", "tyumen", "khabarovsk", "vladivostok", "barnaul",
+    "nnov", "tolyatti", "sochi", "yaroslavl", "ulyanovsk",
+]
+
+
+def _build_drom_urls() -> List[str]:
+    """Build list of pages to scrape: global feed + one page per city."""
+    city_slugs_env = os.getenv("DROM_CITIES", "").strip()
+    slugs = [c.strip() for c in city_slugs_env.split(",") if c.strip()] if city_slugs_env else _DROM_CITY_SLUGS
+
+    urls = []
+    # Global feed: 2 pages
+    for page in range(1, 3):
+        urls.append(f"{DROM_BASE_URL}?page={page}")
+    # City-specific: 1 page each (enough diversity, avoids rate-limit)
+    for slug in slugs:
+        urls.append(f"{DROM_BASE_URL}{slug}/?page=1")
+    return urls
+
+
+def fetch_drom_ru(limit: int = 100) -> List[Dict]:
     """
     Stable Drom.ru ingestion (NO Playwright).
-    HTML-only, VPS-safe.
+    HTML-only, VPS-safe. Scrapes global feed + all major Russian cities.
     """
 
     items: List[Dict] =[]
     seen = set()
     filtered = 0
 
-    # 🔥 PAGINATION: pages 1..5
-    for page in range(1, 4):
+    for url in _build_drom_urls():
         if len(items) >= limit:
             break
-
-        url = f"{DROM_BASE_URL}?page={page}"
 
         headers = {
             **HEADERS,

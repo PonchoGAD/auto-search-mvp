@@ -31,6 +31,26 @@ from db.session import SessionLocal
 from db.models import SearchHistory
 
 
+# Maps query_parser canonical city codes → Russian lowercase as stored in Qdrant
+_CITY_CANONICAL_TO_STORED: Dict[str, str] = {
+    "moskva": "москва",
+    "spb": "санкт-петербург",
+    "ekaterinburg": "екатеринбург",
+    "kazan": "казань",
+    "novosibirsk": "новосибирск",
+    "almaty": "алматы",
+    "astana": "астана",
+}
+
+# Maps canonical region codes → Russian lowercase as stored in Qdrant
+_REGION_CANONICAL_TO_STORED: Dict[str, str] = {
+    "moscow_region": "московская область",
+    "spb_region": "ленинградская область",
+    "almaty_region": "алматы",
+    "astana_region": "астана",
+}
+
+
 def _normalize_model_strict(v: str) -> str:
     v = (v or "").lower()
     v = v.replace("-", "").replace("_", "").replace(" ", "")
@@ -427,21 +447,23 @@ class SearchService:
                 except Exception:
                     reasons.append("year_invalid")
 
-        # Город и Регион (Строгая фильтрация при наличии в запросе)
+        # Город и Регион — сравниваем с переведёнными в русскую форму значениями
         city_query = getattr(structured, "city", None)
         if city_query:
+            stored_city_q = _CITY_CANONICAL_TO_STORED.get(city_query, city_query)
             payload_city = payload.get("city")
             if not payload_city:
                 reasons.append("city_missing")
-            elif _normalize_token_text(payload_city) != _normalize_token_text(city_query):
+            elif _normalize_token_text(payload_city) != _normalize_token_text(stored_city_q):
                 reasons.append("city_mismatch")
 
         region_query = getattr(structured, "region", None)
         if region_query:
+            stored_region_q = _REGION_CANONICAL_TO_STORED.get(region_query, region_query)
             payload_region = payload.get("region")
             if not payload_region:
                 reasons.append("region_missing")
-            elif _normalize_token_text(payload_region) != _normalize_token_text(region_query):
+            elif _normalize_token_text(payload_region) != _normalize_token_text(stored_region_q):
                 reasons.append("region_mismatch")
 
         return len(reasons) == 0, reasons
@@ -775,17 +797,19 @@ class SearchService:
                 FieldCondition(key="price", range=Range(lte=int(structured.price_max)))
             )
 
-        # Поддержка оптимизации запросов по городам и регионам
+        # City / region — translate canonical code to stored Russian form before filtering
         city_filter_value = getattr(structured, "city", None)
         if city_filter_value:
+            stored_city = _CITY_CANONICAL_TO_STORED.get(city_filter_value, city_filter_value)
             must_conditions.append(
-                FieldCondition(key="city", match=MatchValue(value=city_filter_value))
+                FieldCondition(key="city", match=MatchValue(value=stored_city))
             )
 
         region_filter_value = getattr(structured, "region", None)
         if region_filter_value:
+            stored_region = _REGION_CANONICAL_TO_STORED.get(region_filter_value, region_filter_value)
             must_conditions.append(
-                FieldCondition(key="region", match=MatchValue(value=region_filter_value))
+                FieldCondition(key="region", match=MatchValue(value=stored_region))
             )
 
         year_range_args = {}

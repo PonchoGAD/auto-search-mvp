@@ -239,16 +239,12 @@ def _extract_mileage_max(text: str):
 
 
 def _extract_price_max(
-        text:str,
-        mileage_context:bool
+        text: str,
+        mileage_context: bool
 ):
-
-    if mileage_context and re.search(
-            r"\d+\s*(км|тыс\s*км|пробег)",
-            text,
-            re.I
-    ):
-        return None
+    # НЕ делаем ранний return при mileage_context — перебор паттернов ниже
+    # сам пропускает тыс/к/км единицы, но пропускает "млн".
+    # Это позволяет одновременно извлечь и пробег и цену ("до 80 тыс км до 3 млн").
 
     patterns=[
 
@@ -334,11 +330,20 @@ def _extract_year(text: str) -> tuple:
     year_min: Optional[int] = None
     year_max: Optional[int] = None
 
-    # Диапазон: "2020-2023" или "2020–2023"
+    # Диапазон с дефисом: "2020-2023" или "2020–2023"
     m = re.search(r"\b((?:19|20)\d{2})\s*[-–—]\s*((?:19|20)\d{2})\b", text)
     if m:
         y1, y2 = int(m.group(1)), int(m.group(2))
         if 1990 <= y1 <= current_year + 1 and 1990 <= y2 <= current_year + 1:
+            return min(y1, y2), max(y1, y2)
+
+    # Два соседних года без разделителя: "2020 2021" → диапазон
+    m = re.search(r"\b((?:19|20)\d{2})\s+((?:19|20)\d{2})\b", text)
+    if m:
+        y1, y2 = int(m.group(1)), int(m.group(2))
+        if (1990 <= y1 <= current_year + 1 and
+                1990 <= y2 <= current_year + 1 and
+                1 <= abs(y2 - y1) <= 8):
             return min(y1, y2), max(y1, y2)
 
     # "от X года" / "с X" / "после X"
@@ -499,16 +504,9 @@ def _parse_with_fallback(
 
     result.mileage_min = _extract_mileage_min(text)
 
-    if result.mileage_max is not None:
-
-        result.price_max=None
-
-    else:
-
-        result.price_max=_extract_price_max(
-            text,
-            mileage_context
-        )
+    # Извлекаем цену независимо от пробега — _extract_price_max сама
+    # игнорирует единицы пробега (тыс/км/к), но пропускает "млн"
+    result.price_max = _extract_price_max(text, mileage_context)
 
     result.price_min=_extract_price_min(
         text

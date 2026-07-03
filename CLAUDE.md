@@ -222,6 +222,27 @@ docker exec auto-search-api python -c "from db.session import engine, Base; Base
 
 ---
 
+## VPS Access
+
+```
+IP:   65.21.159.255
+User: root
+Key:  ~/.ssh/gad_deploy   (локальная машина разработчика)
+```
+
+SSH одной строкой:
+```bash
+ssh -i ~/.ssh/gad_deploy root@65.21.159.255
+```
+
+Обновить только API без пересборки всего стека:
+```bash
+ssh -i ~/.ssh/gad_deploy root@65.21.159.255 \
+  "cd /opt/auto-search-mvp && git pull && docker compose -f infra/docker/docker-compose.prod.yml up -d --build --no-deps api"
+```
+
+---
+
 ## Deployment Sequence (VPS — /opt/auto-search-mvp)
 
 ```bash

@@ -412,11 +412,11 @@ class SearchService:
             elif payload_brand != brand_value:
                 reasons.append("brand_mismatch")
 
-        # Модель
+        # Модель: отбрасываем только явное НЕСООТВЕТСТВИЕ (cs35 vs x5_plus).
+        # model_missing (payload_model=None) не является причиной отклонения —
+        # многие объявления не имеют распознанной модели в payload, но физически совпадают.
         if model_value:
-            if not payload_model:
-                reasons.append("model_missing")
-            elif not _model_soft_match(payload_model, model_value):
+            if payload_model and not _model_soft_match(payload_model, model_value):
                 reasons.append("model_mismatch")
 
         # Топливо: отклоняем только явное НЕСООТВЕТСТВИЕ (diesel vs petrol).
@@ -428,23 +428,21 @@ class SearchService:
             if payload_fuel and payload_fuel != fuel_query:
                 reasons.append("fuel_mismatch")
 
-        # Цена (УСИЛЕННЫЙ ФИЛЬТР: Не пропускать None, если цена явно задана пользователем)
+        # Цена: только жёсткий отсев по overflow/underflow; null цену не отбрасываем
+        # (аналогично mileage — лучше показать объявление без цены с низким score, чем 0 результатов)
         price_val = payload.get("price")
         price_max_query = structured.price_max
         price_min_query = getattr(structured, "price_min", None)
 
-        if price_max_query is not None or price_min_query is not None:
-            if price_val is None:
-                reasons.append("price_missing")
-            else:
-                try:
-                    price_f = float(price_val)
-                    if price_max_query is not None and price_f > float(price_max_query):
-                        reasons.append("price_overflow")
-                    if price_min_query is not None and price_f < float(price_min_query):
-                        reasons.append("price_underflow")
-                except Exception:
-                    reasons.append("price_invalid")
+        if price_val is not None and (price_max_query is not None or price_min_query is not None):
+            try:
+                price_f = float(price_val)
+                if price_max_query is not None and price_f > float(price_max_query):
+                    reasons.append("price_overflow")
+                if price_min_query is not None and price_f < float(price_min_query):
+                    reasons.append("price_underflow")
+            except Exception:
+                reasons.append("price_invalid")
 
         # Пробег: только жёсткий отсев по overflow; null пробег не отбрасываем
         # (большинство объявлений не имеют пробега → лучше показать с низким score, чем 0 результатов)
@@ -818,10 +816,9 @@ class SearchService:
         # most scraped listings have mileage=null. A hard Range filter would exclude them all.
         # Mileage constraint is enforced in _check_discard_reasons (overflow only) and _mileage_score.
 
-        if structured.price_max is not None:
-            must_conditions.append(
-                FieldCondition(key="price", range=Range(lte=int(structured.price_max)))
-            )
+        # Price is NOT added to Qdrant hard filter: many listings have price=None
+        # (detail page blocked by captcha). A Range filter would exclude them all.
+        # Price overflow is enforced in _check_discard_reasons instead.
 
         # City / region — translate canonical code to stored Russian form before filtering
         city_filter_value = getattr(structured, "city", None)

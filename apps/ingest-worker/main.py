@@ -12,7 +12,6 @@ from sqlalchemy.exc import OperationalError
 from db.session import engine, SessionLocal
 from db.models import RawDocument, Base
 
-from sources.auto_ru import fetch_auto_ru_serp
 from sources.avito import fetch_avito_serp
 from sources.drom import fetch_drom_ru
 from sources.telegram import fetch_telegram
@@ -149,15 +148,12 @@ def retry_sync(func, attempts=3, sleep_s=3):
 async def run_cycle():
     print("[INGEST] run_cycle STARTED", flush=True)
 
-    auto_items = await safe_await("auto_ru", fetch_auto_ru_serp(limit=50), timeout_s=180)
-    await asyncio.sleep(random.uniform(0.5, 1.5))
-
     avito_items = await safe_await("avito", fetch_avito_serp(limit=50), timeout_s=180)
     await asyncio.sleep(random.uniform(0.5, 1.5))
 
     # drom sync — с retry (429 protection)
     try:
-        drom_items = retry_sync(lambda: fetch_drom_ru(limit=50)) or []
+        drom_items = retry_sync(lambda: fetch_drom_ru(limit=100)) or []
     except Exception as e:
         print(f"[INGEST][ERROR] drom: {e}", flush=True)
         drom_items = []
@@ -189,8 +185,7 @@ async def run_cycle():
     # TOTAL (РАСШИРЕНО)
     # =========================
     total = (
-        (auto_items or [])
-        + (avito_items or [])
+        (avito_items or [])
         + (drom_items or [])
         + (telegram_items or [])
         + benz_items

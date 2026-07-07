@@ -379,3 +379,28 @@ class NotificationLog(Base, TimestampMixin):
         Index("ix_notifications_status_created_at", "status", "created_at"),
         CheckConstraint("status IN ('pending', 'sent', 'failed')", name="ck_notifications_status_valid"),
     )
+
+
+class TelegramChannel(Base, TimestampMixin):
+    """Telegram channels/chats added by admin as car listing sources."""
+
+    __tablename__ = "telegram_channels"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    username: Mapped[str] = mapped_column(
+        String(128),
+        unique=True,
+        nullable=False,
+        index=True,
+        comment="@username without leading @",
+    )
+    display_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    added_by_admin_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+
+    __table_args__ = (
+        Index("ix_telegram_channels_active", "is_active"),
+    )

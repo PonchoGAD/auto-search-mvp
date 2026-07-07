@@ -31,7 +31,8 @@ def admin_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="Expire подписки", callback_data="admin:expire_subscriptions")
     builder.button(text="Ошибки системы", callback_data="admin:error_logs")
 
+    builder.button(text="Каналы источники", callback_data="admin:channels_list")
     builder.button(text="В меню", callback_data="menu:main")
 
-    builder.adjust(2, 2, 2, 2, 2, 2, 2, 2, 1)
+    builder.adjust(2, 2, 2, 2, 2, 2, 2, 2, 2, 1)
     return builder.as_markup()

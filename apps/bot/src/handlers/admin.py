@@ -19,6 +19,7 @@ router = Router()
 
 
 _manual_subscription_state: dict[int, dict[str, Any]] = {}
+_add_channel_state: set[int] = set()  # admin IDs currently entering a channel
 
 
 def _is_admin(user_id: int) -> bool:
@@ -152,7 +153,115 @@ async def cancel_admin_flow(message: Message) -> None:
         return
 
     _manual_subscription_state.pop(message.from_user.id, None)
+    _add_channel_state.discard(message.from_user.id)
     await message.answer("Админ-действие отменено.", reply_markup=admin_keyboard())
+
+
+@router.message(Command("channel_remove"))
+async def cmd_channel_remove(message: Message) -> None:
+    if not message.from_user or not _is_admin(message.from_user.id):
+        await message.answer("Нет доступа.")
+        return
+
+    args = (message.text or "").split(maxsplit=1)
+    if len(args) < 2 or not args[1].strip().isdigit():
+        await message.answer("Использование: /channel_remove &lt;id&gt;")
+        return
+
+    channel_id = int(args[1].strip())
+    try:
+        async with httpx.AsyncClient(timeout=settings.BOT_API_TIMEOUT_SEC) as client:
+            result = await client.delete(
+                f"{settings.bot_api_url}/internal/admin/tg-channels/{channel_id}",
+                headers=_internal_headers(),
+            )
+            result.raise_for_status()
+            ch = result.json()
+        await message.answer(f"Канал @{_escape_html(ch['username'])} удалён.", reply_markup=admin_keyboard())
+    except Exception as exc:
+        await message.answer(_api_error_message(exc), reply_markup=admin_keyboard())
+
+
+@router.message(Command("channel_toggle"))
+async def cmd_channel_toggle(message: Message) -> None:
+    if not message.from_user or not _is_admin(message.from_user.id):
+        await message.answer("Нет доступа.")
+        return
+
+    args = (message.text or "").split(maxsplit=1)
+    if len(args) < 2 or not args[1].strip().isdigit():
+        await message.answer("Использование: /channel_toggle &lt;id&gt;")
+        return
+
+    channel_id = int(args[1].strip())
+    try:
+        async with httpx.AsyncClient(timeout=settings.BOT_API_TIMEOUT_SEC) as client:
+            result = await client.patch(
+                f"{settings.bot_api_url}/internal/admin/tg-channels/{channel_id}/toggle",
+                headers=_internal_headers(),
+            )
+            result.raise_for_status()
+            ch = result.json()
+        state = "активирован" if ch["is_active"] else "приостановлен"
+        await message.answer(f"Канал @{_escape_html(ch['username'])} {state}.", reply_markup=admin_keyboard())
+    except Exception as exc:
+        await message.answer(_api_error_message(exc), reply_markup=admin_keyboard())
+
+
+@router.message(lambda m: m.from_user and m.from_user.id in _add_channel_state)
+async def add_channel_flow(message: Message) -> None:
+    if not message.from_user or not _is_admin(message.from_user.id):
+        await message.answer("Нет доступа.")
+        return
+
+    admin_id = message.from_user.id
+    _add_channel_state.discard(admin_id)
+
+    raw = (message.text or "").strip()
+    if not raw:
+        await message.answer("Пустое значение — отменено.", reply_markup=admin_keyboard())
+        return
+
+    # Normalize: extract username from t.me link or @mention
+    username = raw
+    if "t.me/" in username:
+        username = username.split("t.me/")[-1].strip("/").split("?")[0]
+    username = username.lstrip("@").strip().lower()
+
+    if not username:
+        await message.answer("Не удалось распознать канал.", reply_markup=admin_keyboard())
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.BOT_API_TIMEOUT_SEC) as client:
+            result = await _admin_post(
+                client,
+                "/internal/admin/tg-channels",
+                json_payload={
+                    "username": username,
+                    "added_by_admin_id": admin_id,
+                },
+            )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 409:
+            await message.answer(
+                f"Канал <b>@{_escape_html(username)}</b> уже добавлен.",
+                reply_markup=admin_keyboard(),
+            )
+            return
+        await message.answer(_api_error_message(exc), reply_markup=admin_keyboard())
+        return
+    except Exception as exc:
+        await message.answer(_api_error_message(exc), reply_markup=admin_keyboard())
+        return
+
+    reactivated = result.get("reactivated", False)
+    status_word = "реактивирован" if reactivated else "добавлен"
+    await message.answer(
+        f"Канал <b>@{_escape_html(result['username'])}</b> успешно {status_word}.\n"
+        f"Он будет включён в следующий цикл сбора объявлений (каждые 15 мин).",
+        reply_markup=admin_keyboard(),
+    )
 
 
 @router.message(lambda m: m.from_user and m.from_user.id in _manual_subscription_state)
@@ -243,6 +352,88 @@ async def manual_subscription_flow(message: Message) -> None:
 
     _manual_subscription_state.pop(admin_id, None)
     await message.answer("Состояние сброшено.", reply_markup=admin_keyboard())
+
+
+def _channels_keyboard(channels: list) -> Any:
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    builder = InlineKeyboardBuilder()
+    builder.button(text="➕ Добавить канал", callback_data="channel:add")
+    for ch in channels:
+        icon = "✅" if ch["is_active"] else "⏸"
+        label = ch.get("display_name") or f"@{ch['username']}"
+        toggle_text = f"{'⏸ Стоп' if ch['is_active'] else '▶ Запуск'} {label}"
+        builder.button(text=toggle_text, callback_data=f"channel:toggle:{ch['id']}")
+        builder.button(text=f"🗑 {label}", callback_data=f"channel:remove:{ch['id']}")
+    builder.button(text="◀ Назад", callback_data="admin:system_status")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("channel:"))
+async def channel_callbacks(callback: CallbackQuery) -> None:
+    if not callback.from_user or not _is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    parts = (callback.data or "").split(":")
+    action = parts[1] if len(parts) > 1 else ""
+
+    if action == "add":
+        _add_channel_state.add(callback.from_user.id)
+        if callback.message:
+            await callback.message.answer(
+                "Отправьте ссылку или @username канала.\n"
+                "Примеры: <code>@cars_russia</code>, <code>https://t.me/cars_russia</code>, <code>cars_russia</code>\n\n"
+                "Для отмены отправьте /cancel_admin",
+            )
+        await callback.answer()
+        return
+
+    channel_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+    if channel_id is None:
+        await callback.answer("Некорректный ID", show_alert=True)
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.BOT_API_TIMEOUT_SEC) as client:
+            if action == "toggle":
+                result = await client.patch(
+                    f"{settings.bot_api_url}/internal/admin/tg-channels/{channel_id}/toggle",
+                    headers=_internal_headers(),
+                )
+                result.raise_for_status()
+                ch = result.json()
+                state = "активирован" if ch["is_active"] else "приостановлен"
+                await callback.answer(f"@{ch['username']} {state}", show_alert=True)
+
+            elif action == "remove":
+                result = await client.delete(
+                    f"{settings.bot_api_url}/internal/admin/tg-channels/{channel_id}",
+                    headers=_internal_headers(),
+                )
+                result.raise_for_status()
+                ch = result.json()
+                await callback.answer(f"@{ch['username']} удалён", show_alert=True)
+
+    except Exception as exc:
+        logger.exception("channel action failed: %s", exc)
+        await callback.answer(_api_error_message(exc), show_alert=True)
+        return
+
+    # Refresh channels list
+    try:
+        async with httpx.AsyncClient(timeout=settings.BOT_API_TIMEOUT_SEC) as client:
+            channels = await _admin_get(client, "/internal/admin/tg-channels")
+        if callback.message:
+            lines = []
+            for ch in channels:
+                icon = "✅" if ch["is_active"] else "⏸"
+                name = _escape_html(ch.get("display_name") or f"@{ch['username']}")
+                lines.append(f"{icon} <b>{name}</b> — @{_escape_html(ch['username'])} [ID:{ch['id']}]")
+            text = "<b>Каналы-источники</b> (%d)\n\n%s" % (len(channels), "\n".join(lines) if lines else "Список пуст")
+            await callback.message.answer(text, reply_markup=_channels_keyboard(channels))
+    except Exception:
+        pass
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:"))
@@ -379,6 +570,27 @@ async def admin_callbacks(callback: CallbackQuery) -> None:
                     params={"limit": 50},
                 )
                 text = _render_stats_block("System Errors", payload)
+
+            elif action == "channels_list":
+                channels = await _admin_get(client, "/internal/admin/tg-channels")
+                if not channels:
+                    text = "<b>Каналы-источники</b>\n\nНет добавленных каналов.\n\nНажмите кнопку ниже, чтобы добавить."
+                else:
+                    lines = []
+                    for ch in channels:
+                        icon = "✅" if ch["is_active"] else "⏸"
+                        name = _escape_html(ch.get("display_name") or f"@{ch['username']}")
+                        lines.append(f"{icon} <b>{name}</b> — @{_escape_html(ch['username'])} [ID:{ch['id']}]")
+                    text = "<b>Каналы-источники</b> (%d)\n\n%s\n\n" % (len(channels), "\n".join(lines))
+                    text += "Команды:\n/channel_remove &lt;id&gt; — удалить\n/channel_toggle &lt;id&gt; — вкл/выкл"
+
+                if callback.message:
+                    await callback.message.answer(
+                        text,
+                        reply_markup=_channels_keyboard(channels if channels else []),
+                    )
+                await callback.answer()
+                return
 
             else:
                 await callback.answer("Неизвестное действие", show_alert=True)

@@ -29,31 +29,60 @@ def _get_int_env(name: str, default: int = 0) -> int:
 # HELPERS
 # =========================
 
-def load_channels() -> List[str]:
-    """
-    Загружает список Telegram-каналов из ENV.
-    Пример:
-    TG_CHANNELS=@cars_ru,@auto_moscow
-    """
-
+def _load_channels_from_env() -> List[str]:
     raw = os.getenv("TG_CHANNELS", "")
-    out =[]
-
+    out = []
     for c in raw.split(","):
         c = c.strip()
         if not c:
             continue
-
         if "t.me/" in c:
             c = c.split("t.me/")[-1].strip("/")
-            c = "@" + c
-
-        if not c.startswith("@"):
-            c = "@" + c
-
+        c = "@" + c.lstrip("@")
         out.append(c)
-
     return out
+
+
+def _load_channels_from_bot_api() -> List[str]:
+    """Fetch active channels stored in bot-api DB via internal HTTP call."""
+    bot_api_url = os.getenv("BOT_API_INTERNAL_URL", "").rstrip("/")
+    internal_key = os.getenv("BOT_API_INTERNAL_KEY", "")
+    if not bot_api_url or not internal_key:
+        return []
+
+    try:
+        import urllib.request
+        import json as _json
+        req = urllib.request.Request(
+            f"{bot_api_url}/api/v1/internal/admin/tg-channels",
+            headers={"X-Internal-Api-Key": internal_key},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = _json.load(resp)
+        channels = [f"@{ch['username']}" for ch in data if ch.get("is_active")]
+        if channels:
+            print(f"[TELEGRAM] loaded {len(channels)} channels from bot-api: {channels}", flush=True)
+        return channels
+    except Exception as e:
+        print(f"[TELEGRAM][WARN] bot-api channel fetch failed ({e}), falling back to TG_CHANNELS env", flush=True)
+        return []
+
+
+def load_channels() -> List[str]:
+    """
+    Загружает список Telegram-каналов: сначала пробует bot-api DB,
+    при недоступности — ENV переменную TG_CHANNELS.
+    """
+    api_channels = _load_channels_from_bot_api()
+    if api_channels:
+        return api_channels
+
+    env_channels = _load_channels_from_env()
+    if env_channels:
+        print(f"[TELEGRAM] loaded {len(env_channels)} channels from TG_CHANNELS env", flush=True)
+    else:
+        print("[TELEGRAM][WARN] no channels found in bot-api or TG_CHANNELS env", flush=True)
+    return env_channels
 
 
 async def _fetch_from_channel(

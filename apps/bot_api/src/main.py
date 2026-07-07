@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from src.api.admin_channels import router as admin_channels_router
 from src.api.auth import router as auth_router
 from src.api.favorites import router as favorites_router
 from src.api.health import router as health_router
@@ -251,6 +252,7 @@ def create_application() -> FastAPI:
     app.include_router(payments_router, prefix=api_prefix)
     app.include_router(search_proxy_router, prefix=api_prefix)
     app.include_router(internal_router, prefix=api_prefix)
+    app.include_router(admin_channels_router, prefix=api_prefix)
 
     @app.on_event("startup")
     async def on_startup() -> None:

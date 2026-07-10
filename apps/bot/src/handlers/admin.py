@@ -364,7 +364,7 @@ def _channels_keyboard(channels: list) -> Any:
         toggle_text = f"{'⏸ Стоп' if ch['is_active'] else '▶ Запуск'} {label}"
         builder.button(text=toggle_text, callback_data=f"channel:toggle:{ch['id']}")
         builder.button(text=f"🗑 {label}", callback_data=f"channel:remove:{ch['id']}")
-    builder.button(text="◀ Назад", callback_data="admin:system_status")
+    builder.button(text="◀ В админ-панель", callback_data="admin:panel")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -570,6 +570,12 @@ async def admin_callbacks(callback: CallbackQuery) -> None:
                     params={"limit": 50},
                 )
                 text = _render_stats_block("System Errors", payload)
+
+            elif action == "panel":
+                if callback.message:
+                    await callback.message.answer("Админ панель", reply_markup=admin_keyboard())
+                await callback.answer()
+                return
 
             elif action == "channels_list":
                 channels = await _admin_get(client, "/internal/admin/tg-channels")

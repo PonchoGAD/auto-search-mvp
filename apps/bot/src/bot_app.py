@@ -50,13 +50,13 @@ def create_dispatcher() -> Dispatcher:
 
     dp.include_router(start_router)
     dp.include_router(help_router)
+    dp.include_router(admin_router)   # must be before search_router: state handlers (add_channel, manual_sub) win over search
     dp.include_router(profile_router)
     dp.include_router(subscriptions_router)
     dp.include_router(saved_searches_router)
     dp.include_router(favorites_router)
     dp.include_router(search_router)
     dp.include_router(callbacks_router)
-    dp.include_router(admin_router)
 
     return dp
 

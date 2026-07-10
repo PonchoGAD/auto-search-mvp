@@ -7,6 +7,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def admin_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
 
+    builder.button(text="📡 Каналы источники", callback_data="admin:channels_list")
+
     builder.button(text="Статус системы", callback_data="admin:system_status")
     builder.button(text="Пользователи", callback_data="admin:user_stats")
 
@@ -31,8 +33,7 @@ def admin_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="Expire подписки", callback_data="admin:expire_subscriptions")
     builder.button(text="Ошибки системы", callback_data="admin:error_logs")
 
-    builder.button(text="Каналы источники", callback_data="admin:channels_list")
     builder.button(text="В меню", callback_data="menu:main")
 
-    builder.adjust(2, 2, 2, 2, 2, 2, 2, 2, 2, 1)
+    builder.adjust(1, 2, 2, 2, 2, 2, 2, 2, 2, 1)
     return builder.as_markup()

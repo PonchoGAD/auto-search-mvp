@@ -226,23 +226,38 @@ async def fetch_telegram(limit_per_channel: int | None = None) -> List[Dict]:
     limit = limit_per_channel or TG_FETCH_LIMIT
     results: List[Dict] =[]
 
-    async with TelegramClient(
-        StringSession(TG_SESSION_STRING),
-        TG_API_ID,
-        TG_API_HASH,
-    ) as client:
+    try:
+        async with TelegramClient(
+            StringSession(TG_SESSION_STRING),
+            TG_API_ID,
+            TG_API_HASH,
+        ) as client:
+            # Quick auth check — raises if session is revoked
+            try:
+                await client.get_me()
+            except Exception as auth_err:
+                print(
+                    f"[TELEGRAM][ERROR] session invalid/expired — please regenerate TG_SESSION_STRING "
+                    f"(run gen_tg_session.py locally): {auth_err}",
+                    flush=True,
+                )
+                return []
 
-        tasks =[]
+            tasks =[]
 
-        for channel in channels:
-            await asyncio.sleep(random.uniform(2.0, 4.5))
-            tasks.append(_fetch_from_channel(client, channel, limit))
+            for channel in channels:
+                await asyncio.sleep(random.uniform(2.0, 4.5))
+                tasks.append(_fetch_from_channel(client, channel, limit))
 
-        results_nested = await asyncio.gather(*tasks, return_exceptions=True)
+            results_nested = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for r in results_nested:
-            if isinstance(r, list):
-                results.extend(r)
+            for r in results_nested:
+                if isinstance(r, list):
+                    results.extend(r)
+
+    except Exception as e:
+        print(f"[TELEGRAM][ERROR] client connect failed: {e}", flush=True)
+        return []
 
     print(f"[TELEGRAM] total accepted from all channels: {len(results)}")
 

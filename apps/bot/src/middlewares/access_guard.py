@@ -22,7 +22,9 @@ class AccessGuardMiddleware(BaseMiddleware):
         if isinstance(event, CallbackQuery):
             callback_data = event.data or ""
 
-        if callback_data and callback_data.startswith("admin:") and not is_admin:
+        if callback_data and (
+            callback_data.startswith("admin:") or callback_data.startswith("channel:")
+        ) and not is_admin:
             await event.answer("Нет доступа", show_alert=True)
             return None
 

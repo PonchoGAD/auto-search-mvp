@@ -432,3 +432,124 @@ def admin_run_alerts(
         message=f"Eligible saved searches for alerts: {count}. Worker scheduler should execute alerts.",
     )
 
+
+@router.get("/admin/system-status")
+def admin_system_status(
+    _: str = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+) -> dict:
+    users_repo = UsersRepository(db)
+    search_repo = SearchHistoryRepository(db)
+    sub_repo = SubscriptionsRepository(db)
+    return {
+        "users": {
+            "total": users_repo.total_users(),
+            "active": users_repo.active_users(),
+            "premium": users_repo.premium_users(),
+            "new_24h": users_repo.new_users_last_24h(),
+        },
+        "searches": {
+            "today": search_repo.searches_today(),
+            "last_24h": search_repo.searches_last_24h(),
+            "total": search_repo.total_searches(),
+        },
+        "subscriptions": {
+            "active_total": sub_repo.active_total(),
+            "premium_active": sub_repo.active_by_plan("premium"),
+            "pro_active": sub_repo.active_by_plan("pro"),
+        },
+    }
+
+
+@router.get("/admin/favorites-stats")
+def admin_favorites_stats(
+    _: str = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+) -> dict:
+    from src.repositories.favorites import FavoritesRepository
+    repo = FavoritesRepository(db)
+    return repo.favorites_stats()
+
+
+@router.get("/admin/saved-searches-stats")
+def admin_saved_searches_stats(
+    _: str = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+) -> dict:
+    repo = SavedSearchesRepository(db)
+    return repo.saved_searches_stats()
+
+
+@router.get("/admin/latest-searches")
+def admin_latest_searches(
+    limit: int = Query(default=50, ge=1, le=200),
+    _: str = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    repo = SearchHistoryRepository(db)
+    return repo.latest_searches(limit=limit)
+
+
+@router.get("/admin/latest-saved-searches")
+def admin_latest_saved_searches(
+    limit: int = Query(default=50, ge=1, le=200),
+    _: str = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    repo = SavedSearchesRepository(db)
+    return repo.latest_saved_searches(limit=limit)
+
+
+@router.post("/admin/manual-activate-subscription")
+def admin_manual_activate_subscription(
+    payload: dict,
+    _: str = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+) -> dict:
+    from datetime import datetime, timedelta, timezone
+    from src.db.models import Subscription, User
+
+    telegram_user_id = payload.get("telegram_user_id")
+    plan = payload.get("plan", "premium")
+    duration_days = int(payload.get("duration_days") or 30)
+    reason = payload.get("reason", "manual admin grant")
+
+    if not telegram_user_id:
+        raise HTTPException(status_code=422, detail="telegram_user_id is required")
+
+    user_repo = UsersRepository(db)
+    user = user_repo.get_by_telegram_user_id(int(telegram_user_id))
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    now = datetime.now(timezone.utc)
+    expires_at = (now + timedelta(days=duration_days)) if duration_days > 0 else None
+
+    sub = Subscription(
+        user_id=user.id,
+        plan=plan,
+        status="active",
+        starts_at=now,
+        expires_at=expires_at,
+        meta={"reason": reason, "admin_telegram_id": payload.get("admin_telegram_id")},
+    )
+    db.add(sub)
+
+    if plan in ("premium", "pro"):
+        user.is_premium = True
+        db.add(user)
+
+    db.commit()
+    db.refresh(sub)
+
+    return {
+        "subscription_id": sub.id,
+        "user_id": user.id,
+        "telegram_user_id": telegram_user_id,
+        "plan": plan,
+        "status": "active",
+        "starts_at": sub.starts_at.isoformat() if sub.starts_at else None,
+        "expires_at": sub.expires_at.isoformat() if sub.expires_at else None,
+        "reason": reason,
+    }
+

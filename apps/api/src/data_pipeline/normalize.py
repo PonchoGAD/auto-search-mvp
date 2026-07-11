@@ -865,7 +865,11 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
             if final_brand:
                 final_brand = taxonomy_service.canonicalize_brand(final_brand)
 
-            if final_brand in CITY_BLACKLIST:
+            # Reject brand if not in taxonomy whitelist (prevents cities/garbage → brand)
+            _known_brands = set(taxonomy_service.brand_alias_to_canonical.values())
+            if final_brand and final_brand not in _known_brands:
+                final_brand = None
+            elif final_brand in CITY_BLACKLIST:
                 final_brand = None
 
             if final_brand and final_model:

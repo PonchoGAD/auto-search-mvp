@@ -116,8 +116,8 @@ async def _fetch_from_channel(
 
         text = text.strip()
 
-        # Машины не продают в 2 словах
-        if len(text) < 40:
+        # Машины не продают в 1 слове (но допускаем короткие структурированные посты)
+        if len(text) < 15:
             skipped_invalid += 1
             continue
 

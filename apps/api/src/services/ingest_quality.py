@@ -16,9 +16,6 @@ DEFAULT_MAX_MILEAGE_KM = int(os.getenv("MAX_MILEAGE_KM", "400000"))
 DEFAULT_BLACKLIST_WORDS = [
     "ищу",
     "куплю",
-    "вопрос",
-    "подскажите",
-    "помогите",
     "что лучше",
     "ремонт",
     "диагностика",
@@ -49,6 +46,8 @@ POSITIVE_WORDS_RU = [
     "продается",
     "продаётся",
     "продажа",
+    "в продаже",
+    "в наличии",
     "срочно продам",
     "торг",
     "обмен",
@@ -108,9 +107,9 @@ FUEL_PATTERN = re.compile(
 )
 
 NOISE_PATTERNS = [
-    re.compile(r"\bhttp(s)?://\S+\b", re.IGNORECASE),
-    re.compile(r"\btelegram\.me/\S+\b", re.IGNORECASE),
-    re.compile(r"\bt\.me/\S+\b", re.IGNORECASE),
+    # Note: generic http(s) URLs removed — telegra.ph links are common in legitimate luxury TG listings
+    re.compile(r"\btelegram\.me/joinchat/\S+\b", re.IGNORECASE),
+    re.compile(r"\bt\.me/joinchat/\S+\b", re.IGNORECASE),
     re.compile(r"\bподпис(ывай|ыва)т(ь|есь)\b", re.IGNORECASE),
     re.compile(r"\bлайк\b|\bрепост\b|\bподел(ись|итесь)\b", re.IGNORECASE),
 ]
@@ -225,16 +224,9 @@ def _is_telegram_noise(text: str) -> bool:
     t = (text or "").lower()
 
     hard_noise = [
-        "масло",
-        "редуктор",
-        "допуск",
         "подписывайтесь",
         "репост",
         "лайк",
-        "диски",
-        "резина",
-        "колеса",
-        "шины",
         "разбор",
         "запчаст",
         "км/ч",
@@ -374,11 +366,6 @@ def should_skip_doc(
 
         for w in DEFAULT_BLACKLIST_WORDS:
             if w in lower and not sale:
-                if is_tg:
-                    meta["reason"] = "blacklist_word"
-                    if stats:
-                        stats.add(True, "blacklist_word")
-                    return True, meta
                 if not brand_tmp and not model_tmp and not has_price_tmp:
                     meta["reason"] = "blacklist_word"
                     if stats:

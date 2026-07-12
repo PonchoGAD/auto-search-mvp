@@ -835,6 +835,12 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 try: url_brand = taxonomy_service.canonicalize_brand(url_brand)
                 except: pass
 
+            # Only use url_brand if it's a real known brand (prevents 'used', 'sale', etc.)
+            _known_brands = set(taxonomy_service.brand_alias_to_canonical.values())
+            if url_brand and url_brand not in _known_brands:
+                url_brand = None
+                url_model = None  # model from same URL segment is meaningless without a valid brand
+
             if url_brand and not final_brand:
                 final_brand = url_brand
 
@@ -866,7 +872,6 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                 final_brand = taxonomy_service.canonicalize_brand(final_brand)
 
             # Reject brand if not in taxonomy whitelist (prevents cities/garbage → brand)
-            _known_brands = set(taxonomy_service.brand_alias_to_canonical.values())
             if final_brand and final_brand not in _known_brands:
                 final_brand = None
             elif final_brand in CITY_BLACKLIST:

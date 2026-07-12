@@ -562,3 +562,83 @@ cadillac:
   ct5: ["ct5", "ct 5"]
   xt5: ["xt5", "xt 5"]
   xt6: ["xt6", "xt 6"]
+lamborghini:
+  aventador: ["aventador", "авентадор", "lp700", "lp750", "lp700-4", "lp740", "svj", "aventador s", "aventador svj", "lp700 4"]
+  huracan: ["huracan", "huracán", "ураган", "lp610", "lp580", "evo", "huracan evo", "huracan spyder", "lp610-4"]
+  urus: ["urus", "урус"]
+  gallardo: ["gallardo", "галлардо", "lp560", "lp550", "lp520"]
+  murcielago: ["murcielago", "murciélago", "мурсиелаго", "lp670", "lp640"]
+  diablo: ["diablo", "диабло"]
+  countach: ["countach", "каунтак"]
+
+ferrari:
+  f8: ["f8", "f8 tributo", "f8 spider", "f8tributo", "ф8"]
+  sf90: ["sf90", "sf 90", "sf90 stradale", "sf90 spider"]
+  roma: ["roma", "рома", "ferrari roma"]
+  portofino: ["portofino", "портофино", "portofino m"]
+  "488": ["488", "488 gtb", "488 spider", "488 pista", "488 challenge"]
+  "458": ["458", "458 italia", "458 spider", "458 speciale"]
+  "812": ["812", "812 superfast", "812 gts", "812 competizione"]
+  california: ["california", "калифорния", "california t"]
+  purosangue: ["purosangue", "пуросангуе"]
+  laferrari: ["laferrari", "ла феррари", "la ferrari"]
+  "296": ["296", "296 gtb", "296 gts"]
+  "550": ["550", "550 maranello"]
+  "599": ["599", "599 gtb"]
+
+rolls_royce:
+  ghost: ["ghost", "гост", "роллс гост"]
+  phantom: ["phantom", "фантом", "роллс фантом"]
+  cullinan: ["cullinan", "куллинан"]
+  wraith: ["wraith", "рейс"]
+  dawn: ["dawn", "дон", "rolls dawn"]
+  spectre: ["spectre", "спектр"]
+  silver_shadow: ["silver shadow", "силвер шэдоу"]
+
+bentley:
+  continental: ["continental", "континенталь", "continental gt", "continental gtc", "continental flying spur"]
+  bentayga: ["bentayga", "бентайга"]
+  flying_spur: ["flying spur", "флаинг спур", "flyingspur"]
+  mulsanne: ["mulsanne", "мулсан"]
+  azure: ["azure", "азур"]
+
+mclaren:
+  "720s": ["720s", "720 s", "720"]
+  "570s": ["570s", "570 s", "570"]
+  "600lt": ["600lt", "600 lt"]
+  artura: ["artura", "артура"]
+  gt: ["mclaren gt", "gt mclaren"]
+  p1: ["p1", "mclaren p1"]
+  senna: ["senna", "mclaren senna"]
+  elva: ["elva", "mclaren elva"]
+
+aston_martin:
+  db11: ["db11", "дб11"]
+  dbs: ["dbs", "дбс"]
+  vantage: ["vantage", "вантаж", "vantage v8", "vantage v12"]
+  dbx: ["dbx", "дбикс"]
+  db9: ["db9", "дб9"]
+  rapide: ["rapide", "рапид"]
+  vanquish: ["vanquish", "ванквиш"]
+
+bugatti:
+  veyron: ["veyron", "вейрон"]
+  chiron: ["chiron", "широн"]
+  divo: ["divo", "диво"]
+
+pagani:
+  huayra: ["huayra", "хуайра"]
+  zonda: ["zonda", "зонда"]
+
+koenigsegg:
+  agera: ["agera", "агера"]
+  jesko: ["jesko", "ческо"]
+  regera: ["regera", "регера"]
+
+maserati:
+  ghibli: ["ghibli", "гибли"]
+  levante: ["levante", "леванте"]
+  quattroporte: ["quattroporte", "кватропорте", "qp"]
+  granturismo: ["granturismo", "гран туризмо", "gran turismo"]
+  mc20: ["mc20", "мс20"]
+  grecale: ["grecale", "грекале"]

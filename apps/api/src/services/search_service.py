@@ -1116,10 +1116,13 @@ class SearchService:
             )
 
             if structured.brand:
-                results = [
+                brand_filtered = [
                     r for r in results
                     if (r.get("brand") or "").lower() == structured.brand.lower()
-                ] or results
+                ]
+                if brand_filtered:
+                    results = brand_filtered
+                # if no results match brand after rerank, keep all (Qdrant filter already ensured brand match)
 
             if structured.fuel:
                 boosted = []

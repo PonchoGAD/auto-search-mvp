@@ -511,7 +511,7 @@ def extract_fields(text: str, raw: Optional[RawDocument] = None) -> Dict[str, Op
             break
 
     # 🔥 УЛУЧШЕННОЕ ИЗВЛЕЧЕНИЕ ЦЕНЫ (Поддержка "млн", "миллиона")
-    mln_match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:млн|миллиона|миллионов)\b", lower)
+    mln_match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:млн|миллиона|миллионов|[MМ])\b", lower)
     if mln_match:
         try:
             val = float(mln_match.group(1).replace(",", "."))
@@ -523,6 +523,7 @@ def extract_fields(text: str, raw: Optional[RawDocument] = None) -> Dict[str, Op
 
     if not price:
         price_patterns = [
+            r"стоимость\s*[:-]?\s*(\d[\d\s\.\,]{4,11})(?:\s*(?:₽|руб|р))?(?=\s|$|[^\d])",
             r"цена\s*[:-]?\s*(\d[\d\s\.\,]{4,11})(?:\s*₽|\s*руб|\s*р\b|\b|$)",
             r"(?<!\d)(\d[\d\s\u00A0]{3,12})\s*\|?\s*(₽|руб(?:\.|лей)?|р\b)(?!\d)",
         ]
@@ -538,6 +539,18 @@ def extract_fields(text: str, raw: Optional[RawDocument] = None) -> Dict[str, Op
                     pass
             if price:
                 break
+
+    # European format: 28.500.000 or 28,500,000
+    if not price:
+        eu_match = re.search(r"(?<!\d)(\d{1,3}(?:[.,]\d{3})+)(?!\d)", lower)
+        if eu_match:
+            try:
+                raw_p = re.sub(r"[^\d]", "", eu_match.group(1))
+                val = int(raw_p)
+                if _valid_price(val):
+                    price = val
+            except:
+                pass
 
     if not price:
         m = RE_PRICE_TITLE_GLUE.search(text)
@@ -960,12 +973,15 @@ def run_normalize(limit: int = 500, force_rebuild: bool = False):
                     try: fields["year"] = int(entities.get("year"))
                     except: pass
 
-            # Фильтр: если нет price -> пропускаем
+            # Фильтр: если нет price -> пропускаем (кроме TG с опознанным брендом)
             final_price = fields.get("price")
             if final_price is None:
-                print(f"[DEBUG NORMALIZE] Пропущено (нет price): {title_text[:50]}")
-                skipped += 1
-                continue
+                if is_tg and final_brand:
+                    pass  # TG + бренд = реальное объявление, цена не в стандартном формате
+                else:
+                    print(f"[DEBUG NORMALIZE] Пропущено (нет price): {title_text[:50]}")
+                    skipped += 1
+                    continue
 
             sale = detect_sale_intent(raw_text)
             if sale == 0:

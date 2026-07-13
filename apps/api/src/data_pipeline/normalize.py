@@ -511,7 +511,7 @@ def extract_fields(text: str, raw: Optional[RawDocument] = None) -> Dict[str, Op
             break
 
     # 🔥 УЛУЧШЕННОЕ ИЗВЛЕЧЕНИЕ ЦЕНЫ (Поддержка "млн", "миллиона")
-    mln_match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:млн|миллиона|миллионов|[MМ])\b", lower)
+    mln_match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:млн|миллиона|миллионов|[MМmм])\b", lower)
     if mln_match:
         try:
             val = float(mln_match.group(1).replace(",", "."))
@@ -539,6 +539,18 @@ def extract_fields(text: str, raw: Optional[RawDocument] = None) -> Dict[str, Op
                     pass
             if price:
                 break
+
+    # Emoji лимон: "59.9 🍋" = 59.9 млн (Russian TG slang)
+    if not price:
+        lemon_match = re.search(r"(\d+(?:[.,]\d+)?)\s*🍋", text)
+        if lemon_match:
+            try:
+                val = float(lemon_match.group(1).replace(",", "."))
+                val_rub = int(val * 1_000_000)
+                if _valid_price(val_rub):
+                    price = val_rub
+            except:
+                pass
 
     # European format: 28.500.000 or 28,500,000
     if not price:
